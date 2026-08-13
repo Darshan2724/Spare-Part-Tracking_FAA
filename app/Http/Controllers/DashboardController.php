@@ -225,6 +225,11 @@ class DashboardController extends Controller
         $bottlenecks = [];
         $hasSufficientData = false;
 
+        $isSqlite = DB::getDriverName() === 'sqlite';
+        $diffExpr = $isSqlite 
+            ? 'AVG(julianday(e2.created_at) - julianday(e1.created_at))'
+            : 'AVG(EXTRACT(EPOCH FROM (e2.created_at - e1.created_at)) / 86400)';
+
         foreach ($stages as $key => $events) {
             $avgDays = DB::table('workflow_events as e1')
                 ->join('workflow_events as e2', function ($join) use ($events) {
@@ -234,7 +239,7 @@ class DashboardController extends Controller
                          ->where('e2.event_type', '=', $events['end'])
                          ->whereColumn('e2.created_at', '>', 'e1.created_at');
                 })
-                ->select(DB::raw('AVG(EXTRACT(EPOCH FROM (e2.created_at - e1.created_at)) / 86400) as avg_days'), DB::raw('COUNT(*) as sample_count'))
+                ->select(DB::raw("{$diffExpr} as avg_days"), DB::raw('COUNT(*) as sample_count'))
                 ->first();
 
             $days = $avgDays && $avgDays->sample_count >= 1 ? round((float) $avgDays->avg_days, 1) : null;
