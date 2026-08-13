@@ -282,4 +282,14 @@ onMounted(() => {
   min-height: 100vh;
   background-color: #f8fafc;
 }
+
+.table thead th {
+  background-color: #1e293b !important;
+  color: #ffffff !important;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  padding: 12px 16px;
+}
 </style>
