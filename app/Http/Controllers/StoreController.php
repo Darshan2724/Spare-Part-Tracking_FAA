@@ -398,13 +398,11 @@ class StoreController extends Controller
 
         usort($formattedJigs, fn($a, $b) => strcmp($a['jig_name'], $b['jig_name']));
 
-        $projects = Project::orderBy('name')->get(['id', 'name', 'project_code']);
-
         return response()->json([
             'is_hierarchical' => true,
             'project' => $project,
             'jigs' => $formattedJigs,
-            'projects' => $projects,
+            'projects' => $projectsList,
         ]);
     }
 }

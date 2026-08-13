@@ -326,9 +326,31 @@ function App() {
           const res = await apiClient.get('/store/hierarchy', { params: { project_id: selectedProject } });
           if (res.data.projects) setProjects(res.data.projects);
           if (res.data.is_hierarchical) {
-            setHierarchyJigs(res.data.jigs || []);
+            const updatedJigs = res.data.jigs || [];
+            setHierarchyJigs(updatedJigs);
             setHierarchyProject(res.data.project || null);
+
+            // Sync selectedJig and selectedUnit references with newly fetched data to avoid stale React state view
+            if (selectedJig) {
+              const newJig = updatedJigs.find(j => j.jig_name === selectedJig.jig_name);
+              if (newJig) {
+                setSelectedJig(newJig);
+                if (selectedUnit) {
+                  const newUnit = newJig.units.find(u => u.unit_no === selectedUnit.unit_no);
+                  if (newUnit) {
+                    setSelectedUnit(newUnit);
+                  } else {
+                    setSelectedUnit(null);
+                  }
+                }
+              } else {
+                setSelectedJig(null);
+                setSelectedUnit(null);
+              }
+            }
           } else {
+            setHierarchyJigs([]);
+            setHierarchyProject(null);
             const flatRes = await apiClient.get('/store/items', { params });
             setItems(extractArray(flatRes.data));
           }
@@ -828,14 +850,14 @@ function App() {
                         📁 {proj.name}
                       </Text>
                       <Text style={[styles.jigBadge, proj.is_complete ? styles.jigBadgeComplete : styles.jigBadgeIncomplete]}>
-                        {proj.is_complete ? '100% DONE' : `${proj.completion_pct}%`}
+                        {proj.is_complete ? '100% DONE' : `${proj.completion_pct || 0}%`}
                       </Text>
                     </View>
                     <Text style={styles.itemSubText}>
                       Project Code: {proj.project_code || 'N/A'} • Required: {proj.total_required} • Received: {proj.total_received}
                     </Text>
                     <View style={styles.progressBarBg}>
-                      <View style={[styles.progressBarFill, { width: `${proj.completion_pct}%`, backgroundColor: proj.is_complete ? '#16a34a' : '#2563eb' }]} />
+                      <View style={[styles.progressBarFill, { width: `${proj.completion_pct || 0}%`, backgroundColor: proj.is_complete ? '#16a34a' : '#2563eb' }]} />
                     </View>
                     <Text style={styles.tapExploreText}>Tap to explore JIGs inside {proj.name} ›</Text>
                   </TouchableOpacity>

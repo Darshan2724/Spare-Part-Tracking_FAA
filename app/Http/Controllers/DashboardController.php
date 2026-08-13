@@ -85,8 +85,9 @@ class DashboardController extends Controller
         $totalProjects = Project::where('status', 'active')->count();
         $completedProjects = Project::where('status', 'completed')->count();
         
-        // Delayed projects: active projects with zero receipt updates in last 14 days
+        // Delayed projects: active projects created > 14 days ago with zero receipt updates in last 14 days
         $delayedProjects = Project::where('status', 'active')
+            ->where('created_at', '<', now()->subDays(14))
             ->whereDoesntHave('bomItems.receiptItems', fn($q) => $q->where('updated_at', '>=', now()->subDays(14)))
             ->count();
 
