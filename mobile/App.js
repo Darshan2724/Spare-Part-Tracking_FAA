@@ -351,6 +351,10 @@ function App() {
           } else {
             setHierarchyJigs([]);
             setHierarchyProject(null);
+          }
+
+          // Fetch flat search results if searchQuery is present
+          if (searchQuery) {
             const flatRes = await apiClient.get('/store/items', { params });
             setItems(extractArray(flatRes.data));
           }
@@ -833,8 +837,62 @@ function App() {
         ) : activeTab === 'store' && storeSubTab === 'pending' ? (
           // MOBILE STORE 4-LEVEL DRILLDOWN VIEW
           <View style={styles.listContainer}>
+            {/* FLAT SEARCH RESULTS (when searchQuery is active) */}
+            {searchQuery !== '' && (
+              <View>
+                <View style={styles.hierarchyNavRow}>
+                  <Text style={styles.hierarchyNavTitle}>
+                    🔍 Search Results for "{searchQuery}"
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.backLevelBtn, { backgroundColor: '#ef4444' }]}
+                    onPress={() => { setSearchQuery(''); loadData('store'); }}>
+                    <Text style={styles.backLevelBtnText}>Clear ✕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.sectionHeader}>MATCHING PARTS ({items.length})</Text>
+                {items.map((item, idx) => (
+                  <View key={item.id || idx} style={styles.itemCard}>
+                    <View style={styles.itemHeader}>
+                      <Text style={styles.itemPartNo}>{item.standard_part_no}</Text>
+                      <Text style={styles.itemStatus}>
+                        {item.status ? item.status.toUpperCase() : 'PENDING'}
+                      </Text>
+                    </View>
+
+                    {item.project && <Text style={styles.itemSubText}>📁 Project: {item.project.name}</Text>}
+                    {item.size && <Text style={styles.itemSubText}>📏 Size: {item.size}</Text>}
+                    <Text style={styles.itemSubText}>Supplier: {item.supplier?.name || item.supplier_name_raw || 'Standard'}</Text>
+
+                    {item.side_stats && (
+                      <View style={styles.statsRow}>
+                        {Object.entries(item.side_stats)
+                          .filter(([side]) => !selectedSide || side === selectedSide)
+                          .map(([side, st]) => (
+                            <View key={side} style={styles.sideCardBox}>
+                              <Text style={styles.statBadge}>{side} (Req: {st.required} | Rec: {st.received} | Pending: {st.pending})</Text>
+                              {st.pending > 0 && (
+                                <TouchableOpacity style={styles.smallReceiveBtn} onPress={() => openReceiveModal(item, side)}>
+                                  <Text style={styles.smallReceiveBtnText}>📥 Receive {side} Stock</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          ))}
+                      </View>
+                    )}
+                  </View>
+                ))}
+                {items.length === 0 && (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateText}>No matching parts found.</Text>
+                  </View>
+                )}
+              </View>
+            )}
+
             {/* LEVEL 1: PROJECTS GRID (when no project selected) */}
-            {!selectedProject && (
+            {!selectedProject && searchQuery === '' && (
               <View>
                 <Text style={styles.sectionHeader}>SELECT ACTIVE PROJECT ({projects.length})</Text>
                 {projects.map((proj) => (
@@ -871,7 +929,7 @@ function App() {
             )}
 
             {/* LEVEL 2-4: JIG & UNIT DRILLDOWN (when project is selected) */}
-            {selectedProject && (
+            {selectedProject && searchQuery === '' && (
               <View>
                 {/* Breadcrumb Navigation Bar */}
                 <View style={styles.hierarchyNavRow}>
