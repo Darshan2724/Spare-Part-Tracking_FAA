@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use App\Models\BomImportBatch;
 
 class BomImportController extends Controller
 {
@@ -131,5 +132,18 @@ class BomImportController extends Controller
         }
 
         return $realCandidate;
+    }
+
+    public function history(Request $request)
+    {
+        $this->authorizeBomImport($request);
+
+        $batches = BomImportBatch::with(['project', 'importer'])
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json([
+            'history' => $batches
+        ]);
     }
 }

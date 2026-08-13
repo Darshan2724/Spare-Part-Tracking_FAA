@@ -79,9 +79,10 @@ class BomImportService
             $batch = BomImportBatch::create([
                 'project_id' => $project->id,
                 'filename' => $filename,
-                'filepath' => $path,
                 'imported_by' => $userId,
-                'total_items' => count($preview),
+                'total_rows' => count($preview),
+                'successful_rows' => count($preview),
+                'status' => 'completed',
             ]);
 
             foreach ($preview as $row) {
