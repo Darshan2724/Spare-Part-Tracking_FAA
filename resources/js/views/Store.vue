@@ -46,15 +46,59 @@
               </div>
             </div>
 
-            <!-- HIERARCHICAL DRILLDOWN VIEW (FOR 62800 PROJECT) -->
-            <div v-if="isHierarchical">
+            <!-- LEVEL 1: Projects Grid (when no project is selected) -->
+            <div v-if="!projectId">
+              <h5 class="fw-bold mb-3"><i class="fas fa-project-diagram me-2 text-primary"></i>Active Projects ({{ projects.length }})</h5>
+              <div class="row g-3">
+                <div v-for="proj in projects" :key="proj.id" class="col-md-6 col-lg-4">
+                  <div class="card h-100 border-2 shadow-xs transition-card border-light bg-white"
+                    style="cursor: pointer;"
+                    @click="projectId = proj.id; onProjectChange();">
+                    <div class="card-body">
+                      <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h4 class="fw-bold mb-0 text-dark">
+                          <i class="fas fa-folder text-primary me-2"></i>{{ proj.name }}
+                        </h4>
+                        <span class="badge" :class="proj.is_complete ? 'bg-success' : 'bg-primary'">
+                          {{ proj.is_complete ? '100% COMPLETE' : proj.completion_pct + '%' }}
+                        </span>
+                      </div>
+                      <p class="text-muted small mb-3">
+                        Project Code: <strong>{{ proj.project_code || 'N/A' }}</strong>
+                      </p>
+                      <div class="progress mb-3" style="height: 10px;">
+                        <div class="progress-bar"
+                          :class="proj.is_complete ? 'bg-success' : 'bg-primary'"
+                          :style="{ width: proj.completion_pct + '%' }">
+                        </div>
+                      </div>
+                      <button class="btn btn-sm w-100 fw-bold btn-outline-primary">
+                        Open Project Store <i class="fas fa-chevron-right ms-1"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="!projects.length" class="col-12 text-center py-5 text-muted bg-white rounded border shadow-xs">
+                  <i class="fas fa-folder-open fa-3x mb-3 text-muted"></i>
+                  <p class="fs-5 mb-0">No active projects found. Please import a BOM file to get started.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- JIG & UNIT DRILLDOWN (when project is selected) -->
+            <div v-else>
               <!-- Breadcrumbs Navigation -->
               <div class="d-flex align-items-center justify-content-between p-3 mb-4 bg-white border rounded shadow-xs">
                 <nav aria-label="breadcrumb">
                   <ol class="breadcrumb mb-0 fs-6 fw-bold">
                     <li class="breadcrumb-item">
+                      <a href="#" @click.prevent="projectId = ''; onProjectChange();" class="text-secondary text-decoration-none">
+                        <i class="fas fa-home me-1"></i>Projects
+                      </a>
+                    </li>
+                    <li class="breadcrumb-item">
                       <a href="#" @click.prevent="resetHierarchyBreadcrumb" class="text-primary text-decoration-none">
-                        <i class="fas fa-folder me-1"></i>Project: {{ activeProjectName }}
+                        {{ activeProjectName }}
                       </a>
                     </li>
                     <li v-if="selectedJig" class="breadcrumb-item">
@@ -67,12 +111,15 @@
                     </li>
                   </ol>
                 </nav>
-                <div v-if="selectedJig || selectedUnit">
+                <div>
                   <button class="btn btn-outline-secondary btn-sm" @click="goBackHierarchy">
                     <i class="fas fa-arrow-left me-1"></i> Back
                   </button>
                 </div>
               </div>
+
+              <!-- HIERARCHICAL DRILLDOWN VIEW -->
+              <div v-if="isHierarchical">
 
               <!-- LEVEL 1: JIG Cards Grid (when no JIG selected) -->
               <div v-if="!selectedJig">
@@ -322,11 +369,11 @@
                 <button class="btn btn-sm btn-outline-secondary" :disabled="pagination.current_page === pagination.last_page" @click="changePage(pagination.current_page + 1)">Next</button>
               </div>
             </div>
-
           </div>
         </div>
       </div>
     </div>
+  </div>
 
     <!-- Receive Stock Modal -->
     <div class="modal fade" id="receiveModal" tabindex="-1" ref="receiveModalRef">

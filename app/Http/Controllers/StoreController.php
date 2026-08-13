@@ -234,13 +234,29 @@ class StoreController extends Controller
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE']) ?: abort(403);
 
         $projectId = $request->input('project_id');
-        if (!$projectId) {
-            $firstProj = Project::whereHas('bomItems')->first() ?? Project::first();
-            $projectId = $firstProj?->id;
-        }
+        $projects = Project::orderBy('name')->get();
+
+        $projectsList = $projects->map(function ($proj) {
+            $reqSum = (int) BomRequirement::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('required_quantity');
+            $recSum = (int) ReceiptItem::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('received_quantity');
+            $progress = $reqSum > 0 ? min(100, round(($recSum / $reqSum) * 100, 1)) : 0;
+            return [
+                'id' => $proj->id,
+                'project_code' => $proj->project_code,
+                'name' => $proj->name,
+                'total_required' => $reqSum,
+                'total_received' => $recSum,
+                'completion_pct' => $progress,
+                'is_complete' => ($reqSum > 0 && $recSum >= $reqSum)
+            ];
+        });
 
         if (!$projectId) {
-            return response()->json(['is_hierarchical' => false, 'message' => 'No project selected.']);
+            return response()->json([
+                'is_hierarchical' => false,
+                'projects' => $projectsList,
+                'message' => 'Please select a project to view JIG hierarchy.',
+            ]);
         }
 
         $project = Project::findOrFail($projectId);
