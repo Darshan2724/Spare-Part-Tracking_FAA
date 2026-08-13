@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "SpareTrack",
+    "slug": "sparetrack",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.faithautomation.sparetrack"
+    },
+    "ios": {
+      "bundleIdentifier": "com.faithautomation.sparetrack"
+    }
+  }
+}
