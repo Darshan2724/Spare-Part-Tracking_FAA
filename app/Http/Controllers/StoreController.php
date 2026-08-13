@@ -6,6 +6,7 @@ use App\Models\BomItem;
 use App\Models\Project;
 use App\Models\Receipt;
 use App\Models\ReceiptItem;
+use App\Models\BomRequirement;
 use App\Models\WorkflowEvent;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
