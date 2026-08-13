@@ -71,7 +71,12 @@ class BomImportController extends Controller
                 return response()->json(['message' => 'Invalid upload file.'], 422);
             }
 
-            return response()->json($this->bomImportService->importFromPath($temporaryPath, $request->all(), $request->user()->id));
+            $importData = $request->all();
+            if (!isset($importData['filename'])) {
+                $importData['filename'] = $file->getClientOriginalName();
+            }
+
+            return response()->json($this->bomImportService->importFromPath($temporaryPath, $importData, $request->user()->id));
         }
 
         if (!empty($path)) {
