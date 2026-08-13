@@ -289,6 +289,7 @@ function App() {
           setHistoryItems([]);
           setSelectedJig(null);
           setSelectedUnit(null);
+          setSelectedProject('');
         }
       }
     ]);
@@ -368,6 +369,38 @@ function App() {
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     loadData(tab);
+  };
+
+  const handleSelectProject = async (projId) => {
+    setSelectedProject(projId);
+    setLoading(true);
+    try {
+      const res = await apiClient.get('/store/hierarchy', { params: { project_id: projId } });
+      if (res.data.is_hierarchical) {
+        setHierarchyJigs(res.data.jigs || []);
+        setHierarchyProject(res.data.project || null);
+      } else {
+        setHierarchyJigs([]);
+        setHierarchyProject(null);
+        const params = { per_page: 100, project_id: projId };
+        if (selectedSide) params.side = selectedSide;
+        const flatRes = await apiClient.get('/store/items', { params });
+        setItems(extractArray(flatRes.data));
+      }
+    } catch (err) {
+      console.log("Error selecting project:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetProject = () => {
+    setSelectedProject('');
+    setSelectedJig(null);
+    setSelectedUnit(null);
+    setHierarchyJigs([]);
+    setHierarchyProject(null);
+    loadData('store');
   };
 
   // --- STORE ACTIONS ---
@@ -775,125 +808,171 @@ function App() {
               <Text style={styles.cardValue}>{summary?.pending_purchase || 0}</Text>
             </View>
           </View>
-        ) : activeTab === 'store' && storeSubTab === 'pending' && hierarchyJigs.length > 0 ? (
-          // MOBILE STORE 3-LEVEL HIERARCHICAL DRILLDOWN VIEW
+        ) : activeTab === 'store' && storeSubTab === 'pending' ? (
+          // MOBILE STORE 4-LEVEL DRILLDOWN VIEW
           <View style={styles.listContainer}>
-            {/* Breadcrumb Navigation Bar */}
-            <View style={styles.hierarchyNavRow}>
-              <Text style={styles.hierarchyNavTitle}>
-                {hierarchyProject ? `${hierarchyProject.name} (${hierarchyProject.project_code})` : 'Project Store'}
-                {selectedJig ? ` › JIG: ${selectedJig.jig_name}` : ''}
-                {selectedUnit ? ` › ${selectedUnit.unit_no}` : ''}
-              </Text>
-              {(selectedJig || selectedUnit) && (
-                <TouchableOpacity
-                  style={styles.backLevelBtn}
-                  onPress={() => {
-                    if (selectedUnit) setSelectedUnit(null);
-                    else if (selectedJig) setSelectedJig(null);
-                  }}>
-                  <Text style={styles.backLevelBtnText}>‹ Back</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* LEVEL 1: JIG CARDS GRID (when no JIG selected) */}
-            {!selectedJig && (
+            {/* LEVEL 1: PROJECTS GRID (when no project selected) */}
+            {!selectedProject && (
               <View>
-                <Text style={styles.sectionHeader}>ASSEMBLY JIGS ({hierarchyJigs.length})</Text>
-                {hierarchyJigs.map((jig) => (
+                <Text style={styles.sectionHeader}>SELECT ACTIVE PROJECT ({projects.length})</Text>
+                {projects.map((proj) => (
                   <TouchableOpacity
-                    key={jig.jig_name}
+                    key={proj.id}
                     style={[
                       styles.jigCard,
-                      jig.is_complete ? styles.jigCardComplete : styles.jigCardIncomplete
+                      proj.is_complete ? styles.jigCardComplete : styles.jigCardIncomplete
                     ]}
-                    onPress={() => setSelectedJig(jig)}>
+                    onPress={() => handleSelectProject(proj.id)}>
                     <View style={styles.itemHeader}>
-                      <Text style={[styles.jigName, jig.is_complete && { color: '#15803d' }]}>
-                        {jig.is_complete ? '✓ ' : '⚙️ '}JIG: {jig.jig_name}
+                      <Text style={[styles.jigName, proj.is_complete && { color: '#15803d' }]}>
+                        📁 {proj.name}
                       </Text>
-                      <Text style={[styles.jigBadge, jig.is_complete ? styles.jigBadgeComplete : styles.jigBadgeIncomplete]}>
-                        {jig.is_complete ? '100% DONE' : `${jig.completion_pct}%`}
+                      <Text style={[styles.jigBadge, proj.is_complete ? styles.jigBadgeComplete : styles.jigBadgeIncomplete]}>
+                        {proj.is_complete ? '100% DONE' : `${proj.completion_pct}%`}
                       </Text>
                     </View>
                     <Text style={styles.itemSubText}>
-                      {jig.complete_units} / {jig.total_units} Units Complete • {jig.total_parts} Parts
+                      Project Code: {proj.project_code || 'N/A'} • Required: {proj.total_required} • Received: {proj.total_received}
                     </Text>
                     <View style={styles.progressBarBg}>
-                      <View style={[styles.progressBarFill, { width: `${jig.completion_pct}%`, backgroundColor: jig.is_complete ? '#16a34a' : '#2563eb' }]} />
+                      <View style={[styles.progressBarFill, { width: `${proj.completion_pct}%`, backgroundColor: proj.is_complete ? '#16a34a' : '#2563eb' }]} />
                     </View>
-                    <Text style={styles.tapExploreText}>Tap to explore Units inside {jig.jig_name} ›</Text>
+                    <Text style={styles.tapExploreText}>Tap to explore JIGs inside {proj.name} ›</Text>
                   </TouchableOpacity>
                 ))}
+                {projects.length === 0 && (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateText}>No active projects found.</Text>
+                  </View>
+                )}
               </View>
             )}
 
-            {/* LEVEL 2: UNITS LIST (when JIG selected, no Unit selected) */}
-            {selectedJig && !selectedUnit && (
+            {/* LEVEL 2-4: JIG & UNIT DRILLDOWN (when project is selected) */}
+            {selectedProject && (
               <View>
-                <Text style={styles.sectionHeader}>UNITS IN JIG: {selectedJig.jig_name} ({selectedJig.units.length})</Text>
-                {selectedJig.units.map((unit) => (
+                {/* Breadcrumb Navigation Bar */}
+                <View style={styles.hierarchyNavRow}>
+                  <Text style={styles.hierarchyNavTitle}>
+                    {hierarchyProject ? `${hierarchyProject.name} (${hierarchyProject.project_code})` : 'Project'}
+                    {selectedJig ? ` › JIG: ${selectedJig.jig_name}` : ''}
+                    {selectedUnit ? ` › ${selectedUnit.unit_no}` : ''}
+                  </Text>
                   <TouchableOpacity
-                    key={unit.unit_no}
-                    style={[
-                      styles.unitCard,
-                      unit.is_complete ? styles.unitCardComplete : styles.unitCardIncomplete
-                    ]}
-                    onPress={() => setSelectedUnit(unit)}>
-                    <View style={styles.itemHeader}>
-                      <Text style={[styles.unitTitle, unit.is_complete && { color: '#15803d' }]}>
-                        {unit.is_complete ? '✓ ' : '📦 '}{unit.unit_no}
-                      </Text>
-                      <Text style={[styles.unitBadge, unit.is_complete ? styles.jigBadgeComplete : styles.unitBadgePending]}>
-                        {unit.is_complete ? 'COMPLETED' : `${unit.completion_pct}%`}
-                      </Text>
-                    </View>
-                    <Text style={styles.itemSubText}>
-                      Req: {unit.total_required} • Rec: {unit.total_received} • Pending: {unit.pending_quantity}
-                    </Text>
-                    <View style={styles.progressBarBg}>
-                      <View style={[styles.progressBarFill, { width: `${unit.completion_pct}%`, backgroundColor: unit.is_complete ? '#16a34a' : '#f59e0b' }]} />
-                    </View>
-                    <Text style={styles.tapExploreText}>Tap to view {unit.parts.length} Parts ›</Text>
+                    style={styles.backLevelBtn}
+                    onPress={() => {
+                      if (selectedUnit) setSelectedUnit(null);
+                      else if (selectedJig) setSelectedJig(null);
+                      else handleResetProject();
+                    }}>
+                    <Text style={styles.backLevelBtnText}>‹ Back</Text>
                   </TouchableOpacity>
-                ))}
-              </View>
-            )}
+                </View>
 
-            {/* LEVEL 3: PARTS LIST (when Unit selected) */}
-            {selectedUnit && (
-              <View>
-                <Text style={styles.sectionHeader}>PARTS IN {selectedJig.jig_name} - {selectedUnit.unit_no} ({selectedUnit.parts.length})</Text>
-                {selectedUnit.parts.map((item) => (
-                  <View key={item.id} style={styles.itemCard}>
-                    <View style={styles.itemHeader}>
-                      <Text style={styles.itemPartNo}>{item.standard_part_no}</Text>
-                      <Text style={styles.itemStatus}>
-                        {item.is_complete ? 'FULFILLED' : 'PENDING'}
-                      </Text>
-                    </View>
-
-                    <Text style={styles.itemSubText}>Supplier: {item.supplier?.name || item.supplier_name_raw || 'Standard'}</Text>
-
-                    {item.side_stats && (
-                      <View style={styles.statsRow}>
-                        {Object.entries(item.side_stats)
-                          .filter(([side]) => !selectedSide || side === selectedSide)
-                          .map(([side, st]) => (
-                            <View key={side} style={styles.sideCardBox}>
-                              <Text style={styles.statBadge}>{side} (Req: {st.required} | Rec: {st.received} | Pending: {st.pending})</Text>
-                              {st.pending > 0 && (
-                                <TouchableOpacity style={styles.smallReceiveBtn} onPress={() => openReceiveModal(item, side)}>
-                                  <Text style={styles.smallReceiveBtnText}>📥 Receive {side} Stock</Text>
-                                </TouchableOpacity>
-                              )}
-                            </View>
-                          ))}
+                {/* LEVEL 2: JIG CARDS GRID (when no JIG selected) */}
+                {!selectedJig && (
+                  <View>
+                    <Text style={styles.sectionHeader}>ASSEMBLY JIGS ({hierarchyJigs.length})</Text>
+                    {hierarchyJigs.map((jig) => (
+                      <TouchableOpacity
+                        key={jig.jig_name}
+                        style={[
+                          styles.jigCard,
+                          jig.is_complete ? styles.jigCardComplete : styles.jigCardIncomplete
+                        ]}
+                        onPress={() => setSelectedJig(jig)}>
+                        <View style={styles.itemHeader}>
+                          <Text style={[styles.jigName, jig.is_complete && { color: '#15803d' }]}>
+                            {jig.is_complete ? '✓ ' : '⚙️ '}JIG: {jig.jig_name}
+                          </Text>
+                          <Text style={[styles.jigBadge, jig.is_complete ? styles.jigBadgeComplete : styles.jigBadgeIncomplete]}>
+                            {jig.is_complete ? '100% DONE' : `${jig.completion_pct}%`}
+                          </Text>
+                        </View>
+                        <Text style={styles.itemSubText}>
+                          {jig.complete_units} / {jig.total_units} Units Complete • {jig.total_parts} Parts
+                        </Text>
+                        <View style={styles.progressBarBg}>
+                          <View style={[styles.progressBarFill, { width: `${jig.completion_pct}%`, backgroundColor: jig.is_complete ? '#16a34a' : '#2563eb' }]} />
+                        </View>
+                        <Text style={styles.tapExploreText}>Tap to explore Units inside {jig.jig_name} ›</Text>
+                      </TouchableOpacity>
+                    ))}
+                    {hierarchyJigs.length === 0 && (
+                      <View style={styles.emptyState}>
+                        <Text style={styles.emptyStateText}>No JIG hierarchy patterns found for this project.</Text>
                       </View>
                     )}
                   </View>
-                ))}
+                )}
+
+                {/* LEVEL 3: UNITS LIST (when JIG selected, no Unit selected) */}
+                {selectedJig && !selectedUnit && (
+                  <View>
+                    <Text style={styles.sectionHeader}>UNITS IN JIG: {selectedJig.jig_name} ({selectedJig.units.length})</Text>
+                    {selectedJig.units.map((unit) => (
+                      <TouchableOpacity
+                        key={unit.unit_no}
+                        style={[
+                          styles.unitCard,
+                          unit.is_complete ? styles.unitCardComplete : styles.unitCardIncomplete
+                        ]}
+                        onPress={() => setSelectedUnit(unit)}>
+                        <View style={styles.itemHeader}>
+                          <Text style={[styles.unitTitle, unit.is_complete && { color: '#15803d' }]}>
+                            {unit.is_complete ? '✓ ' : '📦 '}{unit.unit_no}
+                          </Text>
+                          <Text style={[styles.unitBadge, unit.is_complete ? styles.jigBadgeComplete : styles.unitBadgePending]}>
+                            {unit.is_complete ? 'COMPLETED' : `${unit.completion_pct}%`}
+                          </Text>
+                        </View>
+                        <Text style={styles.itemSubText}>
+                          Req: {unit.total_required} • Rec: {unit.total_received} • Pending: {unit.pending_quantity}
+                        </Text>
+                        <View style={styles.progressBarBg}>
+                          <View style={[styles.progressBarFill, { width: `${unit.completion_pct}%`, backgroundColor: unit.is_complete ? '#16a34a' : '#f59e0b' }]} />
+                        </View>
+                        <Text style={styles.tapExploreText}>Tap to view {unit.parts.length} Parts ›</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                {/* LEVEL 4: PARTS LIST (when Unit selected) */}
+                {selectedUnit && (
+                  <View>
+                    <Text style={styles.sectionHeader}>PARTS IN {selectedJig.jig_name} - {selectedUnit.unit_no} ({selectedUnit.parts.length})</Text>
+                    {selectedUnit.parts.map((item) => (
+                      <View key={item.id} style={styles.itemCard}>
+                        <View style={styles.itemHeader}>
+                          <Text style={styles.itemPartNo}>{item.standard_part_no}</Text>
+                          <Text style={styles.itemStatus}>
+                            {item.is_complete ? 'FULFILLED' : 'PENDING'}
+                          </Text>
+                        </View>
+
+                        <Text style={styles.itemSubText}>Supplier: {item.supplier?.name || item.supplier_name_raw || 'Standard'}</Text>
+
+                        {item.side_stats && (
+                          <View style={styles.statsRow}>
+                            {Object.entries(item.side_stats)
+                              .filter(([side]) => !selectedSide || side === selectedSide)
+                              .map(([side, st]) => (
+                                <View key={side} style={styles.sideCardBox}>
+                                  <Text style={styles.statBadge}>{side} (Req: {st.required} | Rec: {st.received} | Pending: {st.pending})</Text>
+                                  {st.pending > 0 && (
+                                    <TouchableOpacity style={styles.smallReceiveBtn} onPress={() => openReceiveModal(item, side)}>
+                                      <Text style={styles.smallReceiveBtnText}>📥 Receive {side} Stock</Text>
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                              ))}
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                )}
               </View>
             )}
           </View>
