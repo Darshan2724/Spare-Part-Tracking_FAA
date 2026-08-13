@@ -1083,7 +1083,7 @@ function App() {
                       style={[styles.chipBtn, selectedProject === p.id && styles.chipBtnActive, { marginRight: 6 }]}
                       onPress={() => setSelectedProject(p.id)}>
                       <Text style={[styles.chipBtnText, selectedProject === p.id && styles.chipBtnTextActive]}>
-                        {p.project_code || p.name}
+                        {p.name ? (p.project_code ? `${p.name} (${p.project_code})` : p.name) : p.project_code}
                       </Text>
                     </TouchableOpacity>
                   ))}

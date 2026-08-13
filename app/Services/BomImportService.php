@@ -72,6 +72,10 @@ class BomImportService
                 ['name' => $projectName ?: $projectCode ?: 'New Project', 'status' => 'active']
             );
 
+            if ($projectName && $project->name !== $projectName) {
+                $project->update(['name' => $projectName]);
+            }
+
             $batch = BomImportBatch::create([
                 'project_id' => $project->id,
                 'filename' => $filename,
