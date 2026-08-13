@@ -247,9 +247,7 @@ class BomImportService
             $errors[] = "Line {$lineNumber}: StandardPartNo is required.";
         }
 
-        if (empty($row['parent'])) {
-            $errors[] = "Line {$lineNumber}: Parent is required.";
-        }
+        $parent = !empty($row['parent']) ? $row['parent'] : 'MAIN';
 
         if ($qtyRh === 0 && $qtyLh === 0) {
             $errors[] = "Line {$lineNumber}: QTYRH and QTYLH cannot both be zero.";
@@ -263,7 +261,7 @@ class BomImportService
             'size' => $row['size'] ?? null,
             'supplier' => $row['supplier'] ?? null,
             'remarks' => $row['remarks'] ?? null,
-            'parent' => $row['parent'] ?? null,
+            'parent' => $parent,
             'proj_spec_yn' => $row['proj_spec_yn'] ?? null,
             'errors' => $errors,
         ];

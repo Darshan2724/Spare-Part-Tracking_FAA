@@ -10,6 +10,7 @@ use App\Models\Supplier;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class DatabaseSeeder extends Seeder
 {
@@ -172,5 +173,38 @@ class DatabaseSeeder extends Seeder
             ['key' => 'bom_import_path'],
             ['value' => 'BOM', 'updated_at' => now()]
         );
+
+        // 7. Auto Import Sample BOM files
+        $adminUser = User::where('email', 'admin@sparetrack.internal')->first();
+        $bomService = app(\App\Services\BomImportService::class);
+        $bomDir = base_path('BOM');
+
+        if (\Illuminate\Support\Facades\File::exists($bomDir)) {
+            $files = \Illuminate\Support\Facades\File::files($bomDir);
+            foreach ($files as $file) {
+                $ext = strtolower($file->getExtension());
+                if (!in_array($ext, ['xls', 'xlsx'])) continue;
+
+                try {
+                    $filename = $file->getFilename();
+                    $filePath = $file->getRealPath();
+                    $projectCode = Str::before($filename, '_ERP');
+                    if (str_contains($filename, '62800')) {
+                        $projectCode = 'FAA-1';
+                        $projectName = 'XYZ';
+                    } else {
+                        $projectName = $projectCode;
+                    }
+
+                    $bomService->importFromPath($filePath, [
+                        'filename' => $filename,
+                        'project_code' => $projectCode,
+                        'project_name' => $projectName,
+                    ], $adminUser->id);
+                } catch (\Throwable $e) {
+                    // Ignore error
+                }
+            }
+        }
     }
 }
