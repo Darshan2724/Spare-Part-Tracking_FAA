@@ -54,7 +54,7 @@
                   <ol class="breadcrumb mb-0 fs-6 fw-bold">
                     <li class="breadcrumb-item">
                       <a href="#" @click.prevent="resetHierarchyBreadcrumb" class="text-primary text-decoration-none">
-                        <i class="fas fa-folder me-1"></i>Project 62800
+                        <i class="fas fa-folder me-1"></i>Project: {{ activeProjectName }}
                       </a>
                     </li>
                     <li v-if="selectedJig" class="breadcrumb-item">
@@ -76,7 +76,7 @@
 
               <!-- LEVEL 1: JIG Cards Grid (when no JIG selected) -->
               <div v-if="!selectedJig">
-                <h5 class="fw-bold mb-3"><i class="fas fa-cubes me-2 text-primary"></i>Assembly JIGs in Project 62800</h5>
+                <h5 class="fw-bold mb-3"><i class="fas fa-cubes me-2 text-primary"></i>Assembly JIGs in {{ activeProjectName }}</h5>
                 <div class="row g-3">
                   <div v-for="jig in hierarchyJigs" :key="jig.jig_name" class="col-md-6 col-lg-4">
                     <div class="card h-100 border-2 shadow-xs transition-card"
@@ -378,7 +378,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import axios from 'axios';
 
@@ -392,8 +392,17 @@ const error = ref('');
 const successMessage = ref('');
 const isHierarchical = ref(false);
 const hierarchyJigs = ref([]);
+const hierarchyProject = ref(null);
 const selectedJig = ref(null);
 const selectedUnit = ref(null);
+
+const activeProjectName = computed(() => {
+  if (hierarchyProject.value) {
+    return hierarchyProject.value.name + (hierarchyProject.value.project_code ? ` (${hierarchyProject.value.project_code})` : '');
+  }
+  const found = projects.value.find(p => String(p.id) === String(projectId.value));
+  return found ? (found.name + (found.project_code ? ` (${found.project_code})` : '')) : 'Selected Project';
+});
 
 const onProjectChange = async () => {
   selectedJig.value = null;
@@ -410,16 +419,19 @@ const checkAndLoadStoreData = async () => {
     if (res.data.is_hierarchical) {
       isHierarchical.value = true;
       hierarchyJigs.value = res.data.jigs || [];
+      hierarchyProject.value = res.data.project || null;
       // Keep selected project in dropdown
       if (res.data.project && !projectId.value) {
         projectId.value = res.data.project.id;
       }
     } else {
       isHierarchical.value = false;
+      hierarchyProject.value = null;
       await loadItems();
     }
   } catch (err) {
     isHierarchical.value = false;
+    hierarchyProject.value = null;
     await loadItems();
   }
 };
