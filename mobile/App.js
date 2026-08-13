@@ -215,6 +215,12 @@ function App() {
   const [qcReason, setQcReason] = useState('');
   const [qcRemarks, setQcRemarks] = useState('');
 
+  // Mobile Store Hierarchy State
+  const [hierarchyJigs, setHierarchyJigs] = useState([]);
+  const [hierarchyProject, setHierarchyProject] = useState(null);
+  const [selectedJig, setSelectedJig] = useState(null);
+  const [selectedUnit, setSelectedUnit] = useState(null);
+
   // 30s Polling Loop for live real-time updates
   useEffect(() => {
     if (!token) return;
@@ -281,6 +287,8 @@ function App() {
           setSummary(null);
           setItems([]);
           setHistoryItems([]);
+          setSelectedJig(null);
+          setSelectedUnit(null);
         }
       }
     ]);
@@ -314,9 +322,15 @@ function App() {
           const res = await apiClient.get('/store/history', { params });
           setHistoryItems(extractArray(res.data));
         } else {
-          const res = await apiClient.get('/store/items', { params });
-          setItems(extractArray(res.data));
+          const res = await apiClient.get('/store/hierarchy', { params: { project_id: selectedProject } });
           if (res.data.projects) setProjects(res.data.projects);
+          if (res.data.is_hierarchical) {
+            setHierarchyJigs(res.data.jigs || []);
+            setHierarchyProject(res.data.project || null);
+          } else {
+            const flatRes = await apiClient.get('/store/items', { params });
+            setItems(extractArray(flatRes.data));
+          }
         }
       } else {
         const endpoints = {
@@ -760,6 +774,128 @@ function App() {
               <Text style={styles.cardLabel}>Purchase Queue</Text>
               <Text style={styles.cardValue}>{summary?.pending_purchase || 0}</Text>
             </View>
+          </View>
+        ) : activeTab === 'store' && storeSubTab === 'pending' && hierarchyJigs.length > 0 ? (
+          // MOBILE STORE 3-LEVEL HIERARCHICAL DRILLDOWN VIEW
+          <View style={styles.listContainer}>
+            {/* Breadcrumb Navigation Bar */}
+            <View style={styles.hierarchyNavRow}>
+              <Text style={styles.hierarchyNavTitle}>
+                {hierarchyProject ? `${hierarchyProject.name} (${hierarchyProject.project_code})` : 'Project Store'}
+                {selectedJig ? ` › JIG: ${selectedJig.jig_name}` : ''}
+                {selectedUnit ? ` › ${selectedUnit.unit_no}` : ''}
+              </Text>
+              {(selectedJig || selectedUnit) && (
+                <TouchableOpacity
+                  style={styles.backLevelBtn}
+                  onPress={() => {
+                    if (selectedUnit) setSelectedUnit(null);
+                    else if (selectedJig) setSelectedJig(null);
+                  }}>
+                  <Text style={styles.backLevelBtnText}>‹ Back</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* LEVEL 1: JIG CARDS GRID (when no JIG selected) */}
+            {!selectedJig && (
+              <View>
+                <Text style={styles.sectionHeader}>ASSEMBLY JIGS ({hierarchyJigs.length})</Text>
+                {hierarchyJigs.map((jig) => (
+                  <TouchableOpacity
+                    key={jig.jig_name}
+                    style={[
+                      styles.jigCard,
+                      jig.is_complete ? styles.jigCardComplete : styles.jigCardIncomplete
+                    ]}
+                    onPress={() => setSelectedJig(jig)}>
+                    <View style={styles.itemHeader}>
+                      <Text style={[styles.jigName, jig.is_complete && { color: '#15803d' }]}>
+                        {jig.is_complete ? '✓ ' : '⚙️ '}JIG: {jig.jig_name}
+                      </Text>
+                      <Text style={[styles.jigBadge, jig.is_complete ? styles.jigBadgeComplete : styles.jigBadgeIncomplete]}>
+                        {jig.is_complete ? '100% DONE' : `${jig.completion_pct}%`}
+                      </Text>
+                    </View>
+                    <Text style={styles.itemSubText}>
+                      {jig.complete_units} / {jig.total_units} Units Complete • {jig.total_parts} Parts
+                    </Text>
+                    <View style={styles.progressBarBg}>
+                      <View style={[styles.progressBarFill, { width: `${jig.completion_pct}%`, backgroundColor: jig.is_complete ? '#16a34a' : '#2563eb' }]} />
+                    </View>
+                    <Text style={styles.tapExploreText}>Tap to explore Units inside {jig.jig_name} ›</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* LEVEL 2: UNITS LIST (when JIG selected, no Unit selected) */}
+            {selectedJig && !selectedUnit && (
+              <View>
+                <Text style={styles.sectionHeader}>UNITS IN JIG: {selectedJig.jig_name} ({selectedJig.units.length})</Text>
+                {selectedJig.units.map((unit) => (
+                  <TouchableOpacity
+                    key={unit.unit_no}
+                    style={[
+                      styles.unitCard,
+                      unit.is_complete ? styles.unitCardComplete : styles.unitCardIncomplete
+                    ]}
+                    onPress={() => setSelectedUnit(unit)}>
+                    <View style={styles.itemHeader}>
+                      <Text style={[styles.unitTitle, unit.is_complete && { color: '#15803d' }]}>
+                        {unit.is_complete ? '✓ ' : '📦 '}{unit.unit_no}
+                      </Text>
+                      <Text style={[styles.unitBadge, unit.is_complete ? styles.jigBadgeComplete : styles.unitBadgePending]}>
+                        {unit.is_complete ? 'COMPLETED' : `${unit.completion_pct}%`}
+                      </Text>
+                    </View>
+                    <Text style={styles.itemSubText}>
+                      Req: {unit.total_required} • Rec: {unit.total_received} • Pending: {unit.pending_quantity}
+                    </Text>
+                    <View style={styles.progressBarBg}>
+                      <View style={[styles.progressBarFill, { width: `${unit.completion_pct}%`, backgroundColor: unit.is_complete ? '#16a34a' : '#f59e0b' }]} />
+                    </View>
+                    <Text style={styles.tapExploreText}>Tap to view {unit.parts.length} Parts ›</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* LEVEL 3: PARTS LIST (when Unit selected) */}
+            {selectedUnit && (
+              <View>
+                <Text style={styles.sectionHeader}>PARTS IN {selectedJig.jig_name} - {selectedUnit.unit_no} ({selectedUnit.parts.length})</Text>
+                {selectedUnit.parts.map((item) => (
+                  <View key={item.id} style={styles.itemCard}>
+                    <View style={styles.itemHeader}>
+                      <Text style={styles.itemPartNo}>{item.standard_part_no}</Text>
+                      <Text style={styles.itemStatus}>
+                        {item.is_complete ? 'FULFILLED' : 'PENDING'}
+                      </Text>
+                    </View>
+
+                    <Text style={styles.itemSubText}>Supplier: {item.supplier?.name || item.supplier_name_raw || 'Standard'}</Text>
+
+                    {item.side_stats && (
+                      <View style={styles.statsRow}>
+                        {Object.entries(item.side_stats)
+                          .filter(([side]) => !selectedSide || side === selectedSide)
+                          .map(([side, st]) => (
+                            <View key={side} style={styles.sideCardBox}>
+                              <Text style={styles.statBadge}>{side} (Req: {st.required} | Rec: {st.received} | Pending: {st.pending})</Text>
+                              {st.pending > 0 && (
+                                <TouchableOpacity style={styles.smallReceiveBtn} onPress={() => openReceiveModal(item, side)}>
+                                  <Text style={styles.smallReceiveBtnText}>📥 Receive {side} Stock</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          ))}
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         ) : activeTab === 'store' && storeSubTab === 'history' ? (
           // STORE RECEIPT HISTORY & REVERT VIEW
@@ -1285,6 +1421,118 @@ const styles = StyleSheet.create({
     color: '#64748b',
     marginBottom: 10,
     letterSpacing: 0.5,
+  },
+  hierarchyNavRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+  },
+  hierarchyNavTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1e293b',
+    flex: 1,
+  },
+  backLevelBtn: {
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginLeft: 8,
+  },
+  backLevelBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  jigCard: {
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 10,
+    borderWidth: 2,
+  },
+  jigCardIncomplete: {
+    backgroundColor: '#ffffff',
+    borderColor: '#e2e8f0',
+  },
+  jigCardComplete: {
+    backgroundColor: '#f0fdf4',
+    borderColor: '#22c55e',
+  },
+  jigName: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1e293b',
+  },
+  jigBadge: {
+    fontSize: 10,
+    fontWeight: '800',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  jigBadgeComplete: {
+    backgroundColor: '#22c55e',
+    color: '#ffffff',
+  },
+  jigBadgeIncomplete: {
+    backgroundColor: '#2563eb',
+    color: '#ffffff',
+  },
+  unitCard: {
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 10,
+    borderWidth: 2,
+  },
+  unitCardIncomplete: {
+    backgroundColor: '#ffffff',
+    borderColor: '#cbd5e1',
+  },
+  unitCardComplete: {
+    backgroundColor: '#f0fdf4',
+    borderColor: '#22c55e',
+  },
+  unitTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1e293b',
+  },
+  unitBadge: {
+    fontSize: 10,
+    fontWeight: '800',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  unitBadgePending: {
+    backgroundColor: '#f59e0b',
+    color: '#ffffff',
+  },
+  progressBarBg: {
+    height: 6,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 3,
+    marginTop: 8,
+    marginBottom: 6,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  tapExploreText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2563eb',
+    marginTop: 4,
   },
   emptyState: {
     backgroundColor: '#ffffff',
