@@ -1,0 +1,39 @@
+@import 'variables';
+@import 'bootstrap/scss/bootstrap';
+@import '@fortawesome/fontawesome-free/css/all.css';
+@import 'admin-lte/dist/css/adminlte.css';
+
+/* Custom ERP/MES Visual Adjustments */
+body {
+    font-family: $font-family-sans-serif;
+    background-color: $body-bg;
+}
+
+.card {
+    box-shadow: 0 0 1px rgba(0, 0, 0, 0.125), 0 1px 3px rgba(0, 0, 0, 0.2);
+    border-radius: 0.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.table th {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    letter-spacing: 0.5px;
+    background-color: #f1f5f9;
+}
+
+.badge-rh {
+    background-color: #3490dc;
+    color: #fff;
+}
+
+.badge-lh {
+    background-color: #9561e2;
+    color: #fff;
+}
+
+.badge-common {
+    background-color: #6c757d;
+    color: #fff;
+}
