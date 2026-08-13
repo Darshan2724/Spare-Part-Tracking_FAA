@@ -46,6 +46,7 @@ Route::prefix('v1')->group(function () {
         Route::prefix('bom')->group(function () {
             Route::post('/preview', [BomImportController::class, 'preview']);
             Route::post('/import', [BomImportController::class, 'import']);
+            Route::get('/history', [BomImportController::class, 'history']);
         });
 
         // Store Operations
