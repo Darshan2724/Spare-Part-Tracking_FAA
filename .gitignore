@@ -1,0 +1,78 @@
+# ==============================
+# Laravel / PHP
+# ==============================
+/vendor/
+/node_modules/
+/public/build/
+/public/hot
+/public/storage
+/storage/*.key
+/storage/logs/
+/storage/framework/cache/
+/storage/framework/sessions/
+/storage/framework/views/
+/bootstrap/cache/
+
+# ==============================
+# Environment / Secrets (NEVER commit these)
+# ==============================
+.env
+.env.backup
+.env.production
+.env.staging
+.env.local
+*.env
+database.sqlite
+*.sqlite
+*.sqlite-journal
+
+# ==============================
+# Mobile / Expo
+# ==============================
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile/*.jks
+mobile/*.p8
+mobile/*.p12
+mobile/*.key
+mobile/*.mobileprovision
+mobile/*.orig.*
+mobile/web-build/
+
+# ==============================
+# Composer & NPM
+# ==============================
+composer.phar
+package-lock.json
+npm-debug.log
+yarn-error.log
+
+# ==============================
+# OS & IDE
+# ==============================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# ==============================
+# Docker volumes / runtime
+# ==============================
+docker/data/
+*.log
+
+# ==============================
+# Uploads & generated files
+# ==============================
+/storage/app/public/qc_attachments/
+/storage/app/public/bom_imports/
+
+# ==============================
+# Test & temp
+# ==============================
+/coverage/
+*.cache
+.phpunit.cache
