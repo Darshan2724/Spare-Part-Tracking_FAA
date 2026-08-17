@@ -17,12 +17,14 @@ return new class extends Migration
             $table->enum('status', [
                 'received',
                 'sent_to_qc',
+                'qc_received',
                 'qc_approved',
                 'qc_rejected',
                 'qc_rework',
                 'qc_inspected',
                 'paint_completed',
-                'assembly_completed'
+                'assembly_completed',
+                'reverted'
             ])->default('received')->index();
             $table->text('remarks')->nullable();
             $table->timestamps();

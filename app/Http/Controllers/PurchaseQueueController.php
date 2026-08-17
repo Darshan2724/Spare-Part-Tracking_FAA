@@ -21,7 +21,11 @@ class PurchaseQueueController extends Controller
             $search = trim($request->input('search'));
             $query->where(function ($q) use ($search) {
                 $q->where('standard_part_no', 'LIKE', "%{$search}%")
-                  ->orWhere('rejection_reason', 'LIKE', "%{$search}%");
+                  ->orWhere('rejection_reason', 'LIKE', "%{$search}%")
+                  ->orWhereHas('project', function ($pq) use ($search) {
+                      $pq->where('name', 'LIKE', "%{$search}%")
+                        ->orWhere('project_code', 'LIKE', "%{$search}%");
+                  });
             });
         }
 
@@ -44,7 +48,7 @@ class PurchaseQueueController extends Controller
 
     public function updateStatus(Request $request, int $id)
     {
-        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'PURCHASE']) ?: abort(403);
+        $request->user()?->hasAnyRole(['ADMIN', 'PURCHASE']) ?: abort(403, 'Unauthorized. Purchase operational permission required.');
 
         $request->validate([
             'status' => ['required', 'in:pending_purchase,exported,reordered,closed'],

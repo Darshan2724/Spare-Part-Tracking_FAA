@@ -63,6 +63,12 @@ const routes = [
         meta: { requiresAuth: true }
     },
     {
+        path: '/admin/logs',
+        name: 'admin-logs',
+        component: () => import('@/views/SystemLogs.vue'),
+        meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
         path: '/workflow-hub',
         name: 'workflow-hub',
         component: () => import('@/views/WorkflowHub.vue'),
@@ -87,6 +93,10 @@ router.beforeEach((to, from, next) => {
     }
     
     if (to.meta.guestOnly && authStore.isAuthenticated) {
+        return next({ name: 'dashboard' });
+    }
+
+    if (to.meta.requiresAdmin && authStore.userRole !== 'ADMIN') {
         return next({ name: 'dashboard' });
     }
 

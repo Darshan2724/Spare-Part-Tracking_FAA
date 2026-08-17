@@ -72,9 +72,8 @@ class BomImportController extends Controller
             }
 
             $importData = $request->all();
-            if (!isset($importData['filename'])) {
-                $importData['filename'] = $file->getClientOriginalName();
-            }
+            $clientName = $file->getClientOriginalName();
+            $importData['filename'] = basename(str_replace('\\', '/', $request->input('filename') ?: $clientName));
 
             return response()->json($this->bomImportService->importFromPath($temporaryPath, $importData, $request->user()->id));
         }
@@ -85,7 +84,11 @@ class BomImportController extends Controller
                 return response()->json(['message' => 'The supplied BOM path is invalid.'], 422);
             }
 
-            return response()->json($this->bomImportService->importFromPath($resolvedPath, $request->all(), $request->user()->id));
+            $importData = $request->all();
+            $rawName = $request->input('filename') ?: basename($resolvedPath);
+            $importData['filename'] = basename(str_replace('\\', '/', $rawName));
+
+            return response()->json($this->bomImportService->importFromPath($resolvedPath, $importData, $request->user()->id));
         }
 
         return response()->json([

@@ -7,282 +7,412 @@ use App\Models\BomItem;
 use App\Models\BomRequirement;
 use App\Models\Project;
 use App\Models\Supplier;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class BomImportService
 {
+    /**
+     * Preview BOM from file path using the FA-279 New MFG BOM Standard.
+     */
     public function previewFromPath(string $path, ?string $filename = null): array
     {
-        $rows = $this->readRows($path, $filename);
-
-        $preview = [];
-        $errors = [];
-
-        foreach ($rows as $index => $row) {
-            $normalized = $this->normalizeRow($row, $index + 2);
-            $preview[] = $normalized;
-
-            if (!empty($normalized['errors'])) {
-                $errors = array_merge($errors, $normalized['errors']);
-            }
-        }
+        $filename = $filename ?? basename($path);
+        $extracted = $this->extractAndValidateRows($path, $filename);
 
         return [
-            'filename' => $filename ?? basename($path),
-            'sheet' => 'Sheet1',
-            'rows' => $preview,
-            'errors' => $errors,
+            'success' => empty($extracted['errors']),
+            'filename' => $filename,
+            'sheet' => $extracted['sheet_name'],
+            'summary' => $extracted['summary'],
+            'rows' => $extracted['rows'],
+            'errors' => $extracted['errors'],
+            'warnings' => $extracted['warnings'],
         ];
     }
 
+    /**
+     * Import BOM into PostgreSQL database using the FA-279 New MFG BOM Standard.
+     */
     public function importFromPath(string $path, array $data, int $userId): array
     {
         $filename = $data['filename'] ?? basename($path);
-        $projectCode = $data['project_code'] ?? null;
-        $projectName = $data['project_name'] ?? null;
+        $extracted = $this->extractAndValidateRows($path, $filename);
 
-        $rows = $this->readRows($path, $filename);
-        $preview = [];
-        $errors = [];
-
-        foreach ($rows as $index => $row) {
-            $normalized = $this->normalizeRow($row, $index + 2);
-            $preview[] = $normalized;
-
-            if (!empty($normalized['errors'])) {
-                $errors = array_merge($errors, $normalized['errors']);
-            }
-        }
-
-        if (!empty($errors)) {
+        if (!empty($extracted['errors'])) {
             return [
                 'success' => false,
-                'message' => 'BOM contains validation errors.',
-                'errors' => $errors,
+                'message' => 'BOM contains validation errors and cannot be imported.',
+                'errors' => $extracted['errors'],
+                'warnings' => $extracted['warnings'],
             ];
         }
 
-        return DB::transaction(function () use ($path, $filename, $projectCode, $projectName, $preview, $userId) {
-            $project = Project::firstOrCreate(
-                ['project_code' => $projectCode ?: 'PROJ-' . strtoupper(Str::random(6))],
-                ['name' => $projectName ?: $projectCode ?: 'New Project', 'status' => 'active']
-            );
+        $rows = $extracted['rows'];
+        if (empty($rows)) {
+            return [
+                'success' => false,
+                'message' => 'No valid BOM data rows found in the file.',
+                'errors' => ['The uploaded BOM file contains no data rows.'],
+            ];
+        }
 
-            if ($projectName && $project->name !== $projectName) {
-                $project->update(['name' => $projectName]);
-            }
+        return DB::transaction(function () use ($rows, $filename, $userId, $extracted) {
+            $createdProjects = [];
+            $totalRequirementsCreated = 0;
+            $totalQuantityImported = 0;
 
-            $batch = BomImportBatch::create([
-                'project_id' => $project->id,
-                'filename' => $filename,
-                'imported_by' => $userId,
-                'total_rows' => count($preview),
-                'successful_rows' => count($preview),
-                'status' => 'completed',
-            ]);
+            // Group rows by project code
+            $projectGroups = collect($rows)->groupBy('project_code');
 
-            foreach ($preview as $row) {
-                $supplierId = null;
-                if (!empty($row['supplier'])) {
-                    $supplier = Supplier::firstOrCreate(
-                        ['name' => $row['supplier']],
-                        ['code' => Str::slug($row['supplier']), 'is_active' => true]
-                    );
-                    $supplierId = $supplier->id;
-                }
-
-                $bomItem = BomItem::updateOrCreate(
+            foreach ($projectGroups as $projectCode => $projectRows) {
+                $project = Project::firstOrCreate(
+                    ['project_code' => $projectCode],
                     [
-                        'project_id' => $project->id,
-                        'standard_part_no' => $row['standard_part_no'],
-                    ],
-                    [
-                        'item_no' => $row['item_no'],
-                        'size' => $row['size'],
-                        'supplier_id' => $supplierId,
-                        'supplier_name_raw' => $row['supplier'],
-                        'remarks' => $row['remarks'],
-                        'parent' => $row['parent'],
-                        'proj_spec_yn' => $row['proj_spec_yn'],
-                        'import_batch_id' => $batch->id,
+                        'name' => $projectCode,
+                        'status' => 'active',
+                        'created_by' => $userId,
                     ]
                 );
+                $createdProjects[$project->id] = $project;
 
-                foreach (['RH', 'LH'] as $side) {
-                    $quantity = $side === 'RH' ? (int) ($row['qty_rh'] ?? 0) : (int) ($row['qty_lh'] ?? 0);
-                    if ($quantity > 0) {
-                        BomRequirement::updateOrCreate(
-                            [
-                                'bom_item_id' => $bomItem->id,
-                                'side' => $side,
-                            ],
-                            [
-                                'required_quantity' => $quantity,
-                            ]
-                        );
-                    }
+                $batch = BomImportBatch::create([
+                    'project_id' => $project->id,
+                    'filename' => $filename,
+                    'imported_by' => $userId,
+                    'total_rows' => $projectRows->count(),
+                    'successful_rows' => $projectRows->count(),
+                    'status' => 'completed',
+                ]);
+
+                foreach ($projectRows as $row) {
+                    $bomItem = BomItem::firstOrCreate(
+                        [
+                            'project_id' => $project->id,
+                            'jig_no' => $row['jig_no'],
+                            'unit_no' => $row['unit_no'],
+                            'standard_part_no' => $row['part_no'],
+                        ],
+                        [
+                            'import_batch_id' => $batch->id,
+                            'proj_spec_yn' => 'Y',
+                        ]
+                    );
+
+                    BomRequirement::updateOrCreate(
+                        [
+                            'bom_item_id' => $bomItem->id,
+                            'side' => $row['side'],
+                        ],
+                        [
+                            'required_quantity' => (int) $row['qty'],
+                        ]
+                    );
+
+                    $totalRequirementsCreated++;
+                    $totalQuantityImported += (int) $row['qty'];
                 }
             }
+
+            SystemLogService::log([
+                'severity' => 'INFO',
+                'category' => 'system_health_logs',
+                'module' => 'STORE',
+                'message' => "FA-279 BOM imported successfully: {$filename}",
+                'details' => [
+                    'filename' => $filename,
+                    'projects' => array_values(array_map(fn ($p) => $p->project_code, $createdProjects)),
+                    'total_requirements' => $totalRequirementsCreated,
+                    'total_pieces' => $totalQuantityImported,
+                    'user_id' => $userId,
+                ],
+            ]);
 
             return [
                 'success' => true,
-                'message' => 'BOM imported successfully.',
-                'project_id' => $project->id,
-                'batch_id' => $batch->id,
-                'imported_rows' => count($preview),
+                'message' => "FA-279 BOM imported successfully. {$totalRequirementsCreated} requirements loaded ({$totalQuantityImported} total pieces).",
+                'filename' => $filename,
+                'summary' => $extracted['summary'],
+                'imported_rows' => count($rows),
             ];
         });
     }
 
-    protected function readRows(string $path, ?string $filename = null): array
+    /**
+     * Extract and strictly validate rows according to FA-279 Standard.
+     */
+    protected function extractAndValidateRows(string $path, string $filename): array
     {
-        $targetForExtension = $filename ?: $path;
-        $extension = strtolower(pathinfo($targetForExtension, PATHINFO_EXTENSION));
+        $errors = [];
+        $warnings = [];
 
-        if ($extension === 'xlsx') {
-            $reader = new \PhpOffice\PhpSpreadsheet\Reader\Xlsx();
-        } elseif ($extension === 'xls') {
-            $reader = new \PhpOffice\PhpSpreadsheet\Reader\Xls();
-        } else {
-            try {
-                $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReaderForFile($path);
-            } catch (\Throwable $e) {
-                throw new \InvalidArgumentException('Unsupported BOM file type.');
-            }
-        }
-
-        $spreadsheet = $reader->load($path);
-        $worksheet = $spreadsheet->getActiveSheet();
-        $rows = [];
-        foreach ($worksheet->toArray() as $row) {
-            $rows[] = $row;
-        }
-
-        return $this->extractDataRows($rows);
-    }
-
-    protected function extractDataRows(array $rows): array
-    {
-        $normalized = [];
-        $headerIndexes = [];
-
-        foreach ($rows as $index => $row) {
-            $cleaned = array_map(function ($value) {
-                return trim((string) ($value ?? ''));
-            }, $row);
-
-            if ($index === 0) {
-                $headerIndexes = $this->findHeaderIndexes($cleaned);
-                continue;
-            }
-
-            if ($this->isEmptyRow($cleaned)) {
-                continue;
-            }
-
-            $normalized[] = [
-                'item_no' => $this->getValue($cleaned, $headerIndexes, 'ItemNo'),
-                'standard_part_no' => $this->getValue($cleaned, $headerIndexes, 'StandardPartNo'),
-                'qty_rh' => $this->getValue($cleaned, $headerIndexes, 'QTYRH'),
-                'qty_lh' => $this->getValue($cleaned, $headerIndexes, 'QTYLH'),
-                'size' => $this->getValue($cleaned, $headerIndexes, 'SIZE'),
-                'supplier' => $this->getValue($cleaned, $headerIndexes, 'Supplier'),
-                'remarks' => $this->getValue($cleaned, $headerIndexes, 'Remarks'),
-                'parent' => $this->getValue($cleaned, $headerIndexes, 'Parent'),
-                'proj_spec_yn' => $this->getValue($cleaned, $headerIndexes, 'ProjSpecYN'),
+        try {
+            $reader = IOFactory::createReaderForFile($path);
+            $spreadsheet = $reader->load($path);
+        } catch (\Throwable $e) {
+            return [
+                'sheet_name' => 'N/A',
+                'summary' => $this->emptySummary(),
+                'rows' => [],
+                'errors' => ['Failed to read Excel file: ' . $e->getMessage()],
+                'warnings' => [],
             ];
         }
 
-        return $normalized;
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheetName = $sheet->getTitle();
+        $highestRow = $sheet->getHighestRow();
+        $highestColumn = $sheet->getHighestColumn();
+
+        // 1. Scan for Header Row and Check for Legacy Formats
+        $headerRowIndex = null;
+        $headerMap = [];
+        $legacyDetected = false;
+
+        for ($r = 1; $r <= min(15, $highestRow); $r++) {
+            $rowValues = [];
+            foreach (range('A', $highestColumn) as $col) {
+                $val = trim((string) $sheet->getCell($col . $r)->getValue());
+                if ($val !== '') {
+                    $rowValues[$col] = $val;
+                }
+            }
+
+            // Check if this row contains legacy columns
+            $upperJoined = strtoupper(implode(' ', array_values($rowValues)));
+            if (str_contains($upperJoined, 'QTYRH') || str_contains($upperJoined, 'QTYLH') || str_contains($upperJoined, 'PROJSPECYN')) {
+                $legacyDetected = true;
+            }
+
+            // Check for FA-279 column matches
+            $mappedCols = $this->matchFa279Headers($rowValues);
+            if ($mappedCols !== null) {
+                $headerRowIndex = $r;
+                $headerMap = $mappedCols;
+                break;
+            }
+        }
+
+        // 2. Reject Legacy Format
+        if ($legacyDetected && $headerRowIndex === null) {
+            return [
+                'sheet_name' => $sheetName,
+                'summary' => $this->emptySummary(),
+                'rows' => [],
+                'errors' => [
+                    'Invalid BOM format. SpareTrack now accepts only the FA-279 New MFG BOM format: Project Code, Jig No, Unit No, Part No, Side and Qty.',
+                ],
+                'warnings' => ['Legacy BOM format with QTYRH/QTYLH/Parent/StandardPartNo has been retired and is no longer supported.'],
+            ];
+        }
+
+        if ($headerRowIndex === null) {
+            return [
+                'sheet_name' => $sheetName,
+                'summary' => $this->emptySummary(),
+                'rows' => [],
+                'errors' => [
+                    'Invalid BOM format. Could not locate required FA-279 column headers (Project Code, Jig No, Unit No, Part No, Side, Qty).',
+                ],
+                'warnings' => ['Please ensure headers are in the approved format (e.g. Project Code, Jig, Unit No., Part No., Side, Qty).'],
+            ];
+        }
+
+        // 3. Extract and Validate Data Rows
+        $validRows = [];
+        $seenCombinations = [];
+        $uniqueProjects = [];
+        $uniqueJigs = [];
+        $uniqueUnits = [];
+        $uniqueParts = [];
+        $sideStats = [
+            'RH' => ['count' => 0, 'qty' => 0],
+            'LH' => ['count' => 0, 'qty' => 0],
+            'COMMON' => ['count' => 0, 'qty' => 0],
+        ];
+        $totalRequiredQuantity = 0;
+
+        for ($r = $headerRowIndex + 1; $r <= $highestRow; $r++) {
+            $projectCode = trim((string) $sheet->getCell($headerMap['project_code'] . $r)->getValue());
+            $jigNo = trim((string) $sheet->getCell($headerMap['jig_no'] . $r)->getValue());
+            $unitNo = trim((string) $sheet->getCell($headerMap['unit_no'] . $r)->getValue());
+            $partNo = trim((string) $sheet->getCell($headerMap['part_no'] . $r)->getValue());
+            $sideRaw = trim((string) $sheet->getCell($headerMap['side'] . $r)->getValue());
+            $qtyRaw = $sheet->getCell($headerMap['qty'] . $r)->getValue();
+
+            // Skip completely empty rows
+            if ($projectCode === '' && $jigNo === '' && $unitNo === '' && $partNo === '' && $sideRaw === '' && $qtyRaw === null) {
+                continue;
+            }
+
+            $rowErrors = [];
+
+            if ($projectCode === '') {
+                $rowErrors[] = "Row {$r}: Project Code cannot be blank.";
+            }
+            if ($jigNo === '') {
+                $rowErrors[] = "Row {$r}: Jig No cannot be blank.";
+            }
+            if ($unitNo === '') {
+                $rowErrors[] = "Row {$r}: Unit No cannot be blank.";
+            }
+            if ($partNo === '') {
+                $rowErrors[] = "Row {$r}: Part No cannot be blank.";
+            }
+
+            // Side normalization & validation
+            $side = $this->normalizeSide($sideRaw);
+            if ($side === null) {
+                $rowErrors[] = "Row {$r}: Invalid Side '{$sideRaw}'. Must be RH (or R), LH (or L), or COMMON.";
+            }
+
+            // Qty validation
+            $qty = $this->parseQuantity($qtyRaw);
+            if ($qty === null || $qty <= 0) {
+                $rowErrors[] = "Row {$r}: Qty must be a positive integer (found '{$qtyRaw}').";
+            }
+
+            // Duplicate detection
+            $comboKey = "{$projectCode}|{$jigNo}|{$unitNo}|{$partNo}|{$side}";
+            if (isset($seenCombinations[$comboKey])) {
+                $prevRow = $seenCombinations[$comboKey];
+                $rowErrors[] = "Row {$r}: Duplicate combination for Project '{$projectCode}', Jig '{$jigNo}', Unit '{$unitNo}', Part '{$partNo}', Side '{$side}' (first seen on Row {$prevRow}).";
+            } else {
+                $seenCombinations[$comboKey] = $r;
+            }
+
+            if (!empty($rowErrors)) {
+                $errors = array_merge($errors, $rowErrors);
+            } else {
+                $validRows[] = [
+                    'row_number' => $r,
+                    'project_code' => $projectCode,
+                    'jig_no' => $jigNo,
+                    'unit_no' => $unitNo,
+                    'part_no' => $partNo,
+                    'side' => $side,
+                    'qty' => $qty,
+                ];
+
+                $uniqueProjects[$projectCode] = true;
+                $uniqueJigs[$jigNo] = true;
+                $uniqueUnits[$unitNo] = true;
+                $uniqueParts[$partNo] = true;
+                $sideStats[$side]['count']++;
+                $sideStats[$side]['qty'] += $qty;
+                $totalRequiredQuantity += $qty;
+            }
+        }
+
+        $summary = [
+            'total_rows' => count($validRows),
+            'total_projects' => count($uniqueProjects),
+            'total_jigs' => count($uniqueJigs),
+            'total_units' => count($uniqueUnits),
+            'unique_parts' => count($uniqueParts),
+            'side_distribution' => $sideStats,
+            'total_required_quantity' => $totalRequiredQuantity,
+            'header_row' => $headerRowIndex,
+        ];
+
+        return [
+            'sheet_name' => $sheetName,
+            'summary' => $summary,
+            'rows' => $validRows,
+            'errors' => $errors,
+            'warnings' => $warnings,
+        ];
     }
 
-    protected function findHeaderIndexes(array $headers): array
+    /**
+     * Match FA-279 required headers from row cells.
+     */
+    protected function matchFa279Headers(array $rowCells): ?array
     {
         $map = [];
-        foreach ($headers as $index => $header) {
-            $key = preg_replace('/[^A-Z0-9]/', '', strtoupper(trim((string) $header)));
-            
-            // Map variations
-            if (in_array($key, ['ITEMNO', 'ITEM', 'SRNO', 'NO'], true)) {
-                $map['ITEMNO'] = $index;
-            } elseif (in_array($key, ['STANDARDPARTNO', 'STANDARDPARTNUMBER', 'PARTNO', 'PARTNUMBER', 'PARTNAME'], true)) {
-                $map['STANDARDPARTNO'] = $index;
-            } elseif (in_array($key, ['QTYRH', 'QUANTITYRH', 'RHQTY', 'RH'], true)) {
-                $map['QTYRH'] = $index;
-            } elseif (in_array($key, ['QTYLH', 'QUANTITYLH', 'LHQTY', 'LH'], true)) {
-                $map['QTYLH'] = $index;
-            } elseif (in_array($key, ['SIZE', 'DIMENSION', 'SPECIFICATION'], true)) {
-                $map['SIZE'] = $index;
-            } elseif (in_array($key, ['SUPPLIER', 'SUPPLIERNAME', 'VENDOR'], true)) {
-                $map['SUPPLIER'] = $index;
-            } elseif (in_array($key, ['REMARKS', 'REMARK', 'NOTE', 'NOTES'], true)) {
-                $map['REMARKS'] = $index;
-            } elseif (in_array($key, ['PARENT', 'PROJECT', 'ASSEMBLY'], true)) {
-                $map['PARENT'] = $index;
-            } elseif (in_array($key, ['PROJSPECYN', 'PROJSPEC'], true)) {
-                $map['PROJSPECYN'] = $index;
+
+        foreach ($rowCells as $col => $header) {
+            $clean = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', trim((string) $header)));
+
+            if (in_array($clean, ['projectcode', 'project', 'projcode'], true)) {
+                $map['project_code'] = $col;
+            } elseif (in_array($clean, ['jig', 'jigno', 'jignumber', 'assemblyjig'], true)) {
+                $map['jig_no'] = $col;
+            } elseif (in_array($clean, ['unitno', 'unit', 'unitnumber'], true)) {
+                $map['unit_no'] = $col;
+            } elseif (in_array($clean, ['partno', 'part', 'partnumber', 'standardpartno'], true)) {
+                $map['part_no'] = $col;
+            } elseif (in_array($clean, ['side'], true)) {
+                $map['side'] = $col;
+            } elseif (in_array($clean, ['qty', 'quantity', 'requiredqty'], true)) {
+                $map['qty'] = $col;
+            }
+        }
+
+        $required = ['project_code', 'jig_no', 'unit_no', 'part_no', 'side', 'qty'];
+        foreach ($required as $field) {
+            if (!isset($map[$field])) {
+                return null;
             }
         }
 
         return $map;
     }
 
-    protected function getValue(array $row, array $headerIndexes, string $field): ?string
+    /**
+     * Normalize Side string to RH, LH, or COMMON.
+     */
+    protected function normalizeSide(string $value): ?string
     {
-        $column = strtoupper($field);
-        $index = $headerIndexes[$column] ?? null;
-        if ($index === null || !isset($row[$index])) {
+        $upper = strtoupper(trim($value));
+
+        if (in_array($upper, ['R', 'RH', 'RIGHT'], true)) {
+            return 'RH';
+        }
+        if (in_array($upper, ['L', 'LH', 'LEFT'], true)) {
+            return 'LH';
+        }
+        if (in_array($upper, ['C', 'COM', 'COMMON', 'BOTH'], true)) {
+            return 'COMMON';
+        }
+
+        return null;
+    }
+
+    /**
+     * Parse positive integer quantity.
+     */
+    protected function parseQuantity(mixed $value): ?int
+    {
+        if ($value === null || trim((string) $value) === '') {
             return null;
         }
 
-        return trim((string) $row[$index]);
+        $clean = trim((string) $value);
+        if (!is_numeric($clean)) {
+            return null;
+        }
+
+        $intVal = (int) $clean;
+        return $intVal > 0 ? $intVal : null;
     }
 
-    protected function normalizeRow(array $row, int $lineNumber): array
+    protected function emptySummary(): array
     {
-        $errors = [];
-        $qtyRh = $this->parseQuantity($row['qty_rh'] ?? null);
-        $qtyLh = $this->parseQuantity($row['qty_lh'] ?? null);
-
-        if (empty($row['standard_part_no'])) {
-            $errors[] = "Line {$lineNumber}: StandardPartNo is required.";
-        }
-
-        $parent = !empty($row['parent']) ? $row['parent'] : 'MAIN';
-
-        if ($qtyRh === 0 && $qtyLh === 0) {
-            $errors[] = "Line {$lineNumber}: QTYRH and QTYLH cannot both be zero.";
-        }
-
         return [
-            'item_no' => $row['item_no'] ?? null,
-            'standard_part_no' => $row['standard_part_no'] ?? null,
-            'qty_rh' => $qtyRh,
-            'qty_lh' => $qtyLh,
-            'size' => $row['size'] ?? null,
-            'supplier' => $row['supplier'] ?? null,
-            'remarks' => $row['remarks'] ?? null,
-            'parent' => $parent,
-            'proj_spec_yn' => $row['proj_spec_yn'] ?? null,
-            'errors' => $errors,
+            'total_rows' => 0,
+            'total_projects' => 0,
+            'total_jigs' => 0,
+            'total_units' => 0,
+            'unique_parts' => 0,
+            'side_distribution' => [
+                'RH' => ['count' => 0, 'qty' => 0],
+                'LH' => ['count' => 0, 'qty' => 0],
+                'COMMON' => ['count' => 0, 'qty' => 0],
+            ],
+            'total_required_quantity' => 0,
+            'header_row' => 0,
         ];
-    }
-
-    protected function parseQuantity(?string $value): int
-    {
-        if ($value === null || trim((string) $value) === '') {
-            return 0;
-        }
-
-        return (int) filter_var($value, FILTER_SANITIZE_NUMBER_INT);
-    }
-
-    protected function isEmptyRow(array $row): bool
-    {
-        return empty(array_filter($row, fn ($value) => trim((string) $value) !== ''));
     }
 }

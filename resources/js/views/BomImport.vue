@@ -1,150 +1,221 @@
 <template>
   <div class="p-4" style="background-color: #f8fafc; min-height: 100vh;">
     <div class="container-fluid p-0">
-        <div class="card border-0 shadow-sm">
-          <div class="card-header bg-white border-bottom py-3">
-            <div class="d-flex justify-content-between align-items-center">
-              <div>
-                <h3 class="fw-bold mb-1"><i class="fas fa-file-upload me-2 text-primary"></i>BOM Import Desk</h3>
-                <p class="text-muted mb-0">Import legacy .xls or .xlsx BOM files and preview rows before saving.</p>
-              </div>
-              <span class="badge bg-primary px-3 py-2 fs-6">BOM Import</span>
+      <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white border-bottom py-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <h3 class="fw-bold mb-1"><i class="fas fa-file-excel me-2 text-primary"></i>BOM Import Desk (FA-279 Standard)</h3>
+              <p class="text-muted mb-0">Import official FA-279 MFG BOM format (<span class="fw-semibold text-dark">Project Code, Jig No, Unit No, Part No, Side, Qty</span>).</p>
             </div>
-
-            <!-- Tab Navigation -->
-            <ul class="nav nav-tabs card-header-tabs mt-3 border-0">
-              <li class="nav-item">
-                <button class="nav-link px-4 fw-bold" :class="{ 'active border-primary border-bottom border-2 text-primary': activeTab === 'import', 'text-secondary': activeTab !== 'import' }" @click="activeTab = 'import'">
-                  <i class="fas fa-upload me-2"></i>Import Tool
-                </button>
-              </li>
-              <li class="nav-item">
-                <button class="nav-link px-4 fw-bold" :class="{ 'active border-primary border-bottom border-2 text-primary': activeTab === 'history', 'text-secondary': activeTab !== 'history' }" @click="activeTab = 'history'; fetchHistory();">
-                  <i class="fas fa-history me-2"></i>Import History
-                </button>
-              </li>
-            </ul>
+            <span class="badge bg-primary px-3 py-2 fs-6">FA-279 Standard</span>
           </div>
 
-          <div class="card-body">
-            <div v-if="error" class="alert alert-danger">{{ error }}</div>
-            <div v-if="successMessage" class="alert alert-success">{{ successMessage }}</div>
+          <!-- Tab Navigation -->
+          <ul class="nav nav-tabs card-header-tabs mt-3 border-0">
+            <li class="nav-item">
+              <button class="nav-link px-4 fw-bold" :class="{ 'active border-primary border-bottom border-2 text-primary': activeTab === 'import', 'text-secondary': activeTab !== 'import' }" @click="activeTab = 'import'">
+                <i class="fas fa-upload me-2"></i>Import Tool
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link px-4 fw-bold" :class="{ 'active border-primary border-bottom border-2 text-primary': activeTab === 'history', 'text-secondary': activeTab !== 'history' }" @click="activeTab = 'history'; fetchHistory();">
+                <i class="fas fa-history me-2"></i>Import History
+              </button>
+            </li>
+          </ul>
+        </div>
 
-            <!-- TAB 1: IMPORT TOOL -->
-            <div v-if="activeTab === 'import'">
-              <form @submit.prevent="previewBom">
-                <div class="row g-3">
-                  <div class="col-md-6">
-                    <label class="form-label fw-semibold">Select BOM file</label>
-                    <input class="form-control" type="file" accept=".xls,.xlsx" @change="handleFileChange" />
-                  </div>
-                  <div class="col-md-3">
-                    <label class="form-label fw-semibold">Project Code</label>
-                    <input v-model="projectCode" class="form-control" placeholder="e.g. FAA" />
-                  </div>
-                  <div class="col-md-3">
-                    <label class="form-label fw-semibold">Project Name</label>
-                    <input v-model="projectName" class="form-control" placeholder="e.g. FAA Project" />
-                  </div>
-                  <div class="col-md-12">
-                    <label class="form-label fw-semibold">BOM path or filename</label>
-                    <input v-model="path" class="form-control" placeholder="BOM/ERP BOM-62800-ST07-00-00-R.xls" />
-                  </div>
+        <div class="card-body">
+          <div v-if="error" class="alert alert-danger shadow-sm d-flex align-items-center">
+            <i class="fas fa-exclamation-triangle fs-4 me-3"></i>
+            <div>
+              <div class="fw-bold">Import / Validation Error</div>
+              <div>{{ error }}</div>
+            </div>
+          </div>
+
+          <div v-if="successMessage" class="alert alert-success shadow-sm d-flex align-items-center">
+            <i class="fas fa-check-circle fs-4 me-3"></i>
+            <div>
+              <div class="fw-bold">Success</div>
+              <div>{{ successMessage }}</div>
+            </div>
+          </div>
+
+          <!-- TAB 1: IMPORT TOOL -->
+          <div v-if="activeTab === 'import'">
+            <form @submit.prevent="previewBom">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label fw-semibold">Upload BOM Excel File (.xlsx, .xls)</label>
+                  <input class="form-control" type="file" accept=".xls,.xlsx" @change="handleFileChange" />
                 </div>
-
-                <div class="mt-4 d-flex gap-2">
-                  <button class="btn btn-primary" :disabled="loading">
-                    <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
-                    Preview BOM
-                  </button>
-                  <button type="button" class="btn btn-success" :disabled="loading || !canImport" @click="importBom">
-                    Import BOM
-                  </button>
+                <div class="col-md-6">
+                  <label class="form-label fw-semibold">Or Server File Path / Filename</label>
+                  <input v-model="path" class="form-control" placeholder="BOM/FA-279 NEW MFG BOM.xlsx" />
                 </div>
-              </form>
-
-              <div v-if="previewRows.length" class="table-responsive mt-4">
-                <table class="table table-hover align-middle border-top mb-0">
-                  <thead class="table-dark">
-                    <tr>
-                      <th>Item</th>
-                      <th>Standard Part No</th>
-                      <th>RH</th>
-                      <th>LH</th>
-                      <th>Total</th>
-                      <th>Parent</th>
-                      <th>Supplier</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(row, index) in previewRows" :key="`${row.standard_part_no}-${index}`">
-                      <td>{{ row.item_no }}</td>
-                      <td class="fw-bold text-primary">{{ row.standard_part_no }}</td>
-                      <td>{{ row.qty_rh }}</td>
-                      <td>{{ row.qty_lh }}</td>
-                      <td>{{ (Number(row.qty_rh || 0) + Number(row.qty_lh || 0)) }}</td>
-                      <td>{{ row.parent }}</td>
-                      <td>{{ row.supplier || '—' }}</td>
-                    </tr>
-                  </tbody>
-                </table>
               </div>
 
-              <div v-if="validationErrors.length" class="mt-4">
-                <h6 class="fw-bold text-danger">Validation issues</h6>
-                <ul class="mb-0">
+              <div class="mt-4 d-flex gap-2">
+                <button type="submit" class="btn btn-primary px-4 fw-bold" :disabled="loading">
+                  <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+                  <i v-else class="fas fa-search me-2"></i>Preview & Validate
+                </button>
+                <button type="button" class="btn btn-success px-4 fw-bold" :disabled="loading || !canImport" @click="importBom">
+                  <i class="fas fa-file-import me-2"></i>IMPORT BOM
+                </button>
+              </div>
+            </form>
+
+            <!-- Preview Summary Metrics Cards -->
+            <div v-if="previewSummary" class="row g-3 mt-3">
+              <div class="col-6 col-md-2">
+                <div class="card border-0 bg-primary text-white shadow-sm p-3 text-center">
+                  <div class="fs-4 fw-bold">{{ previewSummary.total_projects || 0 }}</div>
+                  <div class="small opacity-75">Projects</div>
+                </div>
+              </div>
+              <div class="col-6 col-md-2">
+                <div class="card border-0 bg-info text-white shadow-sm p-3 text-center">
+                  <div class="fs-4 fw-bold">{{ previewSummary.total_jigs || 0 }}</div>
+                  <div class="small opacity-75">Assembly JIGs</div>
+                </div>
+              </div>
+              <div class="col-6 col-md-2">
+                <div class="card border-0 bg-secondary text-white shadow-sm p-3 text-center">
+                  <div class="fs-4 fw-bold">{{ previewSummary.total_units || 0 }}</div>
+                  <div class="small opacity-75">Units</div>
+                </div>
+              </div>
+              <div class="col-6 col-md-2">
+                <div class="card border-0 bg-dark text-white shadow-sm p-3 text-center">
+                  <div class="fs-4 fw-bold">{{ previewSummary.unique_parts || 0 }}</div>
+                  <div class="small opacity-75">Unique Parts</div>
+                </div>
+              </div>
+              <div class="col-6 col-md-2">
+                <div class="card border-0 bg-warning text-dark shadow-sm p-3 text-center">
+                  <div class="fs-4 fw-bold">{{ previewSummary.total_rows || 0 }}</div>
+                  <div class="small opacity-75">Requirements (Rows)</div>
+                </div>
+              </div>
+              <div class="col-6 col-md-2">
+                <div class="card border-0 bg-success text-white shadow-sm p-3 text-center">
+                  <div class="fs-4 fw-bold">{{ previewSummary.total_required_quantity || 0 }}</div>
+                  <div class="small opacity-75">Total Pieces (Qty)</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Side Distribution Pills -->
+            <div v-if="previewSummary?.side_distribution" class="d-flex gap-3 align-items-center mt-3 p-3 bg-white border rounded shadow-sm">
+              <span class="fw-bold small text-secondary">Side Distribution:</span>
+              <span class="badge bg-primary px-3 py-2">
+                RH: {{ previewSummary.side_distribution.RH?.count || 0 }} reqs ({{ previewSummary.side_distribution.RH?.qty || 0 }} pcs)
+              </span>
+              <span class="badge bg-info text-dark px-3 py-2">
+                LH: {{ previewSummary.side_distribution.LH?.count || 0 }} reqs ({{ previewSummary.side_distribution.LH?.qty || 0 }} pcs)
+              </span>
+              <span v-if="previewSummary.side_distribution.COMMON?.count > 0" class="badge bg-secondary px-3 py-2">
+                COMMON: {{ previewSummary.side_distribution.COMMON?.count || 0 }} reqs ({{ previewSummary.side_distribution.COMMON?.qty || 0 }} pcs)
+              </span>
+            </div>
+
+            <!-- Validation Warnings & Issues -->
+            <div v-if="validationErrors.length" class="mt-4">
+              <div class="alert alert-danger shadow-sm">
+                <h6 class="fw-bold text-danger mb-2"><i class="fas fa-ban me-2"></i>Validation Issues ({{ validationErrors.length }})</h6>
+                <ul class="mb-0 small" style="max-height: 200px; overflow-y: auto;">
                   <li v-for="(issue, index) in validationErrors" :key="`${issue}-${index}`">{{ issue }}</li>
                 </ul>
               </div>
             </div>
 
-            <!-- TAB 2: IMPORT HISTORY -->
-            <div v-else-if="activeTab === 'history'">
-              <div class="table-responsive">
-                <table class="table table-hover align-middle border-top mb-0">
-                  <thead class="table-dark">
-                    <tr>
-                      <th>Filename</th>
-                      <th>Project</th>
-                      <th>Imported By</th>
-                      <th>Parts Count</th>
-                      <th>Status</th>
-                      <th>Date & Timestamp</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="batch in importHistory" :key="batch.id">
-                      <td class="fw-bold text-primary">{{ batch.filename }}</td>
-                      <td>
-                        <span class="badge bg-light text-dark border">
-                          {{ batch.project?.name || '—' }} ({{ batch.project?.project_code || '—' }})
-                        </span>
-                      </td>
-                      <td>{{ batch.importer?.name || 'System' }}</td>
-                      <td class="fw-bold text-dark">{{ batch.total_rows || 0 }} parts</td>
-                      <td>
-                        <span class="badge" :class="{
-                          'bg-success': batch.status === 'completed',
-                          'bg-warning text-dark': batch.status === 'processing',
-                          'bg-danger': batch.status === 'failed'
-                        }">
-                          {{ (batch.status || 'completed').toUpperCase() }}
-                        </span>
-                      </td>
-                      <td class="text-muted">{{ formatTimestamp(batch.created_at) }}</td>
-                    </tr>
-                    <tr v-if="!importHistory.length">
-                      <td colspan="6" class="text-center py-5 text-muted">
-                        <i class="fas fa-history fa-3x mb-3 text-secondary"></i>
-                        <p class="mb-0">No BOM import history found.</p>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+            <!-- Preview Rows Table -->
+            <div v-if="previewRows.length" class="table-responsive mt-4 shadow-sm border rounded">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-dark">
+                  <tr>
+                    <th style="width: 70px;">#</th>
+                    <th>Project Code</th>
+                    <th>Jig No</th>
+                    <th>Unit No</th>
+                    <th>Part No</th>
+                    <th>Side</th>
+                    <th>Required Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, index) in previewRows" :key="`${row.project_code}-${row.part_no}-${index}`">
+                    <td class="text-muted small">{{ row.row_number || (index + 1) }}</td>
+                    <td class="fw-bold text-primary">{{ row.project_code }}</td>
+                    <td><span class="badge bg-light text-dark border">{{ row.jig_no }}</span></td>
+                    <td><span class="badge bg-secondary">Unit {{ row.unit_no }}</span></td>
+                    <td class="fw-bold text-dark font-monospace">{{ row.part_no }}</td>
+                    <td>
+                      <span class="badge" :class="{
+                        'bg-primary': row.side === 'RH',
+                        'bg-info text-dark': row.side === 'LH',
+                        'bg-secondary': row.side === 'COMMON'
+                      }">
+                        {{ row.side }}
+                      </span>
+                    </td>
+                    <td class="fw-bold text-success fs-6">{{ row.qty }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-
           </div>
+
+          <!-- TAB 2: IMPORT HISTORY -->
+          <div v-else-if="activeTab === 'history'">
+            <div class="table-responsive">
+              <table class="table table-hover align-middle border-top mb-0">
+                <thead class="table-dark">
+                  <tr>
+                    <th>Filename</th>
+                    <th>Project</th>
+                    <th>Imported By</th>
+                    <th>Requirements Count</th>
+                    <th>Status</th>
+                    <th>Date & Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="batch in importHistory" :key="batch.id">
+                    <td class="fw-bold text-primary">{{ cleanFilename(batch.filename) }}</td>
+                    <td>
+                      <span class="badge bg-light text-dark border">
+                        {{ batch.project?.name || '—' }} ({{ batch.project?.project_code || '—' }})
+                      </span>
+                    </td>
+                    <td>{{ batch.importer?.name || 'System' }}</td>
+                    <td class="fw-bold text-dark">{{ batch.total_rows || 0 }} reqs</td>
+                    <td>
+                      <span class="badge" :class="{
+                        'bg-success': batch.status === 'completed',
+                        'bg-warning text-dark': batch.status === 'processing',
+                        'bg-danger': batch.status === 'failed'
+                      }">
+                        {{ (batch.status || 'completed').toUpperCase() }}
+                      </span>
+                    </td>
+                    <td class="text-muted">{{ formatTimestamp(batch.created_at) }}</td>
+                  </tr>
+                  <tr v-if="!importHistory.length">
+                    <td colspan="6" class="text-center py-5 text-muted">
+                      <i class="fas fa-history fa-3x mb-3 text-secondary"></i>
+                      <p class="mb-0">No BOM import history found.</p>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   </div>
@@ -160,10 +231,9 @@ const activeTab = ref('import'); // 'import' | 'history'
 const importHistory = ref([]);
 
 const selectedFile = ref(null);
-const projectCode = ref('');
-const projectName = ref('');
-const path = ref('');
+const path = ref('BOM/FA-279 NEW MFG BOM.xlsx');
 const previewRows = ref([]);
+const previewSummary = ref(null);
 const validationErrors = ref([]);
 const error = ref('');
 const successMessage = ref('');
@@ -188,13 +258,16 @@ const previewBom = async () => {
   loading.value = true;
   validationErrors.value = [];
   previewRows.value = [];
+  previewSummary.value = null;
 
   try {
     const formData = new FormData();
     if (selectedFile.value) {
       formData.append('file', selectedFile.value);
+      formData.append('filename', selectedFile.value.name);
     } else if (path.value) {
       formData.append('path', path.value);
+      formData.append('filename', path.value.split(/[\\/]/).pop());
     }
 
     const response = await axios.post('/api/v1/bom/preview', formData, {
@@ -202,12 +275,16 @@ const previewBom = async () => {
     });
 
     previewRows.value = response.data.rows || [];
+    previewSummary.value = response.data.summary || null;
     validationErrors.value = response.data.errors || [];
-    if (!previewRows.value.length) {
-      successMessage.value = 'Preview completed. No rows were found in the selected BOM.';
+    if (!previewRows.value.length && !validationErrors.value.length) {
+      successMessage.value = 'Preview completed. No data rows were found in the selected BOM.';
     }
   } catch (err) {
-    error.value = err.response?.data?.message || 'Unable to preview BOM.';
+    error.value = err.response?.data?.message || err.response?.data?.errors?.[0] || 'Unable to preview BOM.';
+    if (err.response?.data?.errors && Array.isArray(err.response?.data?.errors)) {
+      validationErrors.value = err.response.data.errors;
+    }
   } finally {
     loading.value = false;
   }
@@ -221,14 +298,10 @@ const importBom = async () => {
     const formData = new FormData();
     if (selectedFile.value) {
       formData.append('file', selectedFile.value);
+      formData.append('filename', selectedFile.value.name);
     } else if (path.value) {
       formData.append('path', path.value);
-    }
-    if (projectCode.value) {
-      formData.append('project_code', projectCode.value);
-    }
-    if (projectName.value) {
-      formData.append('project_name', projectName.value);
+      formData.append('filename', path.value.split(/[\\/]/).pop());
     }
 
     const response = await axios.post('/api/v1/bom/import', formData, {
@@ -236,8 +309,9 @@ const importBom = async () => {
     });
 
     if (response.data.success) {
-      successMessage.value = response.data.message || 'BOM imported successfully.';
+      successMessage.value = response.data.message || 'FA-279 BOM imported successfully.';
       previewRows.value = [];
+      previewSummary.value = null;
       validationErrors.value = [];
       fetchHistory();
     } else {
@@ -261,6 +335,11 @@ const fetchHistory = async () => {
   }
 };
 
+const cleanFilename = (fn) => {
+  if (!fn) return 'BOM File';
+  return fn.replace(/^.*[\\\/]/, '');
+};
+
 const formatTimestamp = (isoString) => {
   if (!isoString) return '';
   try {
@@ -278,11 +357,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.app-wrapper {
-  min-height: 100vh;
-  background-color: #f8fafc;
-}
-
 .table thead th {
   background-color: #1e293b !important;
   color: #ffffff !important;

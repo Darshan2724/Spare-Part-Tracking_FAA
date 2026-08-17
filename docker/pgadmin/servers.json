@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "SpareTrack PostgreSQL",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "sparetrack",
+      "Username": "sparetrack_user",
+      "SSLMode": "prefer"
+    }
+  }
+}

@@ -2,10 +2,9 @@
   <div class="p-4" style="background-color: #f8fafc; min-height: 100vh;">
     <div class="container-fluid p-0">
       <!-- Header Topbar -->
-      <div class="py-3 px-4 bg-white border-bottom shadow-sm rounded mb-4 d-flex justify-content-between align-items-center">
+      <div class="py-3 px-4 bg-white border-bottom shadow-sm rounded mb-4 d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div>
           <h4 class="mb-0 fw-bold text-dark"><i class="fas fa-chart-line text-primary me-2"></i>Manufacturing Manager Terminal</h4>
-          <p class="text-muted mb-0 small">Real-time status, bottleneck analytics, quality trends, and daily department parts movement</p>
         </div>
         <div class="d-flex gap-2">
           <router-link v-if="['ADMIN', 'MANAGER'].includes(authStore.userRole)" :to="{ name: 'bom-import' }" class="btn btn-primary btn-sm text-nowrap">
@@ -25,8 +24,8 @@
               <label class="form-label small fw-bold mb-1"><i class="fas fa-filter me-1 text-primary"></i> Project</label>
               <select v-model="filters.project_id" @change="fetchData" class="form-select form-select-sm">
                 <option value="">All Active Projects</option>
-                <option v-for="proj in projectsProgress" :key="proj.id" :value="proj.id">
-                  {{ proj.project_code }} - {{ proj.name }}
+                <option v-for="proj in priorityProjectsList" :key="proj.id" :value="proj.id">
+                  {{ proj.project_code || proj.name }} - {{ proj.name }}
                 </option>
               </select>
             </div>
@@ -173,33 +172,47 @@
         </div>
       </div>
 
-      <!-- PARTS PRIORITY INTELLIGENCE MAP (Critical Path Acceleration) -->
+      <!-- PARTS PRIORITY MAP -->
       <div class="card border-0 shadow-sm mb-4">
         <div class="card-header bg-white py-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
-          <div>
-            <h5 class="card-title fw-bold mb-0">
-              <i class="fas fa-fire me-2 text-danger"></i>Parts Priority Intelligence Map
-              <span class="badge bg-danger ms-2" v-if="prioritySummary.CRITICAL > 0">{{ prioritySummary.CRITICAL }} Urgent Action Units</span>
-            </h5>
-            <small class="text-muted">Units closest to completion are prioritized so managers can order remaining parts to finish assemblies faster.</small>
-          </div>
           <div class="d-flex align-items-center gap-2">
-            <label class="form-label mb-0 small fw-bold text-secondary">Filter Project:</label>
-            <select v-model="priorityProjectFilter" class="form-select form-select-sm" style="width: 190px;" @change="fetchPriorityMap">
+            <h5 class="card-title fw-bold mb-0">
+              <i class="fas fa-layer-group text-primary me-2"></i>Parts Priority Map
+              <span class="badge bg-danger ms-2" v-if="(prioritySummary.critical || prioritySummary.CRITICAL || 0) > 0">
+                {{ prioritySummary.critical || prioritySummary.CRITICAL }} Urgent Units
+              </span>
+            </h5>
+            <button class="btn btn-xs btn-outline-secondary ms-2" @click="showPriorityTiers = !showPriorityTiers">
+              <i class="fas fa-info-circle me-1"></i>{{ showPriorityTiers ? 'Hide Tiers' : 'Show Priority Tiers' }}
+            </button>
+          </div>
+          
+          <!-- Priority Filters -->
+          <div class="d-flex flex-wrap align-items-center gap-2">
+            <input v-model="prioritySearchQuery" type="text" class="form-control form-control-sm" placeholder="Search JIG / Unit / Project..." style="width: 200px;" />
+            <select v-model="priorityTierFilter" class="form-select form-select-sm" style="width: 140px;">
+              <option value="">All Tiers</option>
+              <option value="CRITICAL">Critical (≥70%)</option>
+              <option value="HIGH">High (≥40%)</option>
+              <option value="MEDIUM">Medium (≥20%)</option>
+              <option value="LOW">Low (&lt;20%)</option>
+              <option value="COMPLETE">Completed</option>
+            </select>
+            <select v-model="priorityProjectFilter" class="form-select form-select-sm" style="width: 170px;" @change="fetchPriorityMap">
               <option value="">All Projects</option>
               <option v-for="proj in priorityProjectsList" :key="proj.id" :value="proj.id">{{ proj.name }} ({{ proj.project_code }})</option>
             </select>
           </div>
         </div>
 
-        <!-- Priority Tier Summary Badges -->
-        <div class="card-body py-2 px-3 border-bottom bg-light">
+        <!-- Priority Tier Summary Badges (Collapsible) -->
+        <div v-if="showPriorityTiers" class="card-body py-2 px-3 border-bottom bg-light">
           <div class="d-flex flex-wrap gap-2 align-items-center">
-            <span class="badge bg-danger px-3 py-2 fs-6">🔴 Critical (≥70%): {{ prioritySummary.CRITICAL || 0 }}</span>
-            <span class="badge bg-warning text-dark px-3 py-2 fs-6">🟠 High (≥40%): {{ prioritySummary.HIGH || 0 }}</span>
-            <span class="badge bg-info text-white px-3 py-2 fs-6">🟡 Medium (≥20%): {{ prioritySummary.MEDIUM || 0 }}</span>
-            <span class="badge bg-secondary px-3 py-2 fs-6">⚪ Low (<20%): {{ prioritySummary.LOW || 0 }}</span>
-            <span class="badge bg-success px-3 py-2 fs-6">🟢 Completed: {{ prioritySummary.COMPLETE || 0 }}</span>
+            <span class="badge bg-danger px-3 py-2 fs-6">Critical (≥70%): {{ prioritySummary.critical || prioritySummary.CRITICAL || 0 }}</span>
+            <span class="badge bg-warning text-dark px-3 py-2 fs-6">High (≥40%): {{ prioritySummary.high || prioritySummary.HIGH || 0 }}</span>
+            <span class="badge bg-info text-white px-3 py-2 fs-6">Medium (≥20%): {{ prioritySummary.medium || prioritySummary.MEDIUM || 0 }}</span>
+            <span class="badge bg-secondary px-3 py-2 fs-6">Low (&lt;20%): {{ prioritySummary.low || prioritySummary.LOW || 0 }}</span>
+            <span class="badge bg-success px-3 py-2 fs-6">Completed: {{ prioritySummary.complete || prioritySummary.COMPLETE || 0 }}</span>
           </div>
         </div>
 
@@ -214,7 +227,7 @@
                       <th style="background:#0f172a; color:#fff;">Project</th>
                       <th style="background:#0f172a; color:#fff;">JIG</th>
                       <th style="background:#0f172a; color:#fff;">Unit</th>
-                      <th style="background:#0f172a; color:#fff;">Req / Rec</th>
+                      <th style="background:#0f172a; color:#fff;">REQ / REC</th>
                       <th style="background:#0f172a; color:#fff;">Pending</th>
                       <th style="background:#0f172a; color:#fff;">Completion %</th>
                       <th style="background:#0f172a; color:#fff;">Priority Tier</th>
@@ -222,23 +235,23 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <template v-for="unit in priorityUnits" :key="unit.key">
+                    <template v-for="unit in filteredPriorityUnits" :key="unit.key">
                       <tr :class="{ 'table-danger fw-semibold': unit.priority_tier === 'CRITICAL' }">
                         <td><span class="badge bg-light text-dark border">{{ unit.project_code }}</span></td>
                         <td class="fw-bold text-primary">{{ unit.jig_name }}</td>
                         <td class="fw-bold">{{ unit.unit_no }}</td>
                         <td>{{ unit.total_required }} / <span class="text-success fw-bold">{{ unit.total_received }}</span></td>
-                        <td><span class="fw-bold text-danger">{{ unit.pending_quantity }}</span></td>
+                        <td><span class="fw-bold text-danger">{{ unit.pending_quantity || 0 }}</span></td>
                         <td style="width: 120px;">
                           <div class="d-flex align-items-center gap-2">
                             <div class="progress flex-grow-1" style="height: 8px;">
                               <div class="progress-bar"
                                 :class="{
-                                  'bg-danger': unit.priority_tier === 'CRITICAL',
-                                  'bg-warning': unit.priority_tier === 'HIGH',
-                                  'bg-info': unit.priority_tier === 'MEDIUM',
-                                  'bg-secondary': unit.priority_tier === 'LOW',
-                                  'bg-success': unit.priority_tier === 'COMPLETE'
+                                   'bg-danger': unit.priority_tier === 'CRITICAL',
+                                   'bg-warning': unit.priority_tier === 'HIGH',
+                                   'bg-info': unit.priority_tier === 'MEDIUM',
+                                   'bg-secondary': unit.priority_tier === 'LOW',
+                                   'bg-success': unit.priority_tier === 'COMPLETE'
                                 }"
                                 :style="{ width: unit.completion_pct + '%' }">
                               </div>
@@ -247,24 +260,24 @@
                           </div>
                         </td>
                         <td>
-                          <span class="badge" :class="'bg-' + unit.badge_color" style="font-size: 0.72rem;">
-                            {{ unit.priority_label }}
+                          <span class="badge" :class="'bg-' + (unit.tier_class || 'secondary')" style="font-size: 0.72rem;">
+                            {{ unit.priority_tier }}
                           </span>
                         </td>
                         <td>
-                          <button v-if="unit.pending_parts.length"
+                          <button v-if="(unit.pending_parts || []).length"
                             @click="expandedPriorityKey = expandedPriorityKey === unit.key ? null : unit.key"
                             class="btn btn-xs"
                             :class="expandedPriorityKey === unit.key ? 'btn-dark' : 'btn-outline-danger'">
                             <i class="fas" :class="expandedPriorityKey === unit.key ? 'fa-chevron-up' : 'fa-list-ul'"></i>
-                            {{ expandedPriorityKey === unit.key ? 'Hide' : 'Parts (' + unit.pending_parts.length + ')' }}
+                            {{ expandedPriorityKey === unit.key ? 'Hide' : 'Parts (' + (unit.pending_parts || []).length + ')' }}
                           </button>
                           <span v-else class="badge bg-success">Done</span>
                         </td>
                       </tr>
 
                       <!-- Expandable Pending Parts Details -->
-                      <tr v-if="expandedPriorityKey === unit.key && unit.pending_parts.length" class="table-light">
+                      <tr v-if="expandedPriorityKey === unit.key && (unit.pending_parts || []).length" class="table-light">
                         <td colspan="8" class="p-3">
                           <div class="p-2 bg-white rounded border">
                             <h6 class="fw-bold text-danger mb-2">
@@ -284,7 +297,7 @@
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  <tr v-for="part in unit.pending_parts" :key="part.bom_item_id + part.side">
+                                  <tr v-for="part in (unit.pending_parts || [])" :key="part.id + (part.side || 'COMMON')">
                                     <td class="fw-bold text-primary">{{ part.standard_part_no }}</td>
                                     <td><span class="badge bg-secondary">{{ part.side }}</span></td>
                                     <td>{{ part.required }}</td>
@@ -299,8 +312,8 @@
                         </td>
                       </tr>
                     </template>
-                    <tr v-if="!priorityUnits.length">
-                      <td colspan="8" class="text-center py-4 text-muted">No unit priority data available for the selected project.</td>
+                    <tr v-if="!filteredPriorityUnits.length">
+                      <td colspan="8" class="text-center py-4 text-muted">No unit priority data matching the filters.</td>
                     </tr>
                   </tbody>
                 </table>
@@ -313,7 +326,6 @@
                 <i class="fas fa-chart-line me-1 text-primary"></i>
                 Top Units Closest to Completion (% Ready)
               </h6>
-              <small class="text-muted d-block mb-3">Order the few missing parts for these top units to unlock assembly completion immediately.</small>
               <div style="height: 330px; position: relative;">
                 <canvas ref="priorityChartCanvas"></canvas>
               </div>
@@ -322,11 +334,44 @@
         </div>
       </div>
 
-      <!-- DAILY DEPARTMENT PARTS MOVEMENT MATRIX (Excel Spreadsheet Style) -->
+      <!-- DAILY DEPARTMENT PARTS MOVEMENT MATRIX (5-Active-Day Rolling Window) -->
       <div class="card border-0 shadow-sm mb-4">
-        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-          <h5 class="card-title fw-bold mb-0"><i class="fas fa-calendar-alt me-2 text-primary"></i>Daily Department Parts Movement Matrix</h5>
-          <small class="text-muted">Tracking on which date which part was in which department</small>
+        <div class="card-header bg-white py-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <div>
+            <h5 class="card-title fw-bold mb-0">
+              <i class="fas fa-calendar-alt me-2 text-primary"></i>Daily Department Parts Movement Matrix
+            </h5>
+          </div>
+          <!-- 5-Active-Day Rolling Window & History Navigation Toolbar -->
+          <div class="d-flex flex-wrap align-items-center gap-2">
+            <span class="badge bg-light text-dark border px-2 py-2 small">
+              <i class="fas fa-history text-primary me-1"></i>{{ matrixPagination.displayed_period_label || 'Latest 5 Active Days' }}
+            </span>
+            <div class="btn-group btn-group-sm">
+              <button 
+                class="btn btn-outline-secondary" 
+                :disabled="!matrixPagination.has_previous_window" 
+                @click="navigateMatrixWindow(5)"
+                title="View previous 5 active days">
+                <i class="fas fa-chevron-left me-1"></i>Previous 5 Days
+              </button>
+              <button 
+                class="btn btn-outline-secondary" 
+                :disabled="!matrixPagination.has_next_window" 
+                @click="navigateMatrixWindow(-5)"
+                title="View next 5 active days">
+                Next 5 Days<i class="fas fa-chevron-right ms-1"></i>
+              </button>
+            </div>
+            <select v-model="matrixQuickRange" @change="handleMatrixQuickRangeChange" class="form-select form-select-sm" style="width: 170px;">
+              <option value="last_5_active">Last 5 Active Days</option>
+              <option value="last_10_days">Last 10 Days</option>
+              <option value="this_week">This Week</option>
+              <option value="last_week">Last Week</option>
+              <option value="this_month">This Month</option>
+              <option value="custom">Custom Range</option>
+            </select>
+          </div>
         </div>
         <div class="card-body p-0">
           <div class="table-responsive">
@@ -339,7 +384,7 @@
                   <th style="color: #ffffff !important; background-color: #0f172a !important; font-weight: 700; font-size: 0.85rem;">REWORK QUEUE</th>
                   <th style="color: #ffffff !important; background-color: #0f172a !important; font-weight: 700; font-size: 0.85rem;">PAINT SHOP</th>
                   <th style="color: #ffffff !important; background-color: #0f172a !important; font-weight: 700; font-size: 0.85rem;">ASSEMBLY SHOP</th>
-                  <th style="width: 15%; color: #ffffff !important; background-color: #0f172a !important; font-weight: 700; font-size: 0.85rem;" title="Sum of unique parts moved across all departments on this date (Store + QC + Rework + Paint + Assembly)">DAILY TOTAL PARTS <i class="fas fa-info-circle text-warning ms-1" style="cursor:help;"></i></th>
+                  <th style="width: 15%; color: #ffffff !important; background-color: #0f172a !important; font-weight: 700; font-size: 0.85rem;" title="Sum of parts moved across departments on this date (Store + QC + Rework + Paint + Assembly)">DAILY TOTAL PARTS <i class="fas fa-info-circle text-warning ms-1" style="cursor:help;"></i></th>
                   <th style="width: 15%; color: #ffffff !important; background-color: #0f172a !important; font-weight: 700; font-size: 0.85rem;">INSPECT PARTS</th>
                 </tr>
               </thead>
@@ -359,20 +404,20 @@
                   </td>
                 </tr>
                 <tr v-if="!dailyMatrix.length">
-                  <td colspan="8" class="text-center py-4 text-muted">No department movements recorded for the selected filter date range.</td>
+                  <td colspan="8" class="text-center py-4 text-muted">No department movements recorded for the selected active date window.</td>
                 </tr>
               </tbody>
-              <!-- Master Totals Row (Highlighted Yellow as per Excel template) -->
+              <!-- Master Totals Row (Highlighted Yellow for displayed period) -->
               <tfoot class="table-warning border-top border-dark border-2">
                 <tr class="fw-bold fs-6">
-                  <td class="text-uppercase">Total (Master Linked)</td>
+                  <td class="text-uppercase">TOTAL FOR DISPLAYED PERIOD</td>
                   <td class="text-success">{{ dailyTotals.store_received || 0 }}</td>
                   <td class="text-warning">{{ dailyTotals.qc_inspected || 0 }}</td>
                   <td class="text-danger">{{ dailyTotals.rework || 0 }}</td>
                   <td class="text-purple">{{ dailyTotals.paint || 0 }}</td>
                   <td class="text-primary">{{ dailyTotals.assembly || 0 }}</td>
                   <td class="bg-warning text-dark border-dark border-2 fs-5">{{ dailyTotals.grand_total || 0 }}</td>
-                  <td><small class="text-dark">Master Total</small></td>
+                  <td><small class="text-dark">Displayed Window</small></td>
                 </tr>
               </tfoot>
             </table>
@@ -380,214 +425,442 @@
         </div>
       </div>
 
-      <!-- PIPELINE TRANSPARENCY: WHERE IS EVERY PART RIGHT NOW -->
-      <div class="card border-0 shadow-sm mb-4">
-        <div class="card-header bg-white py-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
-          <div>
-            <h5 class="card-title fw-bold mb-0"><i class="fas fa-route me-2 text-success"></i>Parts Pipeline Transparency — Where Is Every Part Right Now?</h5>
-            <small class="text-muted">Live snapshot of all {{ pipelineParts.length }} parts and their current manufacturing stage</small>
-          </div>
-          <div class="d-flex gap-2 flex-wrap align-items-center">
-            <select v-model="pipelineDeptFilter" class="form-select form-select-sm" style="width:170px;">
-              <option value="">All Stages</option>
-              <option value="STORE">📦 Store</option>
-              <option value="QC">🔬 QC</option>
-              <option value="REWORK">⚙️ Rework</option>
-              <option value="PAINT">🎨 Paint</option>
-              <option value="ASSEMBLY">🔩 Assembly</option>
-              <option value="PURCHASE">🛒 Purchase Queue</option>
-              <option value="DONE">✅ Done</option>
-            </select>
-            <input v-model="pipelineSearch" type="text" class="form-control form-control-sm" style="width:160px;" placeholder="🔍 Search Part / Project" />
-            <span class="badge bg-success fs-6">{{ filteredPipeline.length }} Parts</span>
-          </div>
-        </div>
-        <!-- Dept summary badges -->
-        <div class="card-body py-2 px-3 border-bottom bg-light">
-          <div class="d-flex flex-wrap gap-2">
-            <span class="badge bg-secondary px-3 py-2">📦 Store: {{ pipelineByDept.STORE || 0 }}</span>
-            <span class="badge bg-info px-3 py-2">🔬 QC: {{ pipelineByDept.QC || 0 }}</span>
-            <span class="badge bg-warning text-dark px-3 py-2">⚙️ Rework: {{ pipelineByDept.REWORK || 0 }}</span>
-            <span class="badge px-3 py-2" style="background:#7c3aed; color:white;">🎨 Paint: {{ pipelineByDept.PAINT || 0 }}</span>
-            <span class="badge bg-primary px-3 py-2">🔩 Assembly: {{ pipelineByDept.ASSEMBLY || 0 }}</span>
-            <span class="badge bg-danger px-3 py-2">🛒 Purchase: {{ pipelineByDept.PURCHASE || 0 }}</span>
-            <span class="badge bg-success px-3 py-2">✅ Done: {{ pipelineByDept.DONE || 0 }}</span>
-          </div>
-        </div>
-        <div class="card-body p-0">
-          <div class="table-responsive" style="max-height: 380px; overflow-y: auto;">
-            <table class="table table-hover align-middle mb-0 small">
-              <thead class="sticky-top" style="background: #0f172a; color: #fff; z-index: 1;">
-                <tr>
-                  <th style="background:#0f172a; color:#fff;">Part Number</th>
-                  <th style="background:#0f172a; color:#fff;">Project</th>
-                  <th style="background:#0f172a; color:#fff;">Side</th>
-                  <th style="background:#0f172a; color:#fff;">Qty</th>
-                  <th style="background:#0f172a; color:#fff;">Current Stage</th>
-                  <th style="background:#0f172a; color:#fff;">Department</th>
-                  <th style="background:#0f172a; color:#fff;">Last Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="part in filteredPipeline" :key="part.id">
-                  <td class="fw-bold text-primary">{{ part.standard_part_no }}</td>
-                  <td><span class="badge bg-light text-dark border">{{ part.project_code || part.project }}</span></td>
-                  <td><span class="badge bg-secondary">{{ part.side }}</span></td>
-                  <td class="fw-bold">{{ part.quantity }}</td>
-                  <td>
-                    <span class="badge" :class="'bg-' + (part.stage_color || 'secondary')" style="font-size: 0.75rem; white-space: nowrap;">
-                      {{ part.stage_label }}
-                    </span>
-                  </td>
-                  <td>
-                    <span class="badge" :class="{
-                      'bg-secondary': part.department === 'STORE',
-                      'bg-info': part.department === 'QC',
-                      'bg-warning text-dark': part.department === 'REWORK',
-                      'bg-primary': part.department === 'ASSEMBLY',
-                      'bg-danger': part.department === 'PURCHASE',
-                      'bg-success': part.department === 'DONE',
-                    }" style="min-width:80px;">
-                      {{ part.department }}
-                    </span>
-                  </td>
-                  <td class="text-muted">{{ part.updated_at }}</td>
-                </tr>
-                <tr v-if="!filteredPipeline.length">
-                  <td colspan="7" class="text-center py-4 text-muted">No parts found matching the filter.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      <!-- ========================================================================= -->
+      <!-- EXECUTIVE MANAGEMENT ANALYTICS: 10 INDUSTRY-GRADE KPIS & CHARTS           -->
+      <!-- Strictly located BELOW the Daily Department Parts Movement Matrix          -->
+      <!-- ========================================================================= -->
 
-      <!-- Charts Row 1: Interactive Project Comparison & Status Distribution -->
+      <!-- ROW 1: PRODUCTION FLOW & VELOCITY (Cards 1, 2, 3) -->
       <div class="row g-3 mb-4">
-        <div class="col-12 col-lg-7">
+        <!-- 1. Project Readiness Index (PRI) -->
+        <div class="col-12 col-lg-4">
           <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-              <h5 class="card-title fw-bold mb-0"><i class="fas fa-chart-bar me-2 text-primary"></i>Project Progress Breakdown & Comparison</h5>
-              <small class="text-muted">Required vs Received vs Approved Parts per Project</small>
+              <div>
+                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
+                  <i class="fas fa-tachometer-alt text-primary me-2"></i>Project Readiness Index (PRI)
+                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Measures overall assembly fulfillment progress. Computed as (Final Assembled Parts / Total Required BOM Parts) × 100, alongside stage fulfillment percentages for Store, QC, Paint, and Assembly."></i>
+                </h5>
+              </div>
+              <span class="badge" :class="readinessScore >= 80 ? 'bg-success' : (readinessScore >= 40 ? 'bg-primary' : 'bg-warning text-dark')">
+                {{ readinessScore }}% Readiness
+              </span>
             </div>
-            <div class="card-body p-3">
-              <canvas ref="projectChartCanvas" style="max-height: 260px;"></canvas>
+            <div class="card-body p-3 text-center">
+              <!-- Circular Progress Dial -->
+              <div class="position-relative d-inline-block my-2" style="width: 140px; height: 140px;">
+                <svg viewBox="0 0 36 36" class="w-100 h-100" style="transform: rotate(-90deg);">
+                  <path class="text-light" stroke-width="3.5" stroke="#f1f5f9" fill="none"
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                  <path stroke-width="3.5" stroke-dasharray="100, 100"
+                    :stroke-dashoffset="100 - readinessScore"
+                    :stroke="readinessScore >= 80 ? '#10b981' : '#2563eb'"
+                    stroke-linecap="round" fill="none"
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                </svg>
+                <div class="position-absolute top-50 start-50 translate-middle text-center">
+                  <h2 class="fw-bold mb-0 text-dark">{{ readinessScore }}%</h2>
+                  <small class="text-muted extra-small">READINESS</small>
+                </div>
+              </div>
+
+              <!-- 4-Stage Completion Breakdown -->
+              <div class="mt-3 text-start small">
+                <div v-for="stg in readinessBreakdown" :key="stg.stage" class="mb-2">
+                  <div class="d-flex justify-content-between text-muted extra-small mb-1">
+                    <span>{{ stg.stage }}</span>
+                    <strong :style="{ color: stg.color }">{{ stg.count }} pcs ({{ stg.percent }}%)</strong>
+                  </div>
+                  <div class="progress" style="height: 6px;">
+                    <div class="progress-bar" :style="{ width: stg.percent + '%', backgroundColor: stg.color }"></div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="col-12 col-lg-5">
-          <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-white py-3">
-              <h5 class="card-title fw-bold mb-0"><i class="fas fa-chart-pie me-2 text-info"></i>Part Status Distribution</h5>
-            </div>
-            <div class="card-body p-3 d-flex justify-content-center align-items-center">
-              <canvas ref="statusChartCanvas" style="max-height: 260px;"></canvas>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Charts Row 2: Bottleneck Analysis & Quality Trend -->
-      <div class="row g-3 mb-4">
-        <div class="col-12 col-lg-7">
+        <!-- 2. Production Conversion Rate (PCR Funnel) -->
+        <div class="col-12 col-lg-4">
           <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-              <h5 class="card-title fw-bold mb-0"><i class="fas fa-hourglass-half me-2 text-danger"></i>Department Bottleneck Analysis</h5>
-              <span class="badge bg-light text-muted border">Avg Days / Stage</span>
-            </div>
-            <div class="card-body p-3 position-relative">
-              <div v-if="!bottleneckData?.sufficient_data" class="alert alert-warning text-center my-4 py-4">
-                <i class="fas fa-exclamation-circle fa-2x mb-2 text-warning"></i>
-                <h6>Insufficient historical data</h6>
-                <p class="small text-muted mb-0">Workflow stage duration calculations require at least 2 completed events per stage.</p>
+              <div>
+                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
+                  <i class="fas fa-filter text-success me-2"></i>Production Conversion Rate (PCR)
+                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Shows the conversion rate of incoming raw store receipts into finished assembled components through the 4 core factory workstations: (Assembly Completed / Store Received) × 100."></i>
+                </h5>
               </div>
-              <canvas v-else ref="bottleneckChartCanvas" style="max-height: 260px;"></canvas>
-            </div>
-          </div>
-        </div>
-
-        <div class="col-12 col-lg-5">
-          <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-white py-3">
-              <h5 class="card-title fw-bold mb-0"><i class="fas fa-chart-line me-2 text-warning"></i>30-Day Quality Inspection Trend</h5>
+              <span class="badge bg-success">{{ conversionData.overall_yield_pct || 0 }}% Yield</span>
             </div>
             <div class="card-body p-3">
-              <canvas ref="qualityChartCanvas" style="max-height: 260px;"></canvas>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Two Panel Row: Filterable Recent Activity & Delayed Parts -->
-      <div class="row g-3 mb-4">
-        <div class="col-12 col-lg-7">
-          <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-white py-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
-              <h5 class="card-title fw-bold mb-0"><i class="fas fa-stream me-2 text-info"></i>Recent Workflow Activity Log</h5>
-              <!-- Activity Filters Bar -->
-              <div class="d-flex gap-2 align-items-center">
-                <select v-model="activityFilterType" class="form-select form-select-sm" style="width: 140px;">
-                  <option value="">All Events</option>
-                  <option value="store_received">Store Received</option>
-                  <option value="qc_inspected">QC Inspected</option>
-                  <option value="rework">Rework</option>
-                  <option value="paint">Paint</option>
-                  <option value="assembly">Assembly</option>
-                </select>
-                <input type="text" v-model="activitySearch" class="form-control form-control-sm" placeholder="Filter Part / User..." style="width: 140px;" />
-              </div>
-            </div>
-            <div class="card-body p-3 overflow-y-auto" style="max-height: 380px;">
-              <ul class="list-group list-group-flush small">
-                <li v-for="evt in filteredRecentEvents" :key="evt.id" class="list-group-item px-0 py-2 border-bottom">
+              <div class="funnel-container d-flex flex-column gap-2">
+                <!-- Step 1: Store Inward -->
+                <div class="funnel-step bg-light p-2 rounded border border-primary border-start-4">
                   <div class="d-flex justify-content-between align-items-center">
-                    <span class="badge" :class="getEventTypeBadge(evt.event_type)">{{ evt.event_type }}</span>
-                    <small class="text-muted">{{ formatDate(evt.created_at) }}</small>
+                    <span class="fw-bold text-primary small"><i class="fas fa-warehouse me-1"></i>1. Store Intake</span>
+                    <strong class="text-dark">{{ conversionData.store_intake || 0 }} pcs</strong>
                   </div>
-                  <div class="fw-semibold mt-1">
-                    {{ evt.bom_item?.standard_part_no || 'Part' }} ({{ evt.side }})
-                    <span v-if="evt.user" class="text-muted fw-normal"> • {{ evt.user.name }}</span>
+                </div>
+                <div class="text-center extra-small text-muted py-0">
+                  <i class="fas fa-arrow-down text-primary"></i> QC Clearance: <strong>{{ conversionData.qc_conversion_pct || 0 }}%</strong>
+                </div>
+
+                <!-- Step 2: QC Approved -->
+                <div class="funnel-step bg-light p-2 rounded border border-success border-start-4">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <span class="fw-bold text-success small"><i class="fas fa-check-circle me-1"></i>2. QC Approved</span>
+                    <strong class="text-dark">{{ conversionData.qc_approved || 0 }} pcs</strong>
                   </div>
-                  <div class="text-muted text-truncate">{{ evt.remarks || evt.notes }}</div>
-                </li>
-                <li v-if="!filteredRecentEvents.length" class="text-center text-muted py-4">No matching workflow activity log found.</li>
-              </ul>
+                </div>
+                <div class="text-center extra-small text-muted py-0">
+                  <i class="fas fa-arrow-down text-success"></i> Paint Throughput: <strong>{{ conversionData.paint_conversion_pct || 0 }}%</strong>
+                </div>
+
+                <!-- Step 3: Surface Painted -->
+                <div class="funnel-step bg-light p-2 rounded border border-purple border-start-4">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <span class="fw-bold text-purple small"><i class="fas fa-paint-roller me-1"></i>3. Paint Shop</span>
+                    <strong class="text-dark">{{ conversionData.paint_completed || 0 }} pcs</strong>
+                  </div>
+                </div>
+                <div class="text-center extra-small text-muted py-0">
+                  <i class="fas fa-arrow-down text-purple"></i> Assembly Fulfillment: <strong>{{ conversionData.assembly_conversion_pct || 0 }}%</strong>
+                </div>
+
+                <!-- Step 4: Final Assembled -->
+                <div class="funnel-step bg-light p-2 rounded border border-teal border-start-4">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <span class="fw-bold text-teal small"><i class="fas fa-cogs me-1"></i>4. Final Assembly</span>
+                    <strong class="text-teal">{{ conversionData.final_assembled || 0 }} pcs</strong>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="col-12 col-lg-5">
-          <div class="card border-0 shadow-sm h-100 border-start border-danger border-4">
+        <!-- 3. Project Completion Velocity -->
+        <div class="col-12 col-lg-4">
+          <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-              <h5 class="card-title fw-bold mb-0 text-danger"><i class="fas fa-clock me-2"></i>Delayed Parts (>3 Days Stuck)</h5>
-              <span class="badge bg-danger">{{ delayedParts.length }} Alert{{ delayedParts.length !== 1 ? 's' : '' }}</span>
+              <div>
+                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
+                  <i class="fas fa-chart-line text-info me-2"></i>Project Completion Velocity
+                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Tracks daily completed assembly units over time with a 7-day moving average to measure line output velocity and manufacturing acceleration."></i>
+                </h5>
+              </div>
+              <span class="badge bg-info text-white">14-Day Trend</span>
             </div>
-            <div class="card-body p-0">
+            <div class="card-body p-3">
+              <div style="height: 220px; position: relative;">
+                <canvas ref="velocityChartCanvas"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ROW 2: OPERATIONAL EFFICIENCY & CAPACITY (Cards 4, 5, 6) -->
+      <div class="row g-3 mb-4">
+        <!-- 4. Process Flow Efficiency & Stage Dwell Time -->
+        <div class="col-12 col-lg-4">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
+                  <i class="fas fa-hourglass-half text-purple me-2"></i>Process Flow Efficiency
+                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Measures average workstation dwell and turnaround duration in hours for parts progressing through Store, QC Inspection, Rework, Paint, and Assembly against standard targets."></i>
+                </h5>
+              </div>
+              <span class="badge bg-purple text-white">Stage Dwell</span>
+            </div>
+            <div class="card-body p-3">
               <div class="table-responsive">
-                <table class="table table-sm table-hover align-middle mb-0 small">
+                <table class="table table-sm align-middle mb-0 small">
                   <thead class="table-light">
                     <tr>
-                      <th>Part No</th>
-                      <th>Project</th>
+                      <th>Workstation Stage</th>
+                      <th>Avg Dwell</th>
+                      <th>Benchmark</th>
                       <th>Status</th>
-                      <th>Stuck</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="item in delayedParts" :key="item.id">
-                      <td class="fw-bold">{{ item.standard_part_no }} ({{ item.side }})</td>
-                      <td>{{ item.project }}</td>
-                      <td><span class="badge bg-warning text-dark">{{ item.status }}</span></td>
-                      <td class="text-danger fw-bold">{{ item.duration_days }}d</td>
-                    </tr>
-                    <tr v-if="!delayedParts.length">
-                      <td colspan="4" class="text-center py-4 text-success">
-                        <i class="fas fa-check-circle me-1"></i> No delayed parts currently stuck!
+                    <tr v-for="stg in stageDwellTimes" :key="stg.stage">
+                      <td class="fw-semibold text-dark">{{ stg.stage }}</td>
+                      <td class="fw-bold">{{ stg.avg_hours }} hrs</td>
+                      <td class="text-muted">{{ stg.benchmark_hours }} hrs</td>
+                      <td>
+                        <span class="badge" :class="stg.status === 'Optimal' ? 'bg-success' : (stg.status === 'Attention' ? 'bg-warning text-dark' : 'bg-secondary')">
+                          {{ stg.status }}
+                        </span>
                       </td>
                     </tr>
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Quality Stability Index (QSI Volatility Control Chart) -->
+        <div class="col-12 col-lg-4">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
+                  <i class="fas fa-shield-alt text-warning me-2"></i>Quality Stability Index (QSI)
+                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Statistical Process Control (SPC) metric monitoring day-to-day QC yield consistency within Upper Control Limit (UCL = Mean + 2σ) and Lower Control Limit (LCL = Mean - 2σ) thresholds."></i>
+                </h5>
+              </div>
+              <span class="badge bg-warning text-dark">Mean: {{ qualityStability.mean_yield || 0 }}%</span>
+            </div>
+            <div class="card-body p-3">
+              <div style="height: 220px; position: relative;">
+                <canvas ref="qsiChartCanvas"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6. Capacity Load by Department (Active WIP) -->
+        <div class="col-12 col-lg-4">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
+                  <i class="fas fa-layer-group text-primary me-2"></i>Capacity Load by Department
+                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Displays live Work-In-Progress (WIP) volume (pieces) currently queued or being processed across each individual department."></i>
+                </h5>
+              </div>
+              <span class="badge bg-primary">Active WIP</span>
+            </div>
+            <div class="card-body p-3">
+              <div class="d-flex flex-column gap-3">
+                <div v-for="cap in capacityLoad" :key="cap.department">
+                  <div class="d-flex justify-content-between align-items-center mb-1 small">
+                    <span class="fw-bold text-dark">{{ cap.department }}</span>
+                    <span class="badge px-2 py-1" :style="{ backgroundColor: cap.color, color: '#fff' }">
+                      {{ cap.wip_count }} pcs in WIP
+                    </span>
+                  </div>
+                  <div class="progress" style="height: 8px;">
+                    <div class="progress-bar" :style="{ width: Math.min(100, (cap.wip_count / (totalWipSum || 1)) * 100) + '%', backgroundColor: cap.color }"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ROW 3: VENDOR QUALITY, VARIANCE & QUALITY COST (Cards 7, 8, 9, 10) -->
+      <div class="row g-3 mb-4">
+        <!-- 7. Supplier Fill Accuracy (RH vs LH Separate) -->
+        <div class="col-12 col-lg-6">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
+                  <i class="fas fa-truck-loading text-secondary me-2"></i>Supplier Fill Accuracy (RH vs LH Separate)
+                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Measures vendor fulfillment precision against BOM specifications, keeping Left-Hand (LH) and Right-Hand (RH) quantities independently evaluated."></i>
+                </h5>
+              </div>
+              <span class="badge bg-light text-dark border">{{ supplierFillAccuracy.length }} Suppliers</span>
+            </div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0 small">
+                  <thead class="table-dark">
+                    <tr>
+                      <th>Supplier Name</th>
+                      <th>RH Required</th>
+                      <th>RH Received</th>
+                      <th>RH Fill %</th>
+                      <th>LH Required</th>
+                      <th>LH Received</th>
+                      <th>LH Fill %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="sup in supplierFillAccuracy" :key="sup.supplier_id">
+                      <td class="fw-bold text-primary">{{ sup.supplier_name }}</td>
+                      <td>{{ sup.rh_required }}</td>
+                      <td class="text-success">{{ sup.rh_received }}</td>
+                      <td>
+                        <span class="badge" :class="sup.rh_accuracy_pct >= 90 ? 'bg-success' : 'bg-warning text-dark'">
+                          {{ sup.rh_accuracy_pct }}%
+                        </span>
+                      </td>
+                      <td>{{ sup.lh_required }}</td>
+                      <td class="text-success">{{ sup.lh_received }}</td>
+                      <td>
+                        <span class="badge" :class="sup.lh_accuracy_pct >= 90 ? 'bg-success' : 'bg-warning text-dark'">
+                          {{ sup.lh_accuracy_pct }}%
+                        </span>
+                      </td>
+                    </tr>
+                    <tr v-if="!supplierFillAccuracy.length">
+                      <td colspan="7" class="text-center py-4 text-muted">No supplier delivery data recorded.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 8. Project Completion Variance -->
+        <div class="col-12 col-lg-6">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
+                  <i class="fas fa-balance-scale text-info me-2"></i>Project Completion Variance
+                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Compares required BOM specifications against actual assembled units per active project to identify schedule variance and part shortages."></i>
+                </h5>
+              </div>
+              <span class="badge bg-info text-white">Project Delta</span>
+            </div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0 small">
+                  <thead class="table-dark">
+                    <tr>
+                      <th>Project</th>
+                      <th>Planned BOM</th>
+                      <th>Actual Assembled</th>
+                      <th>Variance</th>
+                      <th style="width: 140px;">Readiness</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="proj in projectVariance" :key="proj.id">
+                      <td>
+                        <strong>{{ proj.project_name || proj.project_code }}</strong>
+                        <div class="extra-small text-muted">{{ proj.project_code }}</div>
+                      </td>
+                      <td>{{ proj.planned_qty }} pcs</td>
+                      <td class="text-teal fw-bold">{{ proj.actual_qty }} pcs</td>
+                      <td>
+                        <span class="badge" :class="proj.variance_qty >= 0 ? 'bg-success' : 'bg-danger'">
+                          {{ proj.variance_qty }} pcs
+                        </span>
+                      </td>
+                      <td>
+                        <div class="d-flex align-items-center gap-2">
+                          <div class="progress flex-grow-1" style="height: 6px;">
+                            <div class="progress-bar bg-teal" :style="{ width: proj.completion_pct + '%' }"></div>
+                          </div>
+                          <span class="extra-small fw-bold">{{ proj.completion_pct }}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr v-if="!projectVariance.length">
+                      <td colspan="5" class="text-center py-4 text-muted">No active projects found.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ROW 4: BOTTLENECKS & QUALITY COST (Cards 9, 10) -->
+      <div class="row g-3 mb-4">
+        <!-- 9. Critical Dependency Monitor (Top Bottleneck Parts) -->
+        <div class="col-12 col-lg-7">
+          <div class="card border-0 shadow-sm h-100 border-start border-danger border-4">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="card-title fw-bold mb-0 text-danger d-flex align-items-center">
+                  <i class="fas fa-exclamation-triangle me-2"></i>Critical Dependency Monitor (Bottleneck Ranking)
+                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Ranks the most critical missing or bottleneck spare parts currently blocking project assembly and shipment."></i>
+                </h5>
+              </div>
+              <span class="badge bg-danger">{{ criticalBottlenecks.length }} Critical Parts</span>
+            </div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0 small">
+                  <thead class="table-dark">
+                    <tr>
+                      <th>Standard Part Number</th>
+                      <th>Project</th>
+                      <th>Supplier</th>
+                      <th>Required</th>
+                      <th>Assembled</th>
+                      <th>Shortage</th>
+                      <th>Criticality</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="bn in criticalBottlenecks" :key="bn.id">
+                      <td class="fw-bold text-primary">{{ bn.standard_part_no }}</td>
+                      <td><span class="badge bg-light text-dark border">{{ bn.project_code }}</span></td>
+                      <td class="text-muted">{{ bn.supplier }}</td>
+                      <td>{{ bn.required }} pcs</td>
+                      <td class="text-teal">{{ bn.assembled }} pcs</td>
+                      <td class="text-danger fw-bold">{{ bn.shortage }} pcs</td>
+                      <td>
+                        <span class="badge" :class="bn.criticality === 'CRITICAL' ? 'bg-danger' : 'bg-warning text-dark'">
+                          {{ bn.criticality }}
+                        </span>
+                      </td>
+                    </tr>
+                    <tr v-if="!criticalBottlenecks.length">
+                      <td colspan="7" class="text-center py-4 text-success">
+                        <i class="fas fa-check-circle me-1"></i> No critical bottlenecks detected!
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 10. Quality Cost Pressure Score -->
+        <div class="col-12 col-lg-5">
+          <div class="card border-0 shadow-sm h-100 border-start border-warning border-4">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
+                  <i class="fas fa-coins text-warning me-2"></i>Quality Cost Pressure Score
+                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Measures operational quality pressure on shop-floor throughput caused by scrap rejections (parts in reorder queue) and active rework work-orders."></i>
+                </h5>
+              </div>
+              <span class="badge" :class="qualityCostPressure.severity === 'HIGH' ? 'bg-danger' : (qualityCostPressure.severity === 'MODERATE' ? 'bg-warning text-dark' : 'bg-success')">
+                {{ qualityCostPressure.severity || 'LOW' }} RISK
+              </span>
+            </div>
+            <div class="card-body p-3">
+              <div class="row g-3 text-center mb-3">
+                <div class="col-6">
+                  <div class="p-3 bg-light rounded border">
+                    <small class="text-muted text-uppercase extra-small">Pressure Score</small>
+                    <h3 class="fw-bold text-warning mb-0">{{ qualityCostPressure.pressure_score || 0 }} / 100</h3>
+                    <small class="text-muted extra-small">{{ qualityCostPressure.trend || 'Controlled' }}</small>
+                  </div>
+                </div>
+                <div class="col-6">
+                  <div class="p-3 bg-light rounded border">
+                    <small class="text-muted text-uppercase extra-small">Scrap Rejections</small>
+                    <h3 class="fw-bold text-danger mb-0">{{ qualityCostPressure.scrap_rejections || 0 }}</h3>
+                    <small class="text-muted extra-small">Pieces in Reorder Queue</small>
+                  </div>
+                </div>
+              </div>
+
+              <div class="p-3 bg-white rounded border">
+                <div class="d-flex justify-content-between align-items-center small mb-1">
+                  <span class="text-muted">Rework Cycle Impact</span>
+                  <strong class="text-dark">{{ qualityCostPressure.rework_events || 0 }} Work Orders</strong>
+                </div>
+                <div class="progress" style="height: 6px;">
+                  <div class="progress-bar bg-warning" :style="{ width: Math.min(100, (qualityCostPressure.pressure_score || 0)) + '%' }"></div>
+                </div>
               </div>
             </div>
           </div>
@@ -612,7 +885,7 @@
               <div class="d-flex align-items-center gap-2">
                 <label class="fw-semibold small text-muted mb-0"><i class="fas fa-filter text-primary me-1"></i> Department:</label>
                 <select v-model="modalDeptFilter" class="form-select form-select-sm" style="width: 180px;">
-                  <option value="">All Departments ({{ selectedDateRow.parts.length }})</option>
+                  <option value="">All Departments ({{ (selectedDateRow.parts || []).length }})</option>
                   <option value="STORE">Store Received</option>
                   <option value="QC">QC Inspected</option>
                   <option value="REWORK">Rework Queue</option>
@@ -642,10 +915,10 @@
                   <!-- Excel-style column filter inputs row -->
                   <tr style="background: #1e293b;">
                     <th style="background: #1e293b; padding: 4px 6px;">
-                      <input v-model="modalColFilters.partNo" type="text" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 90px;" placeholder="🔍 Part No" />
+                      <input v-model="modalColFilters.partNo" type="text" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 90px;" placeholder="Part No" />
                     </th>
                     <th style="background: #1e293b; padding: 4px 6px;">
-                      <input v-model="modalColFilters.project" type="text" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 80px;" placeholder="🔍 Project" />
+                      <input v-model="modalColFilters.project" type="text" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 80px;" placeholder="Project" />
                     </th>
                     <th style="background: #1e293b; padding: 4px 6px;">
                       <select v-model="modalColFilters.side" class="form-select form-select-sm" style="font-size:0.72rem; min-width: 70px;">
@@ -659,13 +932,13 @@
                       <input v-model="modalColFilters.qty" type="number" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 55px;" placeholder="Qty" />
                     </th>
                     <th style="background: #1e293b; padding: 4px 6px;">
-                      <input v-model="modalColFilters.dept" type="text" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 100px;" placeholder="🔍 Event" />
+                      <input v-model="modalColFilters.dept" type="text" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 100px;" placeholder="Event" />
                     </th>
                     <th style="background: #1e293b; padding: 4px 6px;">
-                      <input v-model="modalColFilters.user" type="text" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 80px;" placeholder="🔍 User" />
+                      <input v-model="modalColFilters.user" type="text" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 80px;" placeholder="User" />
                     </th>
                     <th style="background: #1e293b; padding: 4px 6px;">
-                      <input v-model="modalColFilters.time" type="text" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 70px;" placeholder="🔍 Time" />
+                      <input v-model="modalColFilters.time" type="text" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 70px;" placeholder="Time" />
                     </th>
                   </tr>
                 </thead>
@@ -680,7 +953,7 @@
                     <td class="text-muted">{{ formatLocalTime(part.created_at_iso || part.time) }}</td>
                   </tr>
                   <tr v-if="!filteredModalParts.length">
-                    <td colspan="7" class="text-center py-4 text-muted">No part movements match the selected filters.</td>
+                    <td colspan="7" class="text-center py-4 text-muted">No parts match the selected filters.</td>
                   </tr>
                 </tbody>
               </table>
@@ -709,26 +982,25 @@ const authStore = useAuthStore();
 
 const metrics = ref({});
 const statusDistribution = ref({});
-const delayedParts = ref([]);
-const qualityTrend = ref([]);
-const recentEvents = ref([]);
-const projectsProgress = ref([]);
-const bottleneckData = ref(null);
-
 const dailyMatrix = ref([]);
 const dailyTotals = ref({});
 const selectedDateRow = ref(null);
 const modalDeptFilter = ref('');
 const modalColFilters = ref({ partNo: '', project: '', side: '', qty: '', dept: '', user: '', time: '' });
+const expandedPriorityKey = ref(null);
+const projectsProgress = ref([]);
 
-// Pipeline Transparency
-const pipelineParts = ref([]);
-const pipelineByDept = ref({});
-const pipelineDeptFilter = ref('');
-const pipelineSearch = ref('');
-
-const activityFilterType = ref('');
-const activitySearch = ref('');
+// Rolling Matrix 5-Active-Day Window & History State
+const matrixQuickRange = ref('last_5_active');
+const matrixWindowOffset = ref(0);
+const matrixPagination = ref({
+  window_offset: 0,
+  window_size: 5,
+  total_active_days: 0,
+  has_previous_window: false,
+  has_next_window: false,
+  displayed_period_label: 'Latest 5 Active Days',
+});
 
 const loading = ref(false);
 
@@ -739,32 +1011,28 @@ const filters = ref({
   date_to: '',
 });
 
-// Computed Filtered Activity Logs
-const filteredRecentEvents = computed(() => {
-  return recentEvents.value.filter(evt => {
-    if (activityFilterType.value) {
-      if (activityFilterType.value === 'rework' && !evt.event_type.includes('rework')) return false;
-      if (activityFilterType.value === 'paint' && !evt.event_type.includes('paint')) return false;
-      if (activityFilterType.value === 'assembly' && !evt.event_type.includes('assembly')) return false;
-      if (['store_received', 'qc_inspected'].includes(activityFilterType.value) && evt.event_type !== activityFilterType.value) return false;
-    }
-    if (activitySearch.value) {
-      const query = activitySearch.value.toLowerCase();
-      const partNo = (evt.bom_item?.standard_part_no || '').toLowerCase();
-      const user = (evt.user?.name || '').toLowerCase();
-      const remarks = (evt.remarks || evt.notes || '').toLowerCase();
-      if (!partNo.includes(query) && !user.includes(query) && !remarks.includes(query)) return false;
-    }
-    return true;
-  });
+// 10 Industry-Grade Management Analytics State
+const readinessScore = ref(0);
+const readinessBreakdown = ref([]);
+const conversionData = ref({});
+const velocitySeries = ref([]);
+const stageDwellTimes = ref([]);
+const qualityStability = ref({});
+const capacityLoad = ref([]);
+const supplierFillAccuracy = ref([]);
+const projectVariance = ref([]);
+const criticalBottlenecks = ref([]);
+const qualityCostPressure = ref({});
+
+const totalWipSum = computed(() => {
+  return (capacityLoad.value || []).reduce((acc, c) => acc + (c.wip_count || 0), 0);
 });
 
 // Computed Filtered Modal Parts (department filter + Excel column filters)
 const filteredModalParts = computed(() => {
   if (!selectedDateRow.value?.parts) return [];
   const cf = modalColFilters.value;
-  return selectedDateRow.value.parts.filter(p => {
-    // Dept top filter
+  return (selectedDateRow.value.parts || []).filter(p => {
     if (modalDeptFilter.value) {
       const evt = (p.department_event || '').toUpperCase();
       if (modalDeptFilter.value === 'STORE' && !evt.includes('STORE')) return false;
@@ -773,7 +1041,6 @@ const filteredModalParts = computed(() => {
       if (modalDeptFilter.value === 'PAINT' && !evt.includes('PAINT')) return false;
       if (modalDeptFilter.value === 'ASSEMBLY' && !evt.includes('ASSEMBLY')) return false;
     }
-    // Column filters
     if (cf.partNo && !(p.standard_part_no || '').toLowerCase().includes(cf.partNo.toLowerCase())) return false;
     if (cf.project && !(p.project || '').toLowerCase().includes(cf.project.toLowerCase())) return false;
     if (cf.side && (p.side || '').toUpperCase() !== cf.side.toUpperCase()) return false;
@@ -788,40 +1055,44 @@ const filteredModalParts = computed(() => {
   });
 });
 
-// Computed Filtered Pipeline Parts
-const filteredPipeline = computed(() => {
-  return pipelineParts.value.filter(p => {
-    if (pipelineDeptFilter.value && p.department !== pipelineDeptFilter.value) return false;
-    if (pipelineSearch.value) {
-      const q = pipelineSearch.value.toLowerCase();
-      if (!(p.standard_part_no || '').toLowerCase().includes(q) &&
-          !(p.project || '').toLowerCase().includes(q) &&
-          !(p.project_code || '').toLowerCase().includes(q)) return false;
+// Priority Map State & Filters
+const priorityUnits = ref([]);
+const prioritySummary = ref({ critical: 0, high: 0, medium: 0, low: 0, complete: 0, CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, COMPLETE: 0, total_units: 0 });
+const priorityChartData = ref({});
+const priorityProjectFilter = ref('');
+const priorityProjectsList = ref([]);
+const showPriorityTiers = ref(false);
+const prioritySearchQuery = ref('');
+const priorityTierFilter = ref('');
+
+// Computed Filtered Priority Units
+const filteredPriorityUnits = computed(() => {
+  return (priorityUnits.value || []).filter(unit => {
+    if (priorityTierFilter.value && unit.priority_tier !== priorityTierFilter.value) {
+      return false;
+    }
+    if (prioritySearchQuery.value) {
+      const q = prioritySearchQuery.value.toLowerCase();
+      const jig = (unit.jig_name || '').toLowerCase();
+      const unitNo = (unit.unit_no || '').toLowerCase();
+      const projCode = (unit.project_code || '').toLowerCase();
+      const projName = (unit.project_name || '').toLowerCase();
+      if (!jig.includes(q) && !unitNo.includes(q) && !projCode.includes(q) && !projName.includes(q)) {
+        return false;
+      }
     }
     return true;
   });
 });
 
-// Priority Map Transparency
-const priorityUnits = ref([]);
-const prioritySummary = ref({});
-const priorityChartData = ref({});
-const priorityProjectFilter = ref('');
-const priorityProjectsList = ref([]);
-const expandedPriorityKey = ref(null);
-
 // Chart canvas refs & instances
 const priorityChartCanvas = ref(null);
-const projectChartCanvas = ref(null);
-const statusChartCanvas = ref(null);
-const bottleneckChartCanvas = ref(null);
-const qualityChartCanvas = ref(null);
+const velocityChartCanvas = ref(null);
+const qsiChartCanvas = ref(null);
 
 let priorityChart = null;
-let projectChart = null;
-let statusChart = null;
-let bottleneckChart = null;
-let qualityChart = null;
+let velocityChart = null;
+let qsiChart = null;
 
 const resetFilters = () => {
   filters.value = {
@@ -830,7 +1101,18 @@ const resetFilters = () => {
     date_from: '',
     date_to: '',
   };
+  matrixWindowOffset.value = 0;
   fetchData();
+};
+
+const navigateMatrixWindow = (step) => {
+  matrixWindowOffset.value = Math.max(0, matrixWindowOffset.value + step);
+  fetchDailyMovement();
+};
+
+const handleMatrixQuickRangeChange = () => {
+  matrixWindowOffset.value = 0;
+  fetchDailyMovement();
 };
 
 const openDatePartsModal = (row) => {
@@ -855,6 +1137,24 @@ const formatLocalTime = (isoString) => {
   }
 };
 
+const fetchDailyMovement = async () => {
+  try {
+    const params = new URLSearchParams(
+      Object.entries(filters.value).filter(([_, v]) => v !== '')
+    );
+    params.append('quick_range', matrixQuickRange.value);
+    params.append('window_offset', matrixWindowOffset.value);
+    params.append('window_size', 5);
+
+    const movRes = await axios.get(`/api/v1/dashboard/daily-movement?${params.toString()}`);
+    dailyMatrix.value = movRes.data.matrix || [];
+    dailyTotals.value = movRes.data.totals || {};
+    matrixPagination.value = movRes.data.pagination || {};
+  } catch (err) {
+    console.error('Failed to load daily movement matrix:', err);
+  }
+};
+
 const fetchData = async () => {
   loading.value = true;
   try {
@@ -862,32 +1162,35 @@ const fetchData = async () => {
       Object.entries(filters.value).filter(([_, v]) => v !== '')
     ).toString();
 
-    const [sumRes, botRes, movRes, pipeRes] = await Promise.all([
+    const [sumRes, anaRes] = await Promise.all([
       axios.get(`/api/v1/dashboard/summary?${params}`),
-      axios.get(`/api/v1/dashboard/bottleneck?${params}`),
-      axios.get(`/api/v1/dashboard/daily-movement?${params}`),
-      axios.get(`/api/v1/dashboard/pipeline-status?${params}`),
+      axios.get(`/api/v1/dashboard/analytics?${params}`),
     ]);
 
     metrics.value = sumRes.data.summary || {};
     statusDistribution.value = sumRes.data.status_distribution || {};
-    delayedParts.value = sumRes.data.delayed_parts || [];
-    qualityTrend.value = sumRes.data.quality_trend || [];
-    recentEvents.value = sumRes.data.recent_events || [];
     projectsProgress.value = sumRes.data.projects_progress || [];
 
-    bottleneckData.value = botRes.data || null;
+    await fetchDailyMovement();
 
-    dailyMatrix.value = movRes.data.matrix || [];
-    dailyTotals.value = movRes.data.totals || {};
-
-    pipelineParts.value = pipeRes.data.parts || [];
-    pipelineByDept.value = pipeRes.data.by_dept || {};
+    // 10 Industry-Grade Analytics Data
+    const ana = anaRes.data || {};
+    readinessScore.value = ana.project_readiness_index?.readiness_score || 0;
+    readinessBreakdown.value = ana.project_readiness_index?.breakdown || [];
+    conversionData.value = ana.conversion_rate || {};
+    velocitySeries.value = ana.velocity_series || [];
+    stageDwellTimes.value = ana.stage_dwell_times || [];
+    qualityStability.value = ana.quality_stability_index || {};
+    capacityLoad.value = ana.capacity_load || [];
+    supplierFillAccuracy.value = ana.supplier_fill_accuracy || [];
+    projectVariance.value = ana.project_variance || [];
+    criticalBottlenecks.value = ana.critical_bottlenecks || [];
+    qualityCostPressure.value = ana.quality_cost_pressure || {};
 
     await fetchPriorityMap();
 
     await nextTick();
-    renderCharts();
+    renderAnalyticsCharts();
   } catch (err) {
     console.error('Failed to load dashboard data:', err);
   } finally {
@@ -899,8 +1202,10 @@ const fetchPriorityMap = async () => {
   try {
     const res = await axios.get(`/api/v1/dashboard/priority-map?project_id=${priorityProjectFilter.value}`);
     priorityUnits.value = res.data.units || [];
-    prioritySummary.value = res.data.summary_counts || {};
-    priorityProjectsList.value = res.data.projects || [];
+    prioritySummary.value = res.data.summary_counts || { critical: 0, high: 0, medium: 0, low: 0, complete: 0 };
+    if (res.data.projects?.length) {
+      priorityProjectsList.value = res.data.projects;
+    }
     priorityChartData.value = res.data.chart || {};
     await nextTick();
     renderPriorityChart();
@@ -910,181 +1215,161 @@ const fetchPriorityMap = async () => {
 };
 
 const renderPriorityChart = () => {
-  if (priorityChart) priorityChart.destroy();
-  if (priorityChartCanvas.value && priorityChartData.value.labels?.length) {
-    const colors = (priorityChartData.value.tiers || []).map(t => {
-      if (t === 'CRITICAL') return '#ef4444';
-      if (t === 'HIGH') return '#f59e0b';
-      if (t === 'MEDIUM') return '#06b6d4';
-      return '#64748b';
-    });
+  try {
+    if (priorityChart) {
+      priorityChart.destroy();
+      priorityChart = null;
+    }
+    if (priorityChartCanvas.value && priorityChartData.value.labels?.length) {
+      const colors = (priorityChartData.value.tiers || []).map(t => {
+        if (t === 'CRITICAL') return '#ef4444';
+        if (t === 'HIGH') return '#f59e0b';
+        if (t === 'MEDIUM') return '#06b6d4';
+        if (t === 'LOW') return '#64748b';
+        return '#10b981';
+      });
 
-    priorityChart = new Chart(priorityChartCanvas.value, {
-      type: 'bar',
-      data: {
-        labels: priorityChartData.value.labels.map((u, i) => `${priorityChartData.value.jigs[i]} ${u}`),
-        datasets: [{
-          label: 'Completion %',
-          data: priorityChartData.value.percentages,
-          backgroundColor: colors,
-          borderRadius: 4,
-        }]
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => ` Completion: ${ctx.raw}%`
-            }
-          }
+      priorityChart = new Chart(priorityChartCanvas.value, {
+        type: 'bar',
+        data: {
+          labels: priorityChartData.value.labels.map((u, i) => `${priorityChartData.value.jigs?.[i] || ''} ${u}`),
+          datasets: [{
+            label: 'Completion %',
+            data: priorityChartData.value.percentages,
+            backgroundColor: colors,
+            borderRadius: 4,
+          }]
         },
-        scales: {
-          x: { min: 0, max: 100, title: { display: true, text: 'Completion Percentage (%)' } }
-        }
-      }
-    });
-  }
-};
-
-const renderCharts = () => {
-  // 1. Interactive Project Progress Comparison Grouped Bar Chart
-  if (projectChart) projectChart.destroy();
-  if (projectChartCanvas.value && projectsProgress.value.length) {
-    projectChart = new Chart(projectChartCanvas.value, {
-      type: 'bar',
-      data: {
-        labels: projectsProgress.value.map(p => `${p.project_code} (${p.progress_percent}%)`),
-        datasets: [
-          {
-            label: 'Required Parts',
-            data: projectsProgress.value.map(p => p.required_qty),
-            backgroundColor: '#94a3b8',
-            borderRadius: 4,
-          },
-          {
-            label: 'Store Received',
-            data: projectsProgress.value.map(p => p.received_qty),
-            backgroundColor: '#10b981',
-            borderRadius: 4,
-          },
-          {
-            label: 'QC Approved',
-            data: projectsProgress.value.map(p => p.approved_qty),
-            backgroundColor: '#0d9488',
-            borderRadius: 4,
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: 'top' },
-          tooltip: {
-            callbacks: {
-              footer: (items) => {
-                const index = items[0].dataIndex;
-                const proj = projectsProgress.value[index];
-                return `Overall Completion Rate: ${proj.progress_percent}%`;
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => ` Completion: ${ctx.raw}%`
               }
             }
+          },
+          scales: {
+            x: { min: 0, max: 100, title: { display: true, text: 'Completion Percentage (%)' } }
           }
-        },
-        scales: {
-          y: { beginAtZero: true, title: { display: true, text: 'Quantity (Pcs)' } }
         }
-      }
-    });
-  }
-
-  // 2. Part Status Donut Chart
-  if (statusChart) statusChart.destroy();
-  if (statusChartCanvas.value) {
-    const keys = Object.keys(statusDistribution.value);
-    const values = Object.values(statusDistribution.value);
-    statusChart = new Chart(statusChartCanvas.value, {
-      type: 'doughnut',
-      data: {
-        labels: keys.map(k => k.toUpperCase().replace('_', ' ')),
-        datasets: [{
-          data: values.length ? values : [1],
-          backgroundColor: ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#64748b'],
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { position: 'bottom' } }
-      }
-    });
-  }
-
-  // 3. Bottleneck Analysis Chart
-  if (bottleneckChart) bottleneckChart.destroy();
-  if (bottleneckChartCanvas.value && bottleneckData.value?.sufficient_data) {
-    const stages = Object.values(bottleneckData.value.stages);
-    bottleneckChart = new Chart(bottleneckChartCanvas.value, {
-      type: 'bar',
-      data: {
-        labels: stages.map(s => s.stage),
-        datasets: [{
-          label: 'Avg Days',
-          data: stages.map(s => s.avg_days || 0),
-          backgroundColor: '#ef4444',
-          borderRadius: 6,
-        }]
-      },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-      }
-    });
-  }
-
-  // 4. Quality Trend Line Chart
-  if (qualityChart) qualityChart.destroy();
-  if (qualityChartCanvas.value && qualityTrend.value.length) {
-    qualityChart = new Chart(qualityChartCanvas.value, {
-      type: 'line',
-      data: {
-        labels: qualityTrend.value.map(q => q.date),
-        datasets: [
-          { label: 'Approved', data: qualityTrend.value.map(q => q.approved), borderColor: '#10b981', fill: false, tension: 0.3 },
-          { label: 'Rework', data: qualityTrend.value.map(q => q.rework), borderColor: '#f59e0b', fill: false, tension: 0.3 },
-          { label: 'Rejected', data: qualityTrend.value.map(q => q.rejected), borderColor: '#ef4444', fill: false, tension: 0.3 },
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { position: 'bottom' } }
-      }
-    });
+      });
+    }
+  } catch (e) {
+    console.warn('Error rendering priority chart:', e);
   }
 };
 
-const getEventTypeBadge = (type) => {
-  switch (type) {
-    case 'store_received': return 'bg-success';
-    case 'sent_to_qc': return 'bg-info';
-    case 'qc_inspected': return 'bg-warning text-dark';
-    case 'rework_started': return 'bg-orange text-white';
-    case 'rework_completed': return 'bg-purple text-white';
-    case 'paint_completed': return 'bg-primary';
-    case 'assembly_completed': return 'bg-dark';
-    default: return 'bg-secondary';
-  }
-};
+const renderAnalyticsCharts = () => {
+  try {
+    // 1. Velocity Line Chart
+    if (velocityChart) {
+      velocityChart.destroy();
+      velocityChart = null;
+    }
+    if (velocityChartCanvas.value && velocitySeries.value.length) {
+      velocityChart = new Chart(velocityChartCanvas.value, {
+        type: 'line',
+        data: {
+          labels: velocitySeries.value.map(v => v.label),
+          datasets: [
+            {
+              label: 'Daily Completed (pcs)',
+              data: velocitySeries.value.map(v => v.completed),
+              borderColor: '#2563eb',
+              backgroundColor: 'rgba(37, 99, 235, 0.1)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 3,
+            },
+            {
+              label: '7-Day Moving Avg',
+              data: velocitySeries.value.map(v => v.moving_avg),
+              borderColor: '#f59e0b',
+              borderDash: [5, 5],
+              fill: false,
+              tension: 0.3,
+              pointRadius: 0,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 12 } }
+          },
+          scales: {
+            y: { beginAtZero: true, title: { display: true, text: 'Pieces' } }
+          }
+        }
+      });
+    }
 
-const formatDate = (dateStr) => {
-  if (!dateStr) return '';
-  return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // 2. QSI Control Chart
+    if (qsiChart) {
+      qsiChart.destroy();
+      qsiChart = null;
+    }
+    if (qsiChartCanvas.value && qualityStability.value.history?.length) {
+      const hist = qualityStability.value.history;
+      qsiChart = new Chart(qsiChartCanvas.value, {
+        type: 'line',
+        data: {
+          labels: hist.map(h => h.label),
+          datasets: [
+            {
+              label: 'QC Yield %',
+              data: hist.map(h => h.yield_pct),
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+              tension: 0.2,
+              pointRadius: 4,
+            },
+            {
+              label: 'UCL (Upper Limit)',
+              data: hist.map(() => qualityStability.value.ucl),
+              borderColor: '#ef4444',
+              borderDash: [4, 4],
+              pointRadius: 0,
+              fill: false,
+            },
+            {
+              label: 'Mean Yield',
+              data: hist.map(() => qualityStability.value.mean_yield),
+              borderColor: '#6b7280',
+              borderDash: [2, 2],
+              pointRadius: 0,
+              fill: false,
+            },
+            {
+              label: 'LCL (Lower Limit)',
+              data: hist.map(() => qualityStability.value.lcl),
+              borderColor: '#ef4444',
+              borderDash: [4, 4],
+              pointRadius: 0,
+              fill: false,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 10 } }
+          },
+          scales: {
+            y: { min: 0, max: 105, title: { display: true, text: 'Yield %' } }
+          }
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('Error rendering analytics charts:', e);
+  }
 };
 
 onMounted(() => {
@@ -1095,5 +1380,29 @@ onMounted(() => {
 <style scoped>
 .fs-7 {
   font-size: 0.75rem;
+}
+.text-purple {
+  color: #7c3aed !important;
+}
+.bg-purple {
+  background-color: #7c3aed !important;
+}
+.border-purple {
+  border-color: #7c3aed !important;
+}
+.text-teal {
+  color: #0d9488 !important;
+}
+.bg-teal {
+  background-color: #0d9488 !important;
+}
+.border-teal {
+  border-color: #0d9488 !important;
+}
+.border-start-4 {
+  border-left-width: 4px !important;
+}
+.extra-small {
+  font-size: 0.72rem;
 }
 </style>

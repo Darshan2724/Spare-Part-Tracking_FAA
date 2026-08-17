@@ -12,6 +12,7 @@ class AssemblyRecord extends Model
     protected $fillable = [
         'bom_item_id',
         'paint_record_id',
+        'qc_inspection_id',
         'side',
         'quantity',
         'assembled_by',
@@ -29,6 +30,11 @@ class AssemblyRecord extends Model
     public function paintRecord()
     {
         return $this->belongsTo(PaintRecord::class);
+    }
+
+    public function qcInspection()
+    {
+        return $this->belongsTo(QcInspection::class);
     }
 
     public function assembler()

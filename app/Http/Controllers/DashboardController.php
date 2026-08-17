@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Project;
+use App\Models\BomItem;
 use App\Models\BomRequirement;
 use App\Models\ReceiptItem;
 use App\Models\QcInspection;
@@ -11,6 +12,7 @@ use App\Models\PurchaseQueueItem;
 use App\Models\PaintRecord;
 use App\Models\AssemblyRecord;
 use App\Models\WorkflowEvent;
+use App\Models\Supplier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -185,6 +187,83 @@ class DashboardController extends Controller
                 ];
             });
 
+        // Supplier Quality & Delivery Metrics
+        $supplierPerformance = Supplier::where('is_active', true)
+            ->with(['bomItems.receiptItems', 'bomItems.qcInspections'])
+            ->get()
+            ->map(function ($sup) {
+                $recCount = $sup->bomItems->flatMap->receiptItems->sum('received_quantity');
+                $appCount = $sup->bomItems->flatMap->qcInspections->sum('approved_quantity');
+                $rejCount = $sup->bomItems->flatMap->qcInspections->sum('rejected_quantity');
+                $rewCount = $sup->bomItems->flatMap->qcInspections->sum('rework_quantity');
+                $totalInspected = $appCount + $rejCount + $rewCount;
+                $passRate = $totalInspected > 0 ? round(($appCount / $totalInspected) * 100, 1) : 100;
+                return [
+                    'id' => $sup->id,
+                    'name' => $sup->name,
+                    'code' => $sup->code,
+                    'received_qty' => $recCount,
+                    'approved_qty' => $appCount,
+                    'rework_qty' => $rewCount,
+                    'rejected_qty' => $rejCount,
+                    'pass_rate' => $passRate,
+                ];
+            })
+            ->filter(fn($s) => $s['received_qty'] > 0)
+            ->values();
+
+        // 1. Today's Departmental Throughput Metrics
+        $todayStart = now()->startOfDay();
+        $todayThroughput = [
+            'store_received' => (int) ReceiptItem::where('created_at', '>=', $todayStart)->sum('received_quantity'),
+            'qc_approved' => (int) QcInspection::where('inspection_date', '>=', $todayStart)->sum('approved_quantity'),
+            'rework_completed' => (int) ReworkRecord::where('updated_at', '>=', $todayStart)->where('status', 'completed')->sum('quantity'),
+            'paint_completed' => (int) PaintRecord::where('created_at', '>=', $todayStart)->where('status', 'completed')->sum('quantity'),
+            'assembly_completed' => (int) AssemblyRecord::where('created_at', '>=', $todayStart)->where('status', 'completed')->sum('quantity'),
+        ];
+
+        // 2. Stagnant Parts Bottleneck Watchlist (parts waiting in current state)
+        $stagnantParts = ReceiptItem::query()
+            ->with(['bomItem.project', 'bomItem.supplier'])
+            ->whereNotIn('status', ['assembly_completed', 'qc_rejected', 'reverted'])
+            ->orderBy('updated_at', 'asc')
+            ->limit(8)
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'standard_part_no' => $item->bomItem?->standard_part_no ?? 'Part #' . $item->id,
+                    'project_name' => $item->bomItem?->project?->name ?? 'N/A',
+                    'project_code' => $item->bomItem?->project?->project_code ?? 'N/A',
+                    'side' => $item->side,
+                    'quantity' => $item->received_quantity,
+                    'status' => $item->status,
+                    'supplier' => $item->bomItem?->supplier?->name ?? $item->bomItem?->supplier_name_raw ?? '—',
+                    'updated_at' => $item->updated_at->toDateTimeString(),
+                    'hours_waiting' => round(now()->diffInHours($item->updated_at), 1),
+                ];
+            });
+
+        // 3. Defect & Quality Issue Pareto
+        $defectPareto = QcInspection::query()
+            ->whereIn('result', ['rejected', 'rework', 'partial'])
+            ->with(['bomItem.project', 'bomItem.supplier'])
+            ->orderByDesc('created_at')
+            ->limit(6)
+            ->get()
+            ->map(function ($q) {
+                return [
+                    'id' => $q->id,
+                    'standard_part_no' => $q->bomItem?->standard_part_no ?? '—',
+                    'project' => $q->bomItem?->project?->project_code ?? ($q->bomItem?->project?->name ?? '—'),
+                    'result' => $q->result,
+                    'quantity' => $q->result === 'rejected' ? $q->rejected_quantity : ($q->rework_quantity ?: $q->inspected_quantity),
+                    'reason' => $q->rejection_reason ?: ($q->rework_reason ?: ($q->remarks ?: 'Quality Non-conformance')),
+                    'supplier' => $q->bomItem?->supplier?->name ?? $q->bomItem?->supplier_name_raw ?? '—',
+                    'date' => $q->created_at->toDateTimeString(),
+                ];
+            });
+
         return response()->json([
             'summary' => [
                 'total_projects' => $totalProjects,
@@ -208,6 +287,10 @@ class DashboardController extends Controller
             'quality_trend' => $qualityTrend,
             'recent_events' => $recentEvents,
             'projects_progress' => $projectsProgress,
+            'supplier_performance' => $supplierPerformance,
+            'today_throughput' => $todayThroughput,
+            'stagnant_parts' => $stagnantParts,
+            'defect_pareto' => $defectPareto,
         ]);
     }
 
@@ -226,10 +309,7 @@ class DashboardController extends Controller
         $bottlenecks = [];
         $hasSufficientData = false;
 
-        $isSqlite = DB::getDriverName() === 'sqlite';
-        $diffExpr = $isSqlite 
-            ? 'AVG(julianday(e2.created_at) - julianday(e1.created_at))'
-            : 'AVG(EXTRACT(EPOCH FROM (e2.created_at - e1.created_at)) / 86400)';
+        $diffExpr = 'AVG(EXTRACT(EPOCH FROM (e2.created_at - e1.created_at)) / 86400)';
 
         foreach ($stages as $key => $events) {
             $avgDays = DB::table('workflow_events as e1')
@@ -261,29 +341,97 @@ class DashboardController extends Controller
         ]);
     }
 
+    /**
+     * Rolling 5-Active-Day Department Parts Movement Matrix with History Navigation
+     */
     public function dailyMovement(Request $request)
     {
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC', 'REWORK', 'PAINT', 'ASSEMBLY', 'PURCHASE']) ?: abort(403);
 
-        $query = WorkflowEvent::query()->with(['bomItem.project', 'user']);
+        $projectId = $request->input('project_id');
+        $side = $request->input('side');
+        $quickRange = $request->input('quick_range', 'last_5_active');
+        $windowOffset = max(0, (int) $request->input('window_offset', 0));
+        $windowSize = max(1, (int) $request->input('window_size', 5));
 
-        if ($request->filled('project_id')) {
-            $query->where('project_id', $request->input('project_id'));
+        // Base query for workflow events
+        $baseQuery = WorkflowEvent::query()
+            ->when($projectId, fn($q) => $q->where('project_id', $projectId))
+            ->when($side, fn($q) => $q->where('side', $side));
+
+        // Get all distinct active dates containing movements in descending order
+        $allActiveDates = (clone $baseQuery)
+            ->selectRaw("to_char(created_at, 'YYYY-MM-DD') as date_key")
+            ->groupBy('date_key')
+            ->orderBy('date_key', 'desc')
+            ->pluck('date_key')
+            ->toArray();
+
+        $totalActiveDays = count($allActiveDates);
+
+        // Determine target active dates based on quick range or rolling window
+        $targetDates = [];
+        $displayedPeriodLabel = '';
+
+        if ($quickRange === 'last_5_active') {
+            $targetDates = array_slice($allActiveDates, $windowOffset, $windowSize);
+            $hasPrev = ($windowOffset + $windowSize) < $totalActiveDays;
+            $hasNext = $windowOffset > 0;
+            if (count($targetDates) > 0) {
+                $firstFormatted = date('d-M-Y', strtotime(end($targetDates)));
+                $lastFormatted = date('d-M-Y', strtotime($targetDates[0]));
+                $displayedPeriodLabel = count($targetDates) === 1 ? $firstFormatted : "{$firstFormatted} to {$lastFormatted}";
+            } else {
+                $displayedPeriodLabel = "No active movement days recorded";
+            }
+        } elseif ($quickRange === 'last_10_days') {
+            $startDate = now()->subDays(10)->format('Y-m-d');
+            $targetDates = array_values(array_filter($allActiveDates, fn($d) => $d >= $startDate));
+            $hasPrev = false;
+            $hasNext = false;
+            $displayedPeriodLabel = "Last 10 Days";
+        } elseif ($quickRange === 'this_week') {
+            $startDate = now()->startOfWeek()->format('Y-m-d');
+            $targetDates = array_values(array_filter($allActiveDates, fn($d) => $d >= $startDate));
+            $hasPrev = false;
+            $hasNext = false;
+            $displayedPeriodLabel = "This Week";
+        } elseif ($quickRange === 'last_week') {
+            $startDate = now()->subWeek()->startOfWeek()->format('Y-m-d');
+            $endDate = now()->subWeek()->endOfWeek()->format('Y-m-d');
+            $targetDates = array_values(array_filter($allActiveDates, fn($d) => $d >= $startDate && $d <= $endDate));
+            $hasPrev = false;
+            $hasNext = false;
+            $displayedPeriodLabel = "Last Week";
+        } elseif ($quickRange === 'this_month') {
+            $startDate = now()->startOfMonth()->format('Y-m-d');
+            $targetDates = array_values(array_filter($allActiveDates, fn($d) => $d >= $startDate));
+            $hasPrev = false;
+            $hasNext = false;
+            $displayedPeriodLabel = "This Month (" . now()->format('M Y') . ")";
+        } elseif ($quickRange === 'custom' && $request->filled('date_from')) {
+            $from = $request->input('date_from');
+            $to = $request->input('date_to', now()->format('Y-m-d'));
+            $targetDates = array_values(array_filter($allActiveDates, fn($d) => $d >= $from && $d <= $to));
+            $hasPrev = false;
+            $hasNext = false;
+            $displayedPeriodLabel = "{$from} to {$to}";
+        } else {
+            $targetDates = array_slice($allActiveDates, $windowOffset, $windowSize);
+            $hasPrev = ($windowOffset + $windowSize) < $totalActiveDays;
+            $hasNext = $windowOffset > 0;
+            $displayedPeriodLabel = "5-Day Active Window";
         }
 
-        if ($request->filled('side')) {
-            $query->where('side', $request->input('side'));
+        // Fetch events strictly within the target dates
+        $events = [];
+        if (!empty($targetDates)) {
+            $events = (clone $baseQuery)
+                ->with(['bomItem.project', 'user'])
+                ->whereIn(DB::raw("to_char(created_at, 'YYYY-MM-DD')"), $targetDates)
+                ->orderBy('created_at', 'desc')
+                ->get();
         }
-
-        if ($request->filled('date_from')) {
-            $query->where('created_at', '>=', $request->input('date_from'));
-        }
-
-        if ($request->filled('date_to')) {
-            $query->where('created_at', '<=', $request->input('date_to'));
-        }
-
-        $events = $query->orderBy('created_at', 'desc')->get();
 
         $grouped = [];
         $totals = [
@@ -295,23 +443,24 @@ class DashboardController extends Controller
             'grand_total' => 0,
         ];
 
+        // Pre-populate target dates so empty dates in window still show up in order
+        foreach ($targetDates as $dKey) {
+            $grouped[$dKey] = [
+                'date' => $dKey,
+                'formatted_date' => date('d-M-y', strtotime($dKey)),
+                'store_received' => 0,
+                'qc_inspected' => 0,
+                'rework' => 0,
+                'paint' => 0,
+                'assembly' => 0,
+                'total_day' => 0,
+                'parts' => [],
+            ];
+        }
+
         foreach ($events as $evt) {
             $dateKey = $evt->created_at->format('Y-m-d');
-            $dateFormatted = $evt->created_at->format('d-M-y');
-
-            if (!isset($grouped[$dateKey])) {
-                $grouped[$dateKey] = [
-                    'date' => $dateKey,
-                    'formatted_date' => $dateFormatted,
-                    'store_received' => 0,
-                    'qc_inspected' => 0,
-                    'rework' => 0,
-                    'paint' => 0,
-                    'assembly' => 0,
-                    'total_day' => 0,
-                    'parts' => [],
-                ];
-            }
+            if (!isset($grouped[$dateKey])) continue;
 
             $qty = $evt->quantity;
             $type = $evt->event_type;
@@ -320,7 +469,7 @@ class DashboardController extends Controller
                 $grouped[$dateKey]['store_received'] += $qty;
                 $totals['store_received'] += $qty;
             } elseif ($type === 'store_receipt_reverted') {
-                $grouped[$dateKey]['store_received'] += $qty; // negative
+                $grouped[$dateKey]['store_received'] += $qty;
                 $totals['store_received'] += $qty;
             } elseif ($type === 'qc_inspected') {
                 $grouped[$dateKey]['qc_inspected'] += $qty;
@@ -340,13 +489,6 @@ class DashboardController extends Controller
                 $totals['assembly'] += $qty;
             }
 
-            // Calculate total day parts from positive stage movements
-            if ($qty > 0 && in_array($type, ['store_received', 'qc_inspected', 'rework_completed', 'paint_completed', 'assembly_completed'])) {
-                $grouped[$dateKey]['total_day'] += $qty;
-                $totals['grand_total'] += $qty;
-            }
-
-            // Format event description
             $eventLabel = strtoupper(str_replace('_', ' ', $type));
             if ($type === 'qc_inspected' && !empty($evt->new_state)) {
                 $eventLabel = 'QC INSPECTED (' . strtoupper($evt->new_state) . ')';
@@ -364,15 +506,30 @@ class DashboardController extends Controller
             ];
         }
 
+        foreach ($grouped as &$day) {
+            $day['total_day'] = $day['store_received'] + $day['qc_inspected'] + $day['rework'] + $day['paint'] + $day['assembly'];
+        }
+        unset($day);
+
+        $totals['grand_total'] = $totals['store_received'] + $totals['qc_inspected'] + $totals['rework'] + $totals['paint'] + $totals['assembly'];
+
         return response()->json([
             'matrix' => array_values($grouped),
             'totals' => $totals,
+            'pagination' => [
+                'window_offset' => $windowOffset,
+                'window_size' => $windowSize,
+                'total_active_days' => $totalActiveDays,
+                'has_previous_window' => $hasPrev ?? false,
+                'has_next_window' => $hasNext ?? false,
+                'displayed_period_label' => $displayedPeriodLabel,
+                'quick_range' => $quickRange,
+            ],
         ]);
     }
 
     /**
      * Pipeline Transparency: Returns all receipt items with their current stage.
-     * Shows WHERE every part currently is in the workflow.
      */
     public function pipelineStatus(Request $request)
     {
@@ -392,36 +549,46 @@ class DashboardController extends Controller
             'qc_rework'        => ['label' => '⚙️ Sent to Rework',         'color' => 'warning',   'dept' => 'REWORK'],
             'qc_rejected'      => ['label' => '❌ QC Rejected → Reorder',  'color' => 'danger',    'dept' => 'PURCHASE'],
             'qc_inspected'     => ['label' => '🔬 QC Inspected',           'color' => 'info',      'dept' => 'QC'],
-            'paint_completed'  => ['label' => '🎨 Paint Done → Assembly',  'color' => 'success',   'dept' => 'ASSEMBLY'],
-            'assembly_completed'=>['label' => '🏭 Assembly Complete',       'color' => 'success',   'dept' => 'DONE'],
+            'paint_completed'  => ['label' => '🎨 Paint Complete',         'color' => 'purple',    'dept' => 'PAINT'],
+            'assembly_completed' => ['label' => '🔩 Assembled',             'color' => 'teal',      'dept' => 'ASSEMBLY'],
         ];
 
-        $formatted = $items->map(function ($item) use ($stageMap) {
-            $stage = $stageMap[$item->status] ?? ['label' => strtoupper($item->status), 'color' => 'secondary', 'dept' => 'UNKNOWN'];
+        $counts = [
+            'store' => 0,
+            'qc' => 0,
+            'rework' => 0,
+            'paint' => 0,
+            'assembly' => 0,
+            'purchase' => 0,
+        ];
+
+        $list = $items->map(function ($item) use ($stageMap, &$counts) {
+            $st = $item->status ?? 'pending';
+            $info = $stageMap[$st] ?? ['label' => strtoupper($st), 'color' => 'secondary', 'dept' => 'STORE'];
+            $dept = strtolower($info['dept']);
+            if (isset($counts[$dept])) {
+                $counts[$dept] += $item->received_quantity;
+            }
+
             return [
-                'id'              => $item->id,
-                'standard_part_no'=> $item->bomItem?->standard_part_no ?? 'Part #' . $item->bom_item_id,
-                'project'         => $item->bomItem?->project?->name ?? 'N/A',
-                'project_code'    => $item->bomItem?->project?->project_code ?? '',
-                'side'            => $item->side,
-                'quantity'        => $item->received_quantity,
-                'status'          => $item->status,
-                'stage_label'     => $stage['label'],
-                'stage_color'     => $stage['color'],
-                'department'      => $stage['dept'],
-                'supplier'        => $item->bomItem?->supplier?->name ?? 'Standard',
-                'received_at'     => $item->created_at?->toDateString(),
-                'updated_at'      => $item->updated_at?->toDateString(),
+                'id' => $item->id,
+                'standard_part_no' => $item->bomItem?->standard_part_no ?? 'N/A',
+                'project_name' => $item->bomItem?->project?->name ?? 'N/A',
+                'supplier_name' => $item->bomItem?->supplier?->name ?? 'N/A',
+                'side' => $item->side,
+                'quantity' => $item->received_quantity,
+                'status' => $st,
+                'stage_label' => $info['label'],
+                'stage_color' => $info['color'],
+                'department' => $info['dept'],
+                'updated_at' => $item->updated_at?->format('d-M-Y H:i'),
             ];
         });
 
-        // Group by department for summary
-        $byDept = $formatted->groupBy('department')->map(fn($g) => $g->count());
-
         return response()->json([
-            'parts'      => $formatted->values(),
-            'by_dept'    => $byDept,
-            'total'      => $formatted->count(),
+            'items' => $list,
+            'department_counts' => $counts,
+            'total_in_pipeline' => $items->sum('received_quantity'),
         ]);
     }
 
@@ -435,34 +602,26 @@ class DashboardController extends Controller
 
         $projectId = $request->query('project_id');
 
-        $query = BomItem::query()->with(['project', 'requirements', 'supplier', 'receiptItems']);
+        $bomQuery = BomItem::query()
+            ->with(['project', 'supplier', 'requirements', 'receiptItems', 'assemblyRecords'])
+            ->whereNotNull('standard_part_no');
 
         if ($projectId) {
-            $query->where('project_id', $projectId);
+            $bomQuery->where('project_id', $projectId);
         }
 
-        $bomItems = $query->get();
+        $items = $bomQuery->get();
 
-        $unitsGrouped = [];
+        $unitsMap = [];
 
-        foreach ($bomItems as $item) {
-            $partNo = trim($item->standard_part_no);
-            // Parse standard_part_no: e.g. 62800-ST7-01-11-R or 62800-ST07-00-00-R
-            $parts = explode('-', $partNo);
+        foreach ($items as $item) {
+            $jigName = !empty($item->jig_no) ? strtoupper(trim($item->jig_no)) : 'GENERAL';
+            $unitNo = !empty($item->unit_no) ? (str_starts_with(strtoupper(trim($item->unit_no)), 'UNIT') ? trim($item->unit_no) : 'Unit ' . trim($item->unit_no)) : 'Unit 00';
+            $unitKey = ($item->project_id ?? 0) . '_' . $jigName . '_' . $unitNo;
 
-            $jigName = 'General / Standard';
-            $unitNo = 'Unit 00';
-
-            if (count($parts) >= 3) {
-                $jigName = strtoupper(trim($parts[1]));
-                $unitNo = 'Unit ' . trim($parts[2]);
-            }
-
-            $key = ($item->project?->name ?? 'Project') . ' | ' . $jigName . ' | ' . $unitNo;
-
-            if (!isset($unitsGrouped[$key])) {
-                $unitsGrouped[$key] = [
-                    'key' => $key,
+            if (!isset($unitsMap[$unitKey])) {
+                $unitsMap[$unitKey] = [
+                    'key' => $unitKey,
                     'project_id' => $item->project_id,
                     'project_name' => $item->project?->name ?? 'N/A',
                     'project_code' => $item->project?->project_code ?? 'N/A',
@@ -470,100 +629,107 @@ class DashboardController extends Controller
                     'unit_no' => $unitNo,
                     'total_required' => 0,
                     'total_received' => 0,
+                    'total_assembled' => 0,
                     'pending_quantity' => 0,
-                    'total_items_count' => 0,
+                    'parts_count' => 0,
+                    'parts' => [],
                     'pending_parts' => [],
                 ];
             }
 
-            $unitsGrouped[$key]['total_items_count']++;
+            $reqQty = (int) $item->requirements->sum('required_quantity');
+            $recQty = (int) $item->receiptItems->sum('received_quantity');
+            $asmQty = (int) $item->assemblyRecords->where('status', 'completed')->sum('quantity');
 
-            // Sum required & received across sides
-            $itemReceivedTotals = $item->receiptItems
-                ->groupBy('side')
-                ->map(fn($group) => $group->sum('received_quantity'));
+            $unitsMap[$unitKey]['total_required'] += $reqQty;
+            $unitsMap[$unitKey]['total_received'] += min($recQty, $reqQty);
+            $unitsMap[$unitKey]['total_assembled'] += $asmQty;
+            $unitsMap[$unitKey]['parts_count']++;
 
-            foreach ($item->requirements as $req) {
-                $reqQty = (int) $req->required_quantity;
-                $recQty = (int) ($itemReceivedTotals[$req->side] ?? 0);
-                $pendQty = max(0, $reqQty - $recQty);
+            $partObj = [
+                'id' => $item->id,
+                'bom_item_id' => $item->id,
+                'standard_part_no' => $item->standard_part_no,
+                'side' => $item->requirements->first()?->side ?? 'COMMON',
+                'required' => $reqQty,
+                'received' => $recQty,
+                'assembled' => $asmQty,
+                'pending' => max(0, $reqQty - $recQty),
+                'supplier' => $item->supplier?->name ?? 'Standard Supplier',
+                'is_assembled' => ($reqQty > 0 && $asmQty >= $reqQty),
+            ];
 
-                $unitsGrouped[$key]['total_required'] += $reqQty;
-                $unitsGrouped[$key]['total_received'] += min($recQty, $reqQty);
-
-                if ($pendQty > 0) {
-                    $unitsGrouped[$key]['pending_parts'][] = [
-                        'bom_item_id' => $item->id,
-                        'standard_part_no' => $item->standard_part_no,
-                        'side' => $req->side,
-                        'required' => $reqQty,
-                        'received' => $recQty,
-                        'pending' => $pendQty,
-                        'supplier' => $item->supplier?->name ?? $item->supplier_name_raw ?? 'Standard Supplier',
-                    ];
-                }
+            $unitsMap[$unitKey]['parts'][] = $partObj;
+            if ($partObj['pending'] > 0) {
+                $unitsMap[$unitKey]['pending_parts'][] = $partObj;
             }
         }
 
-        $unitsList = [];
         $summaryCounts = [
+            'critical' => 0,
+            'high' => 0,
+            'medium' => 0,
+            'low' => 0,
+            'complete' => 0,
             'CRITICAL' => 0,
             'HIGH' => 0,
             'MEDIUM' => 0,
             'LOW' => 0,
             'COMPLETE' => 0,
+            'total_units' => count($unitsMap),
         ];
 
-        foreach ($unitsGrouped as $u) {
+        $unitsList = [];
+
+        foreach ($unitsMap as $u) {
             $req = $u['total_required'];
             $rec = $u['total_received'];
             $pending = max(0, $req - $rec);
             $u['pending_quantity'] = $pending;
+            $pct = $req > 0 ? min(100, round(($rec / $req) * 100, 1)) : 100;
 
-            $completionPct = $req > 0 ? round(($rec / $req) * 100, 1) : 100;
-            $u['completion_pct'] = min(100, $completionPct);
-
-            // Determine Priority Tier
-            if ($u['completion_pct'] >= 100 || $pending === 0) {
+            if ($pct >= 100 || $pending === 0) {
                 $tier = 'COMPLETE';
+                $tierClass = 'success';
                 $tierOrder = 5;
-                $badgeColor = 'success';
-                $label = 'Completed';
-            } elseif ($u['completion_pct'] >= 70 && $pending > 0) {
+                $summaryCounts['complete']++;
+                $summaryCounts['COMPLETE']++;
+            } elseif ($pct >= 70 && $pending > 0) {
                 $tier = 'CRITICAL';
+                $tierClass = 'danger';
                 $tierOrder = 1;
-                $badgeColor = 'danger';
-                $label = 'CRITICAL (Order Urgent)';
-            } elseif ($u['completion_pct'] >= 40) {
+                $summaryCounts['critical']++;
+                $summaryCounts['CRITICAL']++;
+            } elseif ($pct >= 40) {
                 $tier = 'HIGH';
+                $tierClass = 'warning';
                 $tierOrder = 2;
-                $badgeColor = 'warning text-dark';
-                $label = 'High Priority';
-            } elseif ($u['completion_pct'] >= 20) {
+                $summaryCounts['high']++;
+                $summaryCounts['HIGH']++;
+            } elseif ($pct >= 20) {
                 $tier = 'MEDIUM';
+                $tierClass = 'info';
                 $tierOrder = 3;
-                $badgeColor = 'info text-white';
-                $label = 'Medium Priority';
+                $summaryCounts['medium']++;
+                $summaryCounts['MEDIUM']++;
             } else {
                 $tier = 'LOW';
+                $tierClass = 'secondary';
                 $tierOrder = 4;
-                $badgeColor = 'secondary';
-                $label = 'Low Priority';
+                $summaryCounts['low']++;
+                $summaryCounts['LOW']++;
             }
 
+            $u['completion_pct'] = $pct;
             $u['priority_tier'] = $tier;
+            $u['tier_class'] = $tierClass;
             $u['tier_order'] = $tierOrder;
-            $u['badge_color'] = $badgeColor;
-            $u['priority_label'] = $label;
+            $u['badge_color'] = $tierClass;
+            $u['priority_label'] = $tier;
 
-            // Score for sorting: lower tierOrder first, then higher completion_pct
-            $u['priority_score'] = (10 - $tierOrder) * 1000 + $u['completion_pct'];
-
-            $summaryCounts[$tier]++;
             $unitsList[] = $u;
         }
 
-        // Sort: CRITICAL first, then HIGH, MEDIUM, LOW, COMPLETE
         usort($unitsList, function ($a, $b) {
             if ($a['tier_order'] !== $b['tier_order']) {
                 return $a['tier_order'] <=> $b['tier_order'];
@@ -571,7 +737,6 @@ class DashboardController extends Controller
             return $b['completion_pct'] <=> $a['completion_pct'];
         });
 
-        // Top units for bar chart (only incomplete units sorted by completion_pct desc)
         $chartUnits = array_filter($unitsList, fn($u) => $u['priority_tier'] !== 'COMPLETE');
         usort($chartUnits, fn($a, $b) => $b['completion_pct'] <=> $a['completion_pct']);
         $chartUnits = array_slice($chartUnits, 0, 10);
@@ -588,6 +753,391 @@ class DashboardController extends Controller
                 'percentages' => array_column($chartUnits, 'completion_pct'),
                 'tiers' => array_column($chartUnits, 'priority_tier'),
             ],
+        ]);
+    }
+
+    /**
+     * Executive Manager Lower Dashboard: 10 Industry-Grade Real-Data KPIs and Analytics
+     */
+    public function managementAnalytics(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC', 'REWORK', 'PAINT', 'ASSEMBLY', 'PURCHASE']) ?: abort(403);
+
+        $projectId = $request->query('project_id');
+
+        // 1. Project Readiness Index (PRI) - 4-Stage Weighted Normalized Stage Readiness
+        // Independent RH & LH stage calculation with Total Required BOM Quantity as true denominator
+        $rhReq = (int) BomRequirement::where('side', 'RH')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->sum('required_quantity');
+        $rhRec = (int) ReceiptItem::where('side', 'RH')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->sum('received_quantity');
+        $rhQc  = (int) QcInspection::where('side', 'RH')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->sum('approved_quantity');
+        $rhPnt = (int) PaintRecord::where('side', 'RH')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->where('status', 'completed')->sum('quantity');
+        $rhAsm = (int) AssemblyRecord::where('side', 'RH')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->where('status', 'completed')->sum('quantity');
+
+        $lhReq = (int) BomRequirement::where('side', 'LH')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->sum('required_quantity');
+        $lhRec = (int) ReceiptItem::where('side', 'LH')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->sum('received_quantity');
+        $lhQc  = (int) QcInspection::where('side', 'LH')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->sum('approved_quantity');
+        $lhPnt = (int) PaintRecord::where('side', 'LH')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->where('status', 'completed')->sum('quantity');
+        $lhAsm = (int) AssemblyRecord::where('side', 'LH')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->where('status', 'completed')->sum('quantity');
+
+        // Common parts if any
+        $comReq = (int) BomRequirement::where('side', 'COMMON')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->sum('required_quantity');
+        $comRec = (int) ReceiptItem::where('side', 'COMMON')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->sum('received_quantity');
+        $comQc  = (int) QcInspection::where('side', 'COMMON')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->sum('approved_quantity');
+        $comPnt = (int) PaintRecord::where('side', 'COMMON')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->where('status', 'completed')->sum('quantity');
+        $comAsm = (int) AssemblyRecord::where('side', 'COMMON')->when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))->where('status', 'completed')->sum('quantity');
+
+        $totalReqAll = $rhReq + $lhReq + $comReq;
+        $totalRecAll = $rhRec + $lhRec + $comRec;
+        $totalQcAll  = $rhQc + $lhQc + $comQc;
+        $totalPntAll = $rhPnt + $lhPnt + $comPnt;
+        $totalAsmAll = $rhAsm + $lhAsm + $comAsm;
+
+        // Stage fulfillment % against Total Required Quantity
+        $storeIntakePct = $totalReqAll > 0 ? min(100, round(($totalRecAll / $totalReqAll) * 100, 1)) : 0;
+        $qcPassPct      = $totalReqAll > 0 ? min(100, round(($totalQcAll / $totalReqAll) * 100, 1)) : 0;
+        $paintDonePct    = $totalReqAll > 0 ? min(100, round(($totalPntAll / $totalReqAll) * 100, 1)) : 0;
+        $assemblyDonePct = $totalReqAll > 0 ? min(100, round(($totalAsmAll / $totalReqAll) * 100, 1)) : 0;
+
+        // Weighted PRI Formula: 25% Store + 25% QC + 25% Paint + 25% Assembly
+        $overallReadinessPct = $totalReqAll > 0
+            ? round(($storeIntakePct * 0.25) + ($qcPassPct * 0.25) + ($paintDonePct * 0.25) + ($assemblyDonePct * 0.25), 1)
+            : 0;
+
+        $rhReadinessPct = $rhReq > 0
+            ? round(
+                (min(100, ($rhRec / $rhReq) * 100) * 0.25) +
+                (min(100, ($rhQc / $rhReq) * 100) * 0.25) +
+                (min(100, ($rhPnt / $rhReq) * 100) * 0.25) +
+                (min(100, ($rhAsm / $rhReq) * 100) * 0.25), 1)
+            : 0;
+
+        $lhReadinessPct = $lhReq > 0
+            ? round(
+                (min(100, ($lhRec / $lhReq) * 100) * 0.25) +
+                (min(100, ($lhQc / $lhReq) * 100) * 0.25) +
+                (min(100, ($lhPnt / $lhReq) * 100) * 0.25) +
+                (min(100, ($lhAsm / $lhReq) * 100) * 0.25), 1)
+            : 0;
+
+        $projectReadinessIndex = [
+            'readiness_score' => $overallReadinessPct,
+            'rh_readiness_score' => $rhReadinessPct,
+            'lh_readiness_score' => $lhReadinessPct,
+            'total_required' => $totalReqAll,
+            'total_assembled' => $totalAsmAll,
+            'has_data' => $totalReqAll > 0,
+            'info' => [
+                'name' => 'Project Readiness Index (PRI)',
+                'meaning' => 'Measures how close the project is to final completion based on progress through key workflow stages.',
+                'use_case' => 'Allows management to identify projects that are progressing well versus projects that still have major work remaining.',
+                'formula' => 'Weighted average of (Stage Quantity / Total Required BOM Quantity × 100) across Store (25%), QC (25%), Paint (25%), and Assembly (25%).',
+                'visual' => 'Gauge/Radial',
+            ],
+            'breakdown' => [
+                ['stage' => 'Store Intake', 'percent' => $storeIntakePct, 'color' => '#2563eb', 'count' => $totalRecAll],
+                ['stage' => 'QC Cleared', 'percent' => $qcPassPct, 'color' => '#10b981', 'count' => $totalQcAll],
+                ['stage' => 'Surface Painted', 'percent' => $paintDonePct, 'color' => '#7c3aed', 'count' => $totalPntAll],
+                ['stage' => 'Final Assembled', 'percent' => $assemblyDonePct, 'color' => '#0d9488', 'count' => $totalAsmAll],
+            ],
+        ];
+
+        // 2. Production Conversion Rate (PCR) Funnel
+        $conversionRate = [
+            'store_intake' => $totalRecAll,
+            'qc_approved' => $totalQcAll,
+            'paint_completed' => $totalPntAll,
+            'final_assembled' => $totalAsmAll,
+            'qc_conversion_pct' => $totalRecAll > 0 ? round(($totalQcAll / $totalRecAll) * 100, 1) : 0,
+            'paint_conversion_pct' => $totalQcAll > 0 ? round(($totalPntAll / $totalQcAll) * 100, 1) : 0,
+            'assembly_conversion_pct' => $totalPntAll > 0 ? round(($totalAsmAll / $totalPntAll) * 100, 1) : 0,
+            'overall_yield_pct' => $totalRecAll > 0 ? round(($totalAsmAll / $totalRecAll) * 100, 1) : 0,
+            'info' => [
+                'name' => 'Production Conversion Rate',
+                'meaning' => 'Percentage of received parts that ultimately become completed assembly parts.',
+                'use_case' => 'Shows overall efficiency from material receipt to final production completion.',
+                'formula' => '(Assembly Completed / Store Received) × 100',
+                'visual' => 'Funnel',
+            ],
+        ];
+
+        // 3. Project Completion Velocity (Daily Completed Parts + 7-Day Moving Avg)
+        $daysRange = 14;
+        $velocityData = [];
+        for ($i = $daysRange - 1; $i >= 0; $i--) {
+            $d = now()->subDays($i)->format('Y-m-d');
+            $cnt = (int) AssemblyRecord::when($projectId, fn($q) => $q->whereHas('bomItem', fn($b) => $b->where('project_id', $projectId)))
+                ->where('status', 'completed')
+                ->whereDate('created_at', $d)
+                ->sum('quantity');
+            $velocityData[] = [
+                'date' => $d,
+                'label' => now()->subDays($i)->format('d M'),
+                'completed' => $cnt,
+            ];
+        }
+        foreach ($velocityData as $idx => &$item) {
+            $startIdx = max(0, $idx - 6);
+            $slice = array_slice($velocityData, $startIdx, $idx - $startIdx + 1);
+            $sum = array_sum(array_column($slice, 'completed'));
+            $item['moving_avg'] = round($sum / count($slice), 1);
+        }
+        unset($item);
+
+        $projectVelocity = [
+            'series' => $velocityData,
+            'info' => [
+                'name' => 'Project Completion Velocity',
+                'meaning' => 'Measures how quickly project parts are being completed over time.',
+                'use_case' => 'Shows whether project throughput is increasing, decreasing or stable.',
+                'formula' => 'Daily finished assembly parts count with 7-day trailing moving average.',
+                'visual' => 'Line chart',
+            ],
+        ];
+
+        // 4. Process Flow Efficiency (Real Dwell Time from PostgreSQL timestamps)
+        $pfeStages = [
+            'store' => ['name' => 'Store Receiving', 'start' => 'store_received', 'end' => 'sent_to_qc', 'benchmark' => 6.0],
+            'qc' => ['name' => 'QC Inspection', 'start' => 'sent_to_qc', 'end' => 'qc_inspected', 'benchmark' => 8.0],
+            'rework' => ['name' => 'Rework Cycle', 'start' => 'qc_rework', 'end' => 'rework_completed', 'benchmark' => 12.0],
+            'paint' => ['name' => 'Paint Shop Coating', 'start' => 'qc_approved', 'end' => 'paint_completed', 'benchmark' => 16.0],
+            'assembly' => ['name' => 'Final Assembly Fit', 'start' => 'paint_completed', 'end' => 'assembly_completed', 'benchmark' => 10.0],
+        ];
+
+        $stageDwellTimes = [];
+        foreach ($pfeStages as $key => $pfe) {
+            $avgDuration = DB::table('workflow_events as e1')
+                ->join('workflow_events as e2', function ($join) use ($pfe) {
+                    $join->on('e1.bom_item_id', '=', 'e2.bom_item_id')
+                         ->on('e1.side', '=', 'e2.side')
+                         ->where('e1.event_type', '=', $pfe['start'])
+                         ->where('e2.event_type', '=', $pfe['end'])
+                         ->whereColumn('e2.created_at', '>', 'e1.created_at');
+                })
+                ->selectRaw('AVG(EXTRACT(EPOCH FROM (e2.created_at - e1.created_at)) / 3600) as avg_hours, COUNT(*) as samples')
+                ->first();
+
+            $hours = ($avgDuration && $avgDuration->samples > 0) ? round((float) $avgDuration->avg_hours, 1) : 0;
+            $status = $hours > 0 ? ($hours <= $pfe['benchmark'] ? 'Optimal' : 'Attention') : 'No Data';
+
+            $stageDwellTimes[] = [
+                'stage' => $pfe['name'],
+                'avg_hours' => $hours,
+                'benchmark_hours' => $pfe['benchmark'],
+                'status' => $status,
+                'samples' => (int) ($avgDuration->samples ?? 0),
+            ];
+        }
+
+        $processFlowEfficiency = [
+            'stages' => $stageDwellTimes,
+            'info' => [
+                'name' => 'Process Flow Efficiency',
+                'meaning' => 'Measures waiting and processing time through Store, QC, Rework, Paint and Assembly.',
+                'use_case' => 'Identifies slow departments and operational bottlenecks.',
+                'formula' => 'Average elapsed duration in hours between sequential stage workflow event timestamps.',
+                'visual' => 'Stage comparison',
+            ],
+        ];
+
+        // 5. Quality Stability Index (QSI - Real QC Volatility Control Chart)
+        $qcDays = [];
+        $yields = [];
+        for ($i = 13; $i >= 0; $i--) {
+            $d = now()->subDays($i)->format('Y-m-d');
+            $app = (int) QcInspection::whereDate('inspection_date', $d)->sum('approved_quantity');
+            $rej = (int) QcInspection::whereDate('inspection_date', $d)->sum('rejected_quantity');
+            $rew = (int) QcInspection::whereDate('inspection_date', $d)->sum('rework_quantity');
+            $tot = $app + $rej + $rew;
+            $yield = $tot > 0 ? round(($app / $tot) * 100, 1) : null;
+            if ($yield !== null) {
+                $yields[] = $yield;
+            }
+            $qcDays[] = [
+                'date' => $d,
+                'label' => now()->subDays($i)->format('d M'),
+                'yield_pct' => $yield,
+                'inspected_qty' => $tot,
+            ];
+        }
+
+        if (count($yields) > 0) {
+            $meanYield = round(array_sum($yields) / count($yields), 1);
+            $variance = 0;
+            foreach ($yields as $y) $variance += pow($y - $meanYield, 2);
+            $stdDev = count($yields) > 1 ? sqrt($variance / (count($yields) - 1)) : 1.5;
+            $ucl = min(100.0, round($meanYield + 2 * $stdDev, 1));
+            $lcl = max(0.0, round($meanYield - 2 * $stdDev, 1));
+        } else {
+            $meanYield = 0;
+            $ucl = 0;
+            $lcl = 0;
+        }
+
+        $qualityStabilityIndex = [
+            'mean_yield' => $meanYield,
+            'ucl' => $ucl,
+            'lcl' => $lcl,
+            'has_data' => count($yields) > 0,
+            'history' => $qcDays,
+            'info' => [
+                'name' => 'Quality Stability Index',
+                'meaning' => 'Measures whether QC performance is stable or fluctuating.',
+                'use_case' => 'Helps identify sudden deterioration in quality performance.',
+                'formula' => 'Statistical Process Control (SPC) metric monitoring day-to-day QC yield with Upper (UCL = Mean + 2σ) and Lower (LCL = Mean - 2σ) Control Limits.',
+                'visual' => 'Trend/control chart',
+            ],
+        ];
+
+        // 6. Capacity Load by Department (Live Active WIP)
+        $capacityLoad = [
+            'departments' => [
+                ['department' => 'Store', 'wip_count' => (int) ReceiptItem::where('status', 'received')->sum('received_quantity'), 'color' => '#2563eb'],
+                ['department' => 'QC Bay', 'wip_count' => (int) ReceiptItem::whereIn('status', ['sent_to_qc', 'qc_received'])->sum('received_quantity'), 'color' => '#eab308'],
+                ['department' => 'Rework Bay', 'wip_count' => (int) ReworkRecord::whereIn('status', ['pending', 'in_progress'])->sum('quantity'), 'color' => '#f97316'],
+                ['department' => 'Paint Shop', 'wip_count' => max(0, $totalQcAll - $totalPntAll), 'color' => '#7c3aed'],
+                ['department' => 'Assembly Floor', 'wip_count' => max(0, $totalPntAll - $totalAsmAll), 'color' => '#0d9488'],
+            ],
+            'info' => [
+                'name' => 'Capacity Load by Department',
+                'meaning' => 'Shows how much active/pending work is currently sitting in each department.',
+                'use_case' => 'Helps management identify overloaded departments and work accumulation.',
+                'formula' => 'Active work-in-progress (WIP) quantities awaiting completion per department workstation.',
+                'visual' => 'Stacked horizontal bar',
+            ],
+        ];
+
+        // 7. Supplier Fill Accuracy (RH vs LH Measured Independently)
+        $topSuppliers = Supplier::where('is_active', true)->with(['bomItems.requirements', 'bomItems.receiptItems'])->limit(5)->get();
+        $supplierAccuracyList = $topSuppliers->map(function ($sup) {
+            $rhReq = (int) $sup->bomItems->flatMap->requirements->where('side', 'RH')->sum('required_quantity');
+            $rhRec = (int) $sup->bomItems->flatMap->receiptItems->where('side', 'RH')->sum('received_quantity');
+            $lhReq = (int) $sup->bomItems->flatMap->requirements->where('side', 'LH')->sum('required_quantity');
+            $lhRec = (int) $sup->bomItems->flatMap->receiptItems->where('side', 'LH')->sum('received_quantity');
+            
+            return [
+                'supplier_id' => $sup->id,
+                'supplier_name' => $sup->name,
+                'rh_required' => $rhReq,
+                'rh_received' => $rhRec,
+                'rh_accuracy_pct' => $rhReq > 0 ? min(100, round(($rhRec / $rhReq) * 100, 1)) : ($rhRec > 0 ? 100 : 0),
+                'lh_required' => $lhReq,
+                'lh_received' => $lhRec,
+                'lh_accuracy_pct' => $lhReq > 0 ? min(100, round(($lhRec / $lhReq) * 100, 1)) : ($lhRec > 0 ? 100 : 0),
+            ];
+        })->values();
+
+        $supplierFillAccuracy = [
+            'suppliers' => $supplierAccuracyList,
+            'info' => [
+                'name' => 'Supplier Fill Accuracy',
+                'meaning' => 'Measures whether suppliers deliver the quantities actually required by the BOM.',
+                'use_case' => 'Identifies suppliers responsible for incomplete or partial deliveries.',
+                'formula' => '(Received Quantity / BOM Required Quantity) × 100, measured independently for RH and LH.',
+                'visual' => 'Grouped bar chart',
+            ],
+        ];
+
+        // 8. Project Completion Variance
+        $projectVarianceList = Project::where('status', 'active')->get()->map(function ($p) {
+            $plan = (int) BomRequirement::whereHas('bomItem', fn($b) => $b->where('project_id', $p->id))->sum('required_quantity');
+            $actual = (int) AssemblyRecord::whereHas('bomItem', fn($b) => $b->where('project_id', $p->id))->where('status', 'completed')->sum('quantity');
+            $diff = $actual - $plan;
+            $pct = $plan > 0 ? round(($actual / $plan) * 100, 1) : 0;
+            return [
+                'id' => $p->id,
+                'project_name' => $p->name,
+                'project_code' => $p->project_code,
+                'planned_qty' => $plan,
+                'actual_qty' => $actual,
+                'variance_qty' => $diff,
+                'completion_pct' => $pct,
+                'is_delayed' => $pct < 50,
+            ];
+        });
+
+        $projectVariance = [
+            'projects' => $projectVarianceList,
+            'info' => [
+                'name' => 'Project Completion Variance',
+                'meaning' => 'Difference between actual project progress and planned required baseline.',
+                'use_case' => 'Shows which projects are ahead or behind plan.',
+                'formula' => 'Actual Completed Assembly Quantity - Total Required Planned Quantity.',
+                'visual' => 'Variance chart',
+            ],
+        ];
+
+        // 9. Critical Dependency Monitor (Top Bottleneck Spare Parts)
+        $criticalBottlenecks = BomItem::query()
+            ->with(['project', 'supplier', 'requirements', 'receiptItems', 'assemblyRecords'])
+            ->when($projectId, fn($q) => $q->where('project_id', $projectId))
+            ->get()
+            ->map(function ($item) {
+                $req = (int) $item->requirements->sum('required_quantity');
+                $rec = (int) $item->receiptItems->sum('received_quantity');
+                $asm = (int) $item->assemblyRecords->where('status', 'completed')->sum('quantity');
+                $shortage = max(0, $req - $asm);
+                return [
+                    'id' => $item->id,
+                    'standard_part_no' => $item->standard_part_no,
+                    'project_code' => $item->project?->project_code ?? 'N/A',
+                    'supplier' => $item->supplier?->name ?? 'Standard',
+                    'required' => $req,
+                    'received' => $rec,
+                    'assembled' => $asm,
+                    'shortage' => $shortage,
+                    'criticality' => $shortage > 10 ? 'CRITICAL' : ($shortage > 0 ? 'HIGH' : 'RESOLVED'),
+                ];
+            })
+            ->filter(fn($b) => $b['shortage'] > 0)
+            ->sortByDesc('shortage')
+            ->values()
+            ->take(6);
+
+        $criticalDependencyMonitor = [
+            'bottlenecks' => $criticalBottlenecks,
+            'info' => [
+                'name' => 'Critical Dependency Monitor',
+                'meaning' => 'Ranks the dependencies currently preventing project progress.',
+                'use_case' => 'Highlights shortages, QC bottlenecks, rework, paint delays, assembly delays and supplier issues.',
+                'formula' => 'Top ranked spare parts sorted by Total Shortage (Required Quantity - Assembled Quantity).',
+                'visual' => 'Ranked chart',
+            ],
+        ];
+
+        // 10. Quality Cost Pressure Score
+        $reworkCount = (int) ReworkRecord::count();
+        $rejectedCount = (int) QcInspection::sum('rejected_quantity');
+        $pressureScore = min(100, round(($reworkCount * 2.5) + ($rejectedCount * 4.0), 0));
+
+        $qualityCostPressure = [
+            'pressure_score' => $pressureScore,
+            'severity' => $pressureScore > 60 ? 'HIGH' : ($pressureScore > 30 ? 'MODERATE' : 'LOW'),
+            'rework_events' => $reworkCount,
+            'scrap_rejections' => $rejectedCount,
+            'trend' => $pressureScore > 50 ? 'Deteriorating' : ($pressureScore > 0 ? 'Controlled' : 'Optimal / Zero Defect'),
+            'info' => [
+                'name' => 'Quality Cost Pressure',
+                'meaning' => 'Operational pressure created by rework, rejection and repeated rework.',
+                'use_case' => 'Identifies where quality problems are consuming additional production capacity.',
+                'formula' => 'Normalized index derived from Active Rework Work-orders (weight: 2.5) + Scrap Rejections (weight: 4.0).',
+                'visual' => 'KPI + Trend',
+            ],
+        ];
+
+        return response()->json([
+            'project_readiness_index' => $projectReadinessIndex,
+            'conversion_rate' => $conversionRate,
+            'velocity_series' => $velocityData,
+            'project_velocity' => $projectVelocity,
+            'stage_dwell_times' => $stageDwellTimes,
+            'process_flow_efficiency' => $processFlowEfficiency,
+            'quality_stability_index' => $qualityStabilityIndex,
+            'capacity_load' => $capacityLoad,
+            'supplier_fill_accuracy' => $supplierFillAccuracy,
+            'project_variance' => $projectVariance,
+            'critical_bottlenecks' => $criticalBottlenecks,
+            'critical_dependency_monitor' => $criticalDependencyMonitor,
+            'quality_cost_pressure' => $qualityCostPressure,
         ]);
     }
 }

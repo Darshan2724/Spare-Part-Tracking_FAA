@@ -32,4 +32,9 @@ class ReceiptItem extends Model
     {
         return $this->hasOne(QcInspection::class);
     }
+
+    public function qcInspections()
+    {
+        return $this->hasMany(QcInspection::class);
+    }
 }

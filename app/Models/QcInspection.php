@@ -19,6 +19,7 @@ class QcInspection extends Model
         'rejected_quantity',
         'rework_quantity',
         'result',
+        'destination',
         'rejection_reason',
         'rework_reason',
         'remarks',
@@ -50,5 +51,10 @@ class QcInspection extends Model
     public function paintRecord()
     {
         return $this->hasOne(PaintRecord::class, 'qc_inspection_id');
+    }
+
+    public function assemblyRecord()
+    {
+        return $this->hasOne(AssemblyRecord::class, 'qc_inspection_id');
     }
 }
