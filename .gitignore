@@ -76,3 +76,7 @@ docker/data/
 /coverage/
 *.cache
 .phpunit.cache
+scratch/
+~$*
+database/backups/
+mobile/%ProgramData%/

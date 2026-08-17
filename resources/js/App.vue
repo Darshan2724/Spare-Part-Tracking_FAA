@@ -58,6 +58,11 @@
             <i class="fas fa-truck me-2 text-secondary"></i>Suppliers
           </router-link>
         </li>
+        <li v-if="authStore.userRole === 'ADMIN'" class="nav-item">
+          <router-link class="nav-link text-white-50" :class="{ 'active bg-danger text-white': route.name === 'admin-logs' }" :to="{ name: 'admin-logs' }">
+            <i class="fas fa-shield-alt me-2 text-danger"></i>System Logs
+          </router-link>
+        </li>
       </ul>
 
       <!-- User Profile Card (Positioned directly below Supplier tab) -->

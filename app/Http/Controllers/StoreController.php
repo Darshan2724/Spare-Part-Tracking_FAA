@@ -82,7 +82,20 @@ class StoreController extends Controller
             return $item;
         });
 
-        $projects = Project::orderBy('name')->get(['id', 'name', 'project_code']);
+        $projects = Project::orderBy('name')->get()->map(function ($proj) {
+            $reqSum = (int) BomRequirement::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('required_quantity');
+            $recSum = (int) ReceiptItem::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('received_quantity');
+            $progress = $reqSum > 0 ? min(100, round(($recSum / $reqSum) * 100, 1)) : 0;
+            return [
+                'id' => $proj->id,
+                'project_code' => $proj->project_code,
+                'name' => $proj->name,
+                'total_required' => $reqSum,
+                'total_received' => $recSum,
+                'completion_pct' => $progress,
+                'is_complete' => ($reqSum > 0 && $recSum >= $reqSum),
+            ];
+        });
 
         return response()->json([
             'items' => $bomItems,
@@ -92,7 +105,7 @@ class StoreController extends Controller
 
     public function store(Request $request)
     {
-        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE']) ?: abort(403);
+        $request->user()?->hasAnyRole(['ADMIN', 'STORE']) ?: abort(403, 'Unauthorized. Store operational permission required.');
 
         $request->validate([
             'project_id' => ['required', 'exists:projects,id'],
@@ -149,9 +162,14 @@ class StoreController extends Controller
         });
     }
 
+    public function bulkReceive(Request $request)
+    {
+        return $this->store($request);
+    }
+
     public function sendToQc(Request $request, int $id)
     {
-        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE']) ?: abort(403);
+        $request->user()?->hasAnyRole(['ADMIN', 'STORE']) ?: abort(403, 'Unauthorized. Store operational permission required.');
 
         $item = ReceiptItem::with('bomItem.project')->findOrFail($id);
 
@@ -190,7 +208,7 @@ class StoreController extends Controller
 
     public function revert(Request $request, int $id)
     {
-        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE']) ?: abort(403);
+        $request->user()?->hasAnyRole(['ADMIN', 'STORE']) ?: abort(403, 'Unauthorized. Store operational permission required.');
 
         $item = ReceiptItem::with('bomItem.project')->findOrFail($id);
 
@@ -227,182 +245,102 @@ class StoreController extends Controller
     }
 
     /**
-     * Store Hierarchy API: Returns project JIG -> Unit -> Parts tree for 62800 project.
-     * Completeness coloring: Units turn green when 100% parts received; JIGs turn green when all units complete.
+     * Store Returned Items API: Lists all items returned from QC inspections.
      */
-    public function hierarchy(Request $request)
+    public function returnedItems(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC']) ?: abort(403);
+
+        $query = ReceiptItem::query()
+            ->with(['bomItem.project', 'qcInspections.inspector', 'receipt.supplier'])
+            ->where('status', 'returned_to_store');
+
+        if ($request->filled('search')) {
+            $search = trim($request->input('search'));
+            $query->whereHas('bomItem', function ($q) use ($search) {
+                $q->where('standard_part_no', 'LIKE', "%{$search}%")
+                  ->orWhere('item_no', 'LIKE', "%{$search}%")
+                  ->orWhere('jig_no', 'LIKE', "%{$search}%")
+                  ->orWhere('unit_no', 'LIKE', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('project_id')) {
+            $query->whereHas('bomItem', fn($q) => $q->where('project_id', $request->input('project_id')));
+        }
+
+        if ($request->filled('side')) {
+            $query->where('side', $request->input('side'));
+        }
+
+        $perPage = (int) $request->input('per_page', 50);
+        $items = $query->orderByDesc('updated_at')->paginate($perPage);
+
+        return response()->json($items);
+    }
+
+    /**
+     * Process Returned Item: Re-receive into store, return to vendor, or scrap.
+     */
+    public function processReturnedItem(Request $request, int $id)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'STORE']) ?: abort(403, 'Unauthorized. Store operational permission required.');
+
+        $request->validate([
+            'action' => ['required', 'in:re_receive,return_to_vendor,scrap'],
+            'remarks' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        return DB::transaction(function () use ($request, $id) {
+            $item = ReceiptItem::with('bomItem.project')->findOrFail($id);
+            $action = $request->input('action');
+            $remarks = $request->input('remarks') ?? 'Processed by store.';
+
+            if ($action === 're_receive') {
+                $item->update(['status' => 'received']);
+                $newStatus = 'received';
+            } elseif ($action === 'return_to_vendor') {
+                $item->update(['status' => 'returned_to_vendor']);
+                $newStatus = 'returned_to_vendor';
+            } else {
+                $item->update(['status' => 'scrapped']);
+                $newStatus = 'scrapped';
+            }
+
+            WorkflowEvent::create([
+                'bom_item_id' => $item->bom_item_id,
+                'project_id' => $item->bomItem->project_id,
+                'user_id' => $request->user()->id,
+                'event_type' => 'store_returned_item_processed',
+                'side' => $item->side,
+                'quantity' => $item->received_quantity,
+                'previous_state' => 'returned_to_store',
+                'new_state' => $newStatus,
+                'remarks' => "Returned item action [{$action}]: {$remarks}",
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => "Returned item successfully processed as {$action}.",
+                'item' => $item,
+            ]);
+        });
+    }
+
+    /**
+     * Store Hierarchy API: Returns project JIG -> Unit -> Parts tree.
+     */
+    public function hierarchy(Request $request, \App\Services\HierarchyService $hierarchyService)
     {
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE']) ?: abort(403);
 
-        $projectId = $request->input('project_id');
-        $projects = Project::orderBy('name')->get();
+        $projectId = $request->input('project_id') ? (int) $request->input('project_id') : null;
+        $filters = [
+            'side' => $request->input('side'),
+            'search' => $request->input('search'),
+        ];
 
-        $projectsList = $projects->map(function ($proj) {
-            $reqSum = (int) BomRequirement::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('required_quantity');
-            $recSum = (int) ReceiptItem::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('received_quantity');
-            $progress = $reqSum > 0 ? min(100, round(($recSum / $reqSum) * 100, 1)) : 0;
-            return [
-                'id' => $proj->id,
-                'project_code' => $proj->project_code,
-                'name' => $proj->name,
-                'total_required' => $reqSum,
-                'total_received' => $recSum,
-                'completion_pct' => $progress,
-                'is_complete' => ($reqSum > 0 && $recSum >= $reqSum)
-            ];
-        });
-
-        if (!$projectId) {
-            return response()->json([
-                'is_hierarchical' => false,
-                'projects' => $projectsList,
-                'message' => 'Please select a project to view JIG hierarchy.',
-            ]);
-        }
-
-        $project = Project::findOrFail($projectId);
-
-        // Fetch items to check if parts have JIG-Unit pattern (e.g. 62800-ST7-01-11-R)
-        $bomItems = BomItem::query()
-            ->with(['requirements', 'supplier', 'project'])
-            ->where('project_id', $project->id)
-            ->orderBy('standard_part_no')
-            ->get();
-
-        if ($bomItems->isEmpty()) {
-            return response()->json([
-                'is_hierarchical' => false,
-                'project' => $project,
-                'message' => 'No BOM items found for this project.',
-            ]);
-        }
-
-        $bomItemIds = $bomItems->pluck('id')->toArray();
-        $receiptTotals = ReceiptItem::query()
-            ->select('bom_item_id', 'side', DB::raw('SUM(received_quantity) as total_received'))
-            ->whereIn('bom_item_id', $bomItemIds)
-            ->groupBy('bom_item_id', 'side')
-            ->get()
-            ->groupBy('bom_item_id');
-
-        $jigsTree = [];
-
-        foreach ($bomItems as $item) {
-            $partNo = trim($item->standard_part_no);
-            $parts = explode('-', $partNo);
-
-            $jigName = count($parts) >= 3 ? strtoupper(trim($parts[1])) : 'GENERAL';
-            $unitNo = count($parts) >= 3 ? 'Unit ' . trim($parts[2]) : 'Unit 00';
-
-            $itemReceipts = $receiptTotals->get($item->id, collect());
-
-            $sideStats = [];
-            $itemTotalRequired = 0;
-            $itemTotalReceived = 0;
-            $itemTotalPending = 0;
-
-            foreach ($item->requirements as $req) {
-                $rec = $itemReceipts->firstWhere('side', $req->side);
-                $received = $rec ? (int) $rec->total_received : 0;
-                $pending = max(0, $req->required_quantity - $received);
-
-                $sideStats[$req->side] = [
-                    'required' => $req->required_quantity,
-                    'received' => $received,
-                    'pending' => $pending,
-                ];
-
-                $itemTotalRequired += $req->required_quantity;
-                $itemTotalReceived += min($received, $req->required_quantity);
-                $itemTotalPending += $pending;
-            }
-
-            $item->side_stats = $sideStats;
-            $item->total_required = $itemTotalRequired;
-            $item->total_received = $itemTotalReceived;
-            $item->total_pending = $itemTotalPending;
-            $item->is_complete = ($itemTotalRequired > 0 && $itemTotalPending === 0);
-
-            if (!isset($jigsTree[$jigName])) {
-                $jigsTree[$jigName] = [
-                    'jig_name' => $jigName,
-                    'total_required' => 0,
-                    'total_received' => 0,
-                    'total_parts' => 0,
-                    'complete_units' => 0,
-                    'total_units' => 0,
-                    'is_complete' => false,
-                    'completion_pct' => 0,
-                    'units' => [],
-                ];
-            }
-
-            if (!isset($jigsTree[$jigName]['units'][$unitNo])) {
-                $jigsTree[$jigName]['units'][$unitNo] = [
-                    'unit_no' => $unitNo,
-                    'jig_name' => $jigName,
-                    'total_required' => 0,
-                    'total_received' => 0,
-                    'pending_quantity' => 0,
-                    'total_parts' => 0,
-                    'is_complete' => false,
-                    'completion_pct' => 0,
-                    'parts' => [],
-                ];
-            }
-
-            $jigsTree[$jigName]['units'][$unitNo]['parts'][] = $item;
-            $jigsTree[$jigName]['units'][$unitNo]['total_parts']++;
-            $jigsTree[$jigName]['units'][$unitNo]['total_required'] += $itemTotalRequired;
-            $jigsTree[$jigName]['units'][$unitNo]['total_received'] += $itemTotalReceived;
-            $jigsTree[$jigName]['units'][$unitNo]['pending_quantity'] += $itemTotalPending;
-
-            $jigsTree[$jigName]['total_parts']++;
-            $jigsTree[$jigName]['total_required'] += $itemTotalRequired;
-            $jigsTree[$jigName]['total_received'] += $itemTotalReceived;
-        }
-
-        $formattedJigs = [];
-
-        foreach ($jigsTree as $jigName => $jigData) {
-            $formattedUnits = [];
-            $completeUnitsCount = 0;
-
-            foreach ($jigData['units'] as $unitNo => $unitData) {
-                $req = $unitData['total_required'];
-                $rec = $unitData['total_received'];
-                $pend = $unitData['pending_quantity'];
-                $unitData['is_complete'] = ($req > 0 && $pend === 0);
-                $unitData['completion_pct'] = $req > 0 ? round(($rec / $req) * 100, 1) : 100;
-
-                if ($unitData['is_complete']) {
-                    $completeUnitsCount++;
-                }
-
-                $formattedUnits[] = $unitData;
-            }
-
-            usort($formattedUnits, fn($a, $b) => strcmp($a['unit_no'], $b['unit_no']));
-
-            $jigReq = $jigData['total_required'];
-            $jigRec = $jigData['total_received'];
-            $totalUnitsCount = count($formattedUnits);
-            $jigData['complete_units'] = $completeUnitsCount;
-            $jigData['total_units'] = $totalUnitsCount;
-            $jigData['is_complete'] = ($totalUnitsCount > 0 && $completeUnitsCount === $totalUnitsCount);
-            $jigData['completion_pct'] = $jigReq > 0 ? round(($jigRec / $jigReq) * 100, 1) : 100;
-            $jigData['units'] = $formattedUnits;
-
-            $formattedJigs[] = $jigData;
-        }
-
-        usort($formattedJigs, fn($a, $b) => strcmp($a['jig_name'], $b['jig_name']));
-
-        return response()->json([
-            'is_hierarchical' => true,
-            'project' => $project,
-            'jigs' => $formattedJigs,
-            'projects' => $projectsList,
-        ]);
+        $data = $hierarchyService->getDepartmentHierarchy('store', $projectId, $filters);
+        return response()->json($data);
     }
 }

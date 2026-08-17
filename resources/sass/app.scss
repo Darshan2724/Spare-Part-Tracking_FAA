@@ -15,25 +15,54 @@ body {
     margin-bottom: 1.25rem;
 }
 
-.table th {
-    font-weight: 600;
-    text-transform: uppercase;
-    font-size: 0.8rem;
-    letter-spacing: 0.5px;
-    background-color: #f1f5f9;
+/* Enhanced ERP/MES Table Header Readability Standards */
+.table th,
+.table thead th,
+.table-mes-header th {
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    font-size: 0.78rem !important;
+    letter-spacing: 0.6px !important;
+    vertical-align: middle !important;
+    color: #0f172a !important;
+    background-color: #f1f5f9 !important;
+    border-bottom: 2px solid #cbd5e1 !important;
+    padding-top: 0.75rem !important;
+    padding-bottom: 0.75rem !important;
+}
+
+.table thead.table-dark th,
+.table thead.thead-dark th,
+.table-dark thead th,
+.table.table-dark th,
+.table thead.table-dark {
+    color: #ffffff !important;
+    background-color: #0f172a !important;
+    border-bottom: 2px solid #334155 !important;
+}
+
+.table thead.table-light th,
+.table thead.thead-light th,
+.table-light thead th {
+    color: #0f172a !important;
+    background-color: #f8fafc !important;
+    border-bottom: 2px solid #e2e8f0 !important;
 }
 
 .badge-rh {
-    background-color: #3490dc;
+    background-color: #2563eb;
     color: #fff;
+    font-weight: 600;
 }
 
 .badge-lh {
-    background-color: #9561e2;
+    background-color: #7c3aed;
     color: #fff;
+    font-weight: 600;
 }
 
 .badge-common {
-    background-color: #6c757d;
+    background-color: #475569;
     color: #fff;
+    font-weight: 600;
 }

@@ -12,6 +12,8 @@ class BomItem extends Model
 
     protected $fillable = [
         'project_id',
+        'jig_no',
+        'unit_no',
         'item_no',
         'standard_part_no',
         'size',

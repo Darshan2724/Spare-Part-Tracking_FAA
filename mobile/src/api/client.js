@@ -1,13 +1,15 @@
 import axios from 'axios';
 
-let currentBaseUrl = 'http://localhost:8080/api/v1';
+let currentBaseUrl = 'http://10.17.214.175:8080/api/v1';
 
 const apiClient = axios.create({
   baseURL: currentBaseUrl,
-  timeout: 10000,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
+    'Bypass-Tunnel-Reminder': 'true',
+    'bypass-tunnel-reminder': 'true',
   },
 });
 

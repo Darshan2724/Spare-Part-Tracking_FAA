@@ -13,6 +13,9 @@ use App\Http\Controllers\ReworkController;
 use App\Http\Controllers\StoreController;
 use App\Http\Controllers\SupplierController;
 
+use App\Http\Controllers\Admin\SystemLogController;
+use App\Http\Middleware\CaptureSystemLogsMiddleware;
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -23,7 +26,7 @@ use App\Http\Controllers\SupplierController;
 |
 */
 
-Route::prefix('v1')->group(function () {
+Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(function () {
     // Public Authentication Routes
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
 
@@ -32,12 +35,21 @@ Route::prefix('v1')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/auth/me', [AuthController::class, 'me']);
 
+        // Admin System Logs & Diagnostics (ADMIN ONLY)
+        Route::prefix('admin')->group(function () {
+            Route::get('/logs', [SystemLogController::class, 'index']);
+            Route::get('/logs/dashboard', [SystemLogController::class, 'dashboard']);
+            Route::get('/logs/{id}', [SystemLogController::class, 'show']);
+            Route::patch('/logs/{id}/status', [SystemLogController::class, 'updateStatus']);
+        });
+
         // Dashboard Summary Metrics
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
         Route::get('/dashboard/bottleneck', [DashboardController::class, 'bottleneck']);
         Route::get('/dashboard/daily-movement', [DashboardController::class, 'dailyMovement']);
         Route::get('/dashboard/pipeline-status', [DashboardController::class, 'pipelineStatus']);
         Route::get('/dashboard/priority-map', [DashboardController::class, 'priorityMap']);
+        Route::get('/dashboard/analytics', [DashboardController::class, 'managementAnalytics']);
 
         // Suppliers CRUD
         Route::apiResource('suppliers', SupplierController::class);
@@ -54,7 +66,10 @@ Route::prefix('v1')->group(function () {
             Route::get('/items', [StoreController::class, 'index']);
             Route::get('/hierarchy', [StoreController::class, 'hierarchy']);
             Route::get('/history', [StoreController::class, 'history']);
+            Route::get('/returned', [StoreController::class, 'returnedItems']);
+            Route::post('/items/{id}/process-returned', [StoreController::class, 'processReturnedItem']);
             Route::post('/receipts', [StoreController::class, 'store']);
+            Route::post('/bulk-receive', [StoreController::class, 'bulkReceive']);
             Route::post('/items/{id}/send-to-qc', [StoreController::class, 'sendToQc']);
             Route::post('/items/{id}/revert', [StoreController::class, 'revert']);
         });
@@ -62,18 +77,23 @@ Route::prefix('v1')->group(function () {
         // Quality Control Operations
         Route::prefix('qc')->group(function () {
             Route::get('/queue', [QcController::class, 'queue']);
+            Route::get('/hierarchy', [QcController::class, 'hierarchy']);
             Route::get('/history', [QcController::class, 'history']);
             Route::post('/receive', [QcController::class, 'confirmReceived']);
+            Route::post('/bulk-receive', [QcController::class, 'bulkReceive']);
             Route::post('/reject-arrival', [QcController::class, 'rejectArrival']);
             Route::post('/inspect', [QcController::class, 'inspect']);
+            Route::post('/bulk-inspect', [QcController::class, 'bulkInspect']);
         });
 
         // Rework Department Operations
         Route::prefix('rework')->group(function () {
             Route::get('/items', [ReworkController::class, 'index']);
+            Route::get('/hierarchy', [ReworkController::class, 'hierarchy']);
             Route::post('/items', [ReworkController::class, 'store']);
             Route::post('/items/{id}/start', [ReworkController::class, 'start']);
             Route::post('/items/{id}/complete', [ReworkController::class, 'complete']);
+            Route::post('/bulk-action', [ReworkController::class, 'bulkAction']);
         });
 
         // Purchase Queue Operations
@@ -88,14 +108,18 @@ Route::prefix('v1')->group(function () {
         Route::prefix('paint')->group(function () {
             Route::get('/items', [PaintController::class, 'index']);
             Route::get('/queue', [PaintController::class, 'queue']);
+            Route::get('/hierarchy', [PaintController::class, 'hierarchy']);
             Route::post('/items', [PaintController::class, 'store']);
+            Route::post('/bulk-complete', [PaintController::class, 'bulkComplete']);
         });
 
         // Assembly Department Operations
         Route::prefix('assembly')->group(function () {
             Route::get('/items', [AssemblyController::class, 'index']);
             Route::get('/queue', [AssemblyController::class, 'queue']);
+            Route::get('/hierarchy', [AssemblyController::class, 'hierarchy']);
             Route::post('/items', [AssemblyController::class, 'store']);
+            Route::post('/bulk-complete', [AssemblyController::class, 'bulkComplete']);
         });
     });
 });
