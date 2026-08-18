@@ -13,6 +13,7 @@ use App\Http\Controllers\ReworkController;
 use App\Http\Controllers\StoreController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\HealthController;
+use App\Http\Controllers\ExportController;
 
 use App\Http\Controllers\Admin\SystemLogController;
 use App\Http\Middleware\CaptureSystemLogsMiddleware;
@@ -38,6 +39,10 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/auth/me', [AuthController::class, 'me']);
+
+        // Parts Movement Detail Excel and PDF Export
+        Route::post('/export/movement', [ExportController::class, 'exportMovement']);
+        Route::get('/export/movement', [ExportController::class, 'exportMovement']);
 
         // Admin System Logs & Diagnostics (ADMIN ONLY)
         Route::prefix('admin')->group(function () {
