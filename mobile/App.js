@@ -1489,141 +1489,226 @@ function App() {
                 )}
 
                 {/* LEVEL 3: UNITS LIST (when JIG selected, no Unit selected) */}
-                {selectedJig && !selectedUnit && (
-                  <View>
-                    <Text style={styles.sectionHeader}>
-                      UNITS IN JIG: {selectedJig.jig_name} ({
-                        (selectedJig.units || []).filter(unit => {
-                          if (!currentSearchQuery) return true;
-                          const q = currentSearchQuery.toLowerCase().trim();
-                          const uNo = (unit.unit_no || '').toLowerCase();
-                          const cleanQ = q.replace(/^unit\s*/i, '').trim();
-                          return uNo.includes(q) || (cleanQ && uNo.includes(cleanQ));
-                        }).length
-                      })
-                    </Text>
-                    {(selectedJig.units || [])
-                      .filter(unit => {
+                {selectedJig && !selectedUnit && (() => {
+                  const operationalTabs = ['paint', 'assembly', 'qc', 'rework'];
+                      const isOperationalStore = activeTab === 'store' && storeSubTab === 'pending';
+                      const shouldFilterEmptySides = operationalTabs.includes(activeTab) || isOperationalStore;
+
+                      const getSideEligibility = (unit, side) => {
+                        if (!unit) return { eligible: false, count: 0, required: 0, received: 0, pct: 0, label: '', buttonText: '' };
+                        const sideObj = unit.sides?.[side] || {};
+                        const sideParts = (unit.parts || []).filter(p => p.side_stats?.[side] || p.side_stats?.COMMON);
+                        const sideMetrics = sideObj.metrics || {};
+
+                        let eligible = false;
+                        let count = 0;
+                        let label = '';
+                        let buttonText = '';
+
+                        if (activeTab === 'paint') {
+                          const readyQty = sideMetrics.paint_ready ?? sideParts.filter(p => (p.side_stats?.[side]?.paint_ready || p.side_stats?.COMMON?.paint_ready || 0) > 0).length;
+                          const compQty = sideMetrics.paint_completed ?? sideParts.filter(p => (p.side_stats?.[side]?.paint_completed || p.side_stats?.COMMON?.paint_completed || 0) > 0).length;
+                          if (paintStatusFilter === 'completed') {
+                            count = compQty;
+                            eligible = count > 0;
+                            label = `${count} Painted`;
+                            buttonText = `Open ${side} (${count}) ›`;
+                          } else if (paintStatusFilter === 'all') {
+                            count = readyQty + compQty;
+                            eligible = count > 0;
+                            label = `${readyQty} Ready • ${compQty} Done`;
+                            buttonText = `Open ${side} ›`;
+                          } else {
+                            count = readyQty;
+                            eligible = count > 0;
+                            label = `${count} Ready for Paint`;
+                            buttonText = `Open ${side} (${count}) ›`;
+                          }
+                        } else if (activeTab === 'assembly') {
+                          const readyQty = sideMetrics.assembly_ready ?? sideParts.filter(p => (p.side_stats?.[side]?.assembly_ready || p.side_stats?.COMMON?.assembly_ready || 0) > 0).length;
+                          count = readyQty;
+                          eligible = count > 0;
+                          label = `${count} Ready for Asm`;
+                          buttonText = `Open ${side} (${count}) ›`;
+                        } else if (activeTab === 'qc') {
+                          if (qcSubTab === 'arrival') {
+                            count = sideMetrics.qc_pending_arrival ?? sideParts.filter(p => (p.side_stats?.[side]?.qc_pending_arrival || p.side_stats?.COMMON?.qc_pending_arrival || 0) > 0).length;
+                            eligible = count > 0;
+                            label = `${count} Pending Arrival`;
+                            buttonText = `Open ${side} (${count}) ›`;
+                          } else {
+                            count = sideMetrics.qc_pending_inspection ?? sideParts.filter(p => (p.side_stats?.[side]?.qc_pending_inspection || p.side_stats?.COMMON?.qc_pending_inspection || 0) > 0).length;
+                            eligible = count > 0;
+                            label = `${count} Pending QC`;
+                            buttonText = `Open ${side} (${count}) ›`;
+                          }
+                        } else if (activeTab === 'rework') {
+                          const rewPend = sideMetrics.rework_pending ?? 0;
+                          const rewProg = sideMetrics.rework_in_progress ?? 0;
+                          count = rewPend + rewProg;
+                          eligible = count > 0;
+                          label = `${count} in Rework`;
+                          buttonText = `Open ${side} (${count}) ›`;
+                        } else if (activeTab === 'store') {
+                          if (storeSubTab === 'pending') {
+                            count = sideMetrics.total_pending ?? sideObj.pending_quantity ?? sideParts.filter(p => (p.side_stats?.[side]?.pending || p.side_stats?.COMMON?.pending || 0) > 0).length;
+                            eligible = count > 0;
+                            label = `Req: ${sideObj.total_required ?? 0} • Rec: ${sideObj.total_received ?? 0}`;
+                            buttonText = `Open ${side} (${count} Pen) ›`;
+                          } else {
+                            count = sideParts.length;
+                            eligible = count > 0;
+                            label = `Req: ${sideObj.total_required ?? 0} • Rec: ${sideObj.total_received ?? 0}`;
+                            buttonText = `Open ${side} ›`;
+                          }
+                        } else {
+                          count = sideParts.length;
+                          eligible = count > 0;
+                          label = `Req: ${sideObj.total_required ?? 0} • Rec: ${sideObj.total_received ?? 0}`;
+                          buttonText = `Open ${side} ›`;
+                        }
+
+                        return {
+                          eligible,
+                          count,
+                          required: sideObj.total_required ?? 0,
+                          received: sideObj.total_received ?? 0,
+                          pct: sideObj.completion_pct ?? 0,
+                          label,
+                          buttonText,
+                        };
+                      };
+
+                      const filteredUnits = (selectedJig.units || []).filter(unit => {
+                        if (shouldFilterEmptySides) {
+                          const lhElig = getSideEligibility(unit, 'LH');
+                          const rhElig = getSideEligibility(unit, 'RH');
+                          if (!lhElig.eligible && !rhElig.eligible) return false;
+                        }
                         if (!currentSearchQuery) return true;
                         const q = currentSearchQuery.toLowerCase().trim();
                         const uNo = (unit.unit_no || '').toLowerCase();
                         const cleanQ = q.replace(/^unit\s*/i, '').trim();
                         return uNo.includes(q) || (cleanQ && uNo.includes(cleanQ));
-                      })
-                      .map((unit) => {
-                        const lhPartsCount = unit.sides?.LH?.total_parts ?? (unit.parts || []).filter(p => p.side_stats?.LH || p.side_stats?.COMMON).length;
-                        const rhPartsCount = unit.sides?.RH?.total_parts ?? (unit.parts || []).filter(p => p.side_stats?.RH || p.side_stats?.COMMON).length;
-                        const lhReq = unit.sides?.LH?.total_required ?? 0;
-                        const lhRec = unit.sides?.LH?.total_received ?? 0;
-                        const rhReq = unit.sides?.RH?.total_required ?? 0;
-                        const rhRec = unit.sides?.RH?.total_received ?? 0;
-                        const lhPct = unit.sides?.LH?.completion_pct ?? 0;
-                        const rhPct = unit.sides?.RH?.completion_pct ?? 0;
+                      });
 
-                        return (
-                          <View
-                            key={unit.unit_no}
-                            style={[
-                              styles.unitCard,
-                              unit.is_complete ? styles.unitCardComplete : styles.unitCardIncomplete,
-                              { padding: 10 }
-                            ]}>
-                            {/* Single Unit Header */}
-                            <View style={[styles.itemHeader, { marginBottom: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                <Text style={[styles.unitTitle, unit.is_complete && { color: '#15803d' }]}>
-                                  {unit.is_complete ? '✓ ' : '📦 '}{unit.unit_no}
-                                </Text>
+                      return (
+                        <View>
+                          <Text style={styles.sectionHeader}>
+                            UNITS IN JIG: {selectedJig.jig_name} ({filteredUnits.length})
+                          </Text>
+
+                          {filteredUnits.map((unit) => {
+                            const lhElig = getSideEligibility(unit, 'LH');
+                            const rhElig = getSideEligibility(unit, 'RH');
+
+                            const showLH = shouldFilterEmptySides ? lhElig.eligible : (lhElig.count > 0 || !rhElig.eligible);
+                            const showRH = shouldFilterEmptySides ? rhElig.eligible : (rhElig.count > 0 || !lhElig.eligible);
+
+                            return (
+                              <View
+                                key={unit.unit_no}
+                                style={[
+                                  styles.unitCard,
+                                  unit.is_complete ? styles.unitCardComplete : styles.unitCardIncomplete,
+                                  { padding: 10 }
+                                ]}>
+                                {/* Single Unit Header */}
+                                <View style={[styles.itemHeader, { marginBottom: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                    <Text style={[styles.unitTitle, unit.is_complete && { color: '#15803d' }]}>
+                                      {unit.is_complete ? '✓ ' : '📦 '}{unit.unit_no}
+                                    </Text>
+                                  </View>
+                                  <Text style={[styles.unitBadge, unit.is_complete ? styles.jigBadgeComplete : styles.unitBadgePending]}>
+                                    {unit.is_complete ? 'COMPLETED' : `${unit.completion_pct}%`}
+                                  </Text>
+                                </View>
+
+                                {/* Responsive Side Panels: Single side full width or Dual side split */}
+                                <View style={{ flexDirection: 'row', gap: (showLH && showRH) ? 8 : 0 }}>
+                                  {/* LH Touchable Section */}
+                                  {showLH && (
+                                    <TouchableOpacity
+                                      style={[
+                                        styles.mobileSidePanel,
+                                        { flex: 1,
+                                          borderColor: lhElig.eligible ? '#0ea5e9' : '#e2e8f0',
+                                          backgroundColor: lhElig.eligible ? '#f0f9ff' : '#f8fafc' }
+                                      ]}
+                                      disabled={!lhElig.eligible}
+                                      onPress={() => {
+                                        scrollToTop(false);
+                                        clearSelection();
+                                        setSelectedUnit(unit);
+                                        setUnitSideTab('LH');
+                                      }}>
+                                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                        <View style={styles.sidePillLh}>
+                                          <Text style={styles.sidePillTextLh}>🔵 LH</Text>
+                                        </View>
+                                        <Text style={{ fontSize: 10.5, fontWeight: '700', color: '#0369a1' }}>
+                                          {lhElig.pct}%
+                                        </Text>
+                                      </View>
+                                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#1e293b', marginBottom: 2 }}>
+                                        {lhElig.label}
+                                      </Text>
+                                      <Text style={{ fontSize: 10.5, fontWeight: '700', color: lhElig.eligible ? '#0284c7' : '#94a3b8', marginTop: 6 }}>
+                                        {lhElig.eligible ? lhElig.buttonText : 'No LH Parts'}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  )}
+
+                                  {/* RH Touchable Section */}
+                                  {showRH && (
+                                    <TouchableOpacity
+                                      style={[
+                                        styles.mobileSidePanel,
+                                        { flex: 1,
+                                          borderColor: rhElig.eligible ? '#6366f1' : '#e2e8f0',
+                                          backgroundColor: rhElig.eligible ? '#eef2ff' : '#f8fafc' }
+                                      ]}
+                                      disabled={!rhElig.eligible}
+                                      onPress={() => {
+                                        scrollToTop(false);
+                                        clearSelection();
+                                        setSelectedUnit(unit);
+                                        setUnitSideTab('RH');
+                                      }}>
+                                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                        <View style={styles.sidePillRh}>
+                                          <Text style={styles.sidePillTextRh}>🔷 RH</Text>
+                                        </View>
+                                        <Text style={{ fontSize: 10.5, fontWeight: '700', color: '#4338ca' }}>
+                                          {rhElig.pct}%
+                                        </Text>
+                                      </View>
+                                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#1e293b', marginBottom: 2 }}>
+                                        {rhElig.label}
+                                      </Text>
+                                      <Text style={{ fontSize: 10.5, fontWeight: '700', color: rhElig.eligible ? '#4f46e5' : '#94a3b8', marginTop: 6 }}>
+                                        {rhElig.eligible ? rhElig.buttonText : 'No RH Parts'}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
                               </View>
-                              <Text style={[styles.unitBadge, unit.is_complete ? styles.jigBadgeComplete : styles.unitBadgePending]}>
-                                {unit.is_complete ? 'COMPLETED' : `${unit.completion_pct}%`}
+                            );
+                          })}
+
+                          {filteredUnits.length === 0 && (
+                            <View style={styles.emptyState}>
+                              <Text style={styles.emptyStateText}>
+                                {currentSearchQuery
+                                  ? `No units match "${currentSearchQuery}".`
+                                  : `No units currently have pending work in this JIG.`}
                               </Text>
                             </View>
-
-                            {/* Split 2-Panel Body: LH and RH */}
-                            <View style={{ flexDirection: 'row', gap: 8 }}>
-                              {/* LH Touchable Section */}
-                              <TouchableOpacity
-                                style={[
-                                  styles.mobileSidePanel,
-                                  { borderColor: lhPartsCount > 0 ? '#0ea5e9' : '#e2e8f0',
-                                    backgroundColor: lhPartsCount > 0 ? '#f0f9ff' : '#f8fafc' }
-                                ]}
-                                disabled={!(lhPartsCount > 0)}
-                                onPress={() => {
-                                  scrollToTop(false);
-                                  clearSelection();
-                                  setSelectedUnit(unit);
-                                  setUnitSideTab('LH');
-                                }}>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                  <View style={styles.sidePillLh}>
-                                    <Text style={styles.sidePillTextLh}>🔵 LH</Text>
-                                  </View>
-                                  <Text style={{ fontSize: 10.5, fontWeight: '700', color: '#0369a1' }}>
-                                    {lhPct}%
-                                  </Text>
-                                </View>
-                                <Text style={{ fontSize: 11, fontWeight: '700', color: '#1e293b', marginBottom: 2 }}>
-                                  {lhPartsCount} Parts
-                                </Text>
-                                <Text style={{ fontSize: 10, color: '#64748b' }}>
-                                  Req: {lhReq} • Rec: {lhRec}
-                                </Text>
-                                <Text style={{ fontSize: 10.5, fontWeight: '700', color: lhPartsCount > 0 ? '#0284c7' : '#94a3b8', marginTop: 6 }}>
-                                  {lhPartsCount > 0 ? 'Open LH ›' : 'No LH Parts'}
-                                </Text>
-                              </TouchableOpacity>
-
-                              {/* RH Touchable Section */}
-                              <TouchableOpacity
-                                style={[
-                                  styles.mobileSidePanel,
-                                  { borderColor: rhPartsCount > 0 ? '#6366f1' : '#e2e8f0',
-                                    backgroundColor: rhPartsCount > 0 ? '#eef2ff' : '#f8fafc' }
-                                ]}
-                                disabled={!(rhPartsCount > 0)}
-                                onPress={() => {
-                                  scrollToTop(false);
-                                  clearSelection();
-                                  setSelectedUnit(unit);
-                                  setUnitSideTab('RH');
-                                }}>
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                  <View style={styles.sidePillRh}>
-                                    <Text style={styles.sidePillTextRh}>🔷 RH</Text>
-                                  </View>
-                                  <Text style={{ fontSize: 10.5, fontWeight: '700', color: '#4338ca' }}>
-                                    {rhPct}%
-                                  </Text>
-                                </View>
-                                <Text style={{ fontSize: 11, fontWeight: '700', color: '#1e293b', marginBottom: 2 }}>
-                                  {rhPartsCount} Parts
-                                </Text>
-                                <Text style={{ fontSize: 10, color: '#64748b' }}>
-                                  Req: {rhReq} • Rec: {rhRec}
-                                </Text>
-                                <Text style={{ fontSize: 10.5, fontWeight: '700', color: rhPartsCount > 0 ? '#4f46e5' : '#94a3b8', marginTop: 6 }}>
-                                  {rhPartsCount > 0 ? 'Open RH ›' : 'No RH Parts'}
-                                </Text>
-                              </TouchableOpacity>
-                            </View>
-                          </View>
-                        );
-                      })}
-                    {(selectedJig.units || []).filter(unit => {
-                      if (!currentSearchQuery) return true;
-                      const q = currentSearchQuery.toLowerCase().trim();
-                      const uNo = (unit.unit_no || '').toLowerCase();
-                      const cleanQ = q.replace(/^unit\s*/i, '').trim();
-                      return uNo.includes(q) || (cleanQ && uNo.includes(cleanQ));
-                    }).length === 0 && (
-                      <View style={styles.emptyState}>
-                        <Text style={styles.emptyStateText}>No units match "{currentSearchQuery}".</Text>
-                      </View>
-                    )}
-                  </View>
-                )}
+                          )}
+                        </View>
+                      );
+                    })()}
 
                 {/* LEVEL 4: PARTS LIST (when Unit selected) */}
                 {selectedUnit && (() => {
@@ -1986,8 +2071,16 @@ function App() {
                               </Text>
                             </>
                           ) : (
-                            <Text style={styles.emptyStateText}>No {unitSideTab} parts found for this unit{currentSearchQuery ? ` matching "${currentSearchQuery}"` : ''}.</Text>
+                            <Text style={styles.emptyStateText}>No active {unitSideTab} parts found for this unit{currentSearchQuery ? ` matching "${currentSearchQuery}"` : ''}.</Text>
                           )}
+                          <TouchableOpacity
+                            style={[styles.smallReceiveBtn, { marginTop: 14, backgroundColor: '#0284c7', paddingHorizontal: 18, paddingVertical: 8 }]}
+                            onPress={() => {
+                              setSelectedUnit(null);
+                              clearSelection();
+                            }}>
+                            <Text style={styles.smallReceiveBtnText}>‹ Back to Units List</Text>
+                          </TouchableOpacity>
                         </View>
                       )}
                     </View>
