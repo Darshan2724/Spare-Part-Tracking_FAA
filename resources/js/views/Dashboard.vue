@@ -689,10 +689,17 @@
                 </select>
               </div>
               <div class="d-flex align-items-center gap-2">
-                <small class="text-muted"><i class="fas fa-table me-1"></i>Use column filters below for Excel-style filtering</small>
+                <button class="btn btn-outline-success btn-sm fw-semibold" @click="handleModalExport('excel')" :disabled="isExportingModal">
+                  <i v-if="isExportingModal" class="fas fa-spinner fa-spin me-1"></i>
+                  <i v-else class="fas fa-file-excel text-success me-1"></i> Export Excel
+                </button>
+                <button class="btn btn-outline-danger btn-sm fw-semibold" @click="handleModalExport('pdf')" :disabled="isExportingModal">
+                  <i v-if="isExportingModal" class="fas fa-spinner fa-spin me-1"></i>
+                  <i v-else class="fas fa-file-pdf text-danger me-1"></i> Export PDF
+                </button>
                 <button class="btn btn-outline-secondary btn-sm" @click="clearModalFilters"><i class="fas fa-times me-1"></i>Clear Filters</button>
               </div>
-              <span class="badge bg-primary fs-6">{{ filteredModalParts.length }} Movement{{ filteredModalParts.length !== 1 ? 's' : '' }}</span>
+              <span class="badge bg-primary fs-6">{{ filteredModalParts.length }} Movements</span>
             </div>
 
             <div class="table-responsive" style="max-height: 450px; overflow-y: auto;">
@@ -943,6 +950,52 @@ const formatLocalTime = (isoString) => {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   } catch (e) {
     return isoString;
+  }
+};
+
+const isExportingModal = ref(false);
+
+const handleModalExport = async (format) => {
+  if (isExportingModal.value) return;
+  isExportingModal.value = true;
+  try {
+    const dateLabel = selectedDateRow.value?.formatted_date || selectedDateRow.value?.date || 'Movement_Log';
+    const payload = {
+      format,
+      date_label: dateLabel,
+      department: modalDeptFilter.value || 'All Departments',
+      column_filters: modalColFilters.value,
+      items: filteredModalParts.value.map(p => ({
+        standard_part_no: p.standard_part_no,
+        project: p.project,
+        side: p.side,
+        quantity: p.quantity,
+        department_event: p.department_event,
+        user: p.user,
+        date: formatLocalDate(p.created_at_iso || p.date, p.date),
+        time: formatLocalTime(p.created_at_iso || p.time),
+      })),
+    };
+
+    const res = await axios.post('/api/v1/export/movement', payload, { responseType: 'blob' });
+    const blob = new Blob([res.data], {
+      type: format === 'excel' 
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+        : 'application/pdf'
+    });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `SpareTrack_PartsMovement_${dateLabel}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error('Modal export failed:', e);
+    alert('Failed to export Parts Movement Detail.');
+  } finally {
+    isExportingModal.value = false;
   }
 };
 
