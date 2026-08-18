@@ -12,8 +12,6 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
-    'Bypass-Tunnel-Reminder': 'true',
-    'bypass-tunnel-reminder': 'true',
   },
 });
 
