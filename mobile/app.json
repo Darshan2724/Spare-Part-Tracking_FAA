@@ -28,6 +28,16 @@
         "ACCESS_NETWORK_STATE"
       ]
     },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ],
     "runtimeVersion": {
       "policy": "appVersion"
     },
