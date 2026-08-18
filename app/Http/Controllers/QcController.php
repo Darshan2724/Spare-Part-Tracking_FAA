@@ -289,25 +289,25 @@ class QcController extends Controller
             if ($result === 'approved') {
                 $receiptItem->update(['status' => 'qc_approved']);
             } elseif ($result === 'rejected') {
-                $receiptItem->update(['status' => 'returned_to_store']);
+                $receiptItem->update(['status' => 'qc_rejected']);
             } elseif ($result === 'rework') {
                 $receiptItem->update(['status' => 'qc_rework']);
             } else {
                 $receiptItem->update(['status' => 'qc_inspected']);
             }
 
-            // Auto-create Return-to-Store Workflow Event and Purchase Queue Item if rejected
+            // Auto-create Return-to-Purchase Workflow Event and Purchase Queue Item if rejected
             if ($rejectedQty > 0) {
                 WorkflowEvent::create([
                     'bom_item_id' => $receiptItem->bom_item_id,
                     'project_id' => $receiptItem->bomItem->project_id,
                     'user_id' => $request->user()->id,
-                    'event_type' => 'returned_to_store',
+                    'event_type' => 'returned_to_purchase',
                     'side' => $request->input('side'),
                     'quantity' => $rejectedQty,
                     'previous_state' => 'qc_received',
-                    'new_state' => 'returned_to_store',
-                    'remarks' => "QC Rejection: " . ($request->input('rejection_reason') ?? 'Dimensional / Surface Defect') . ". " . ($request->input('remarks') ?? ''),
+                    'new_state' => 'qc_rejected',
+                    'remarks' => "QC Rejection: " . ($request->input('rejection_reason') ?? 'Dimensional / Surface Defect') . ". Sent to Purchase Queue for re-ordering. " . ($request->input('remarks') ?? ''),
                 ]);
 
                 PurchaseQueueItem::create([
@@ -450,17 +450,17 @@ class QcController extends Controller
                 if ($result === 'approved') {
                     $receiptItem->update(['status' => 'qc_approved']);
                 } elseif ($result === 'rejected') {
-                    $receiptItem->update(['status' => 'returned_to_store']);
+                    $receiptItem->update(['status' => 'qc_rejected']);
                     WorkflowEvent::create([
                         'bom_item_id' => $receiptItem->bom_item_id,
                         'project_id' => $receiptItem->bomItem->project_id,
                         'user_id' => $request->user()->id,
-                        'event_type' => 'returned_to_store',
+                        'event_type' => 'returned_to_purchase',
                         'side' => $receiptItem->side,
                         'quantity' => $rejectedQty,
                         'previous_state' => 'qc_received',
-                        'new_state' => 'returned_to_store',
-                        'remarks' => "Bulk QC Rejection: " . ($request->input('rejection_reason') ?? 'Dimensional Defect'),
+                        'new_state' => 'qc_rejected',
+                        'remarks' => "Bulk QC Rejection: " . ($request->input('rejection_reason') ?? 'Dimensional Defect') . ". Sent to Purchase Queue for re-ordering.",
                     ]);
                     PurchaseQueueItem::create([
                         'bom_item_id' => $receiptItem->bom_item_id,

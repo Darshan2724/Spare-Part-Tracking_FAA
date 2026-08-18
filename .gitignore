@@ -79,4 +79,6 @@ docker/data/
 scratch/
 ~$*
 database/backups/
+/backups/
+*.apk
 mobile/%ProgramData%/

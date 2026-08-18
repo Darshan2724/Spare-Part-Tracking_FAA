@@ -28,8 +28,11 @@ use App\Http\Middleware\CaptureSystemLogsMiddleware;
 |
 */
 
+// Top-level Health Check Alias (/api/health)
+Route::get('/health', [HealthController::class, 'check']);
+
 Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(function () {
-    // Public Health Check Endpoint
+    // Public Health Check Endpoint (/api/v1/health)
     Route::get('/health', [HealthController::class, 'check']);
 
     // Public Authentication Routes
