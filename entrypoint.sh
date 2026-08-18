@@ -15,6 +15,15 @@ if [ ! -f ".env" ]; then
     cp .env.example .env
 fi
 
+# Auto-normalize Docker database and redis hostnames
+if [ "$DB_HOST" = "127.0.0.1" ] || [ "$DB_HOST" = "localhost" ] || [ -z "$DB_HOST" ]; then
+    DB_HOST="postgres"
+fi
+if [ "$REDIS_HOST" = "127.0.0.1" ] || [ "$REDIS_HOST" = "localhost" ] || [ -z "$REDIS_HOST" ]; then
+    REDIS_HOST="redis"
+fi
+DB_PORT="${DB_PORT:-5432}"
+
 # Wait for PostgreSQL database
 echo "⏳ Waiting for PostgreSQL database ($DB_HOST:$DB_PORT)..."
 timeout=60
