@@ -82,9 +82,16 @@ class AssemblyController extends Controller
 
             if ($paintRecordId) {
                 $paint = PaintRecord::where('id', $paintRecordId)
+                    ->where(function ($q) use ($side) {
+                        $q->where('side', $side)->orWhere('side', 'COMMON');
+                    })
                     ->lockForUpdate()
                     ->with(['bomItem', 'qcInspection.receiptItem'])
-                    ->firstOrFail();
+                    ->first();
+
+                if (!$paint) {
+                    return response()->json(['success' => false, 'message' => "No eligible Paint record found for {$side} side."], 422);
+                }
 
                 if ($paint->status === 'assembled') {
                     return response()->json(['success' => false, 'message' => 'Assembly already completed for this paint record.'], 422);
@@ -98,9 +105,16 @@ class AssemblyController extends Controller
                 $prevState = 'paint_completed';
             } elseif ($qcInspectionId) {
                 $inspection = \App\Models\QcInspection::where('id', $qcInspectionId)
+                    ->where(function ($q) use ($side) {
+                        $q->where('side', $side)->orWhere('side', 'COMMON');
+                    })
                     ->lockForUpdate()
                     ->with(['bomItem', 'receiptItem', 'assemblyRecord'])
-                    ->firstOrFail();
+                    ->first();
+
+                if (!$inspection) {
+                    return response()->json(['success' => false, 'message' => "No eligible QC inspection found for {$side} side."], 422);
+                }
 
                 if ($inspection->assemblyRecord) {
                     return response()->json(['success' => false, 'message' => 'Assembly already completed for this QC inspection.'], 422);

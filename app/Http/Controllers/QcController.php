@@ -19,8 +19,17 @@ class QcController extends Controller
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'QC']) ?: abort(403);
 
         $query = ReceiptItem::query()
-            ->with(['bomItem.project', 'bomItem.requirements', 'bomItem.supplier'])
-            ->whereIn('status', ['received', 'sent_to_qc', 'qc_received']);
+            ->with(['bomItem.project', 'bomItem.requirements', 'bomItem.supplier']);
+
+        // Explicit Stage Filtering: Physical Arrival vs Quality Inspection
+        $stage = $request->input('stage');
+        if ($stage === 'arrival') {
+            $query->whereIn('status', ['received', 'sent_to_qc']);
+        } elseif ($stage === 'inspection') {
+            $query->where('status', 'qc_received');
+        } else {
+            $query->whereIn('status', ['received', 'sent_to_qc', 'qc_received']);
+        }
 
         if ($request->filled('search')) {
             $search = trim($request->input('search'));
@@ -81,6 +90,10 @@ class QcController extends Controller
                 'remarks' => 'Physical arrival confirmed in QC department.',
             ]);
 
+            try {
+                broadcast(new \App\Events\PhysicalArrivalCompleted($item))->toOthers();
+            } catch (\Throwable $e) {}
+
             return response()->json(['success' => true, 'message' => 'Physical arrival confirmed in QC department.']);
         });
     }
@@ -124,6 +137,11 @@ class QcController extends Controller
                     'new_state' => 'qc_received',
                     'remarks' => 'Bulk physical arrival confirmed in QC department.',
                 ]);
+
+                try {
+                    broadcast(new \App\Events\PhysicalArrivalCompleted($item))->toOthers();
+                } catch (\Throwable $e) {}
+
                 $processedCount++;
             }
 
@@ -180,7 +198,8 @@ class QcController extends Controller
         $request->user()?->hasAnyRole(['ADMIN', 'QC']) ?: abort(403, 'Unauthorized. QC operational permission required.');
 
         $request->validate([
-            'receipt_item_id' => ['required', 'exists:receipt_items,id'],
+            'receipt_item_id' => ['required', 'integer'],
+            'bom_item_id' => ['nullable', 'exists:bom_items,id'],
             'side' => ['required', 'in:RH,LH,COMMON'],
             'inspected_quantity' => ['required', 'integer', 'min:1'],
             'result' => ['required', 'in:approved,rejected,rework,partial'],
@@ -195,15 +214,47 @@ class QcController extends Controller
         ]);
 
         return DB::transaction(function () use ($request) {
-            $receiptItem = ReceiptItem::where('id', $request->input('receipt_item_id'))
+            $receiptItemId = (int) $request->input('receipt_item_id');
+            $side = $request->input('side');
+            $bomItemId = $request->input('bom_item_id');
+
+            // Explicit side mismatch guard: If receipt_item_id exists but belongs to a different side
+            if ($receiptItemId > 0) {
+                $checkItem = ReceiptItem::find($receiptItemId);
+                if ($checkItem && $checkItem->side !== $side && $checkItem->side !== 'COMMON' && $side !== 'COMMON') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Side mismatch: Receipt item #{$receiptItemId} belongs to {$checkItem->side} side, but {$side} inspection was requested."
+                    ], 422);
+                }
+            }
+
+            // 1. Strict primary lookup by exact receipt_item_id and exact side
+            $receiptItem = ReceiptItem::where('id', $receiptItemId)
+                ->where(function ($q) use ($side) {
+                    $q->where('side', $side)->orWhere('side', 'COMMON');
+                })
+                ->where('status', 'qc_received')
                 ->lockForUpdate()
                 ->with('bomItem.project')
-                ->firstOrFail();
+                ->first();
 
-            if ($receiptItem->status !== 'qc_received') {
+            // 2. Strict fallback lookup by bom_item_id and exact side (only when receipt_item_id is not a foreign receipt)
+            if (!$receiptItem && $bomItemId) {
+                $receiptItem = ReceiptItem::where('bom_item_id', $bomItemId)
+                    ->where(function ($q) use ($side) {
+                        $q->where('side', $side)->orWhere('side', 'COMMON');
+                    })
+                    ->where('status', 'qc_received')
+                    ->lockForUpdate()
+                    ->with('bomItem.project')
+                    ->first();
+            }
+
+            if (!$receiptItem) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Item is not awaiting QC inspection or has already been processed.'
+                    'message' => "No eligible QC item found for {$side} side in inspection bay (or already processed)."
                 ], 422);
             }
             
@@ -343,6 +394,7 @@ class QcController extends Controller
         $request->validate([
             'receipt_item_ids' => ['required', 'array', 'min:1'],
             'receipt_item_ids.*' => ['integer', 'exists:receipt_items,id'],
+            'side' => ['nullable', 'in:RH,LH,COMMON'],
             'result' => ['required', 'in:approved,rejected,rework'],
             'destination' => ['required_if:result,approved', 'nullable', 'in:PAINT,ASSEMBLY'],
             'rejection_reason' => ['nullable', 'string', 'max:255'],
@@ -352,12 +404,18 @@ class QcController extends Controller
 
         return DB::transaction(function () use ($request) {
             $ids = $request->input('receipt_item_ids');
+            $side = $request->input('side');
             $result = $request->input('result');
             $destination = $result === 'approved' ? $request->input('destination') : null;
 
-            $items = ReceiptItem::whereIn('id', $ids)
-                ->where('status', 'qc_received')
-                ->lockForUpdate()
+            $query = ReceiptItem::whereIn('id', $ids)->where('status', 'qc_received');
+            if ($side) {
+                $query->where(function ($q) use ($side) {
+                    $q->where('side', $side)->orWhere('side', 'COMMON');
+                });
+            }
+
+            $items = $query->lockForUpdate()
                 ->with('bomItem.project')
                 ->get();
 

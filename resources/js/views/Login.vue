@@ -2,11 +2,10 @@
   <div class="login-page bg-body-secondary d-flex align-items-center justify-content-center min-vh-100">
     <div class="login-box width-400">
       <div class="card card-outline card-primary shadow-sm">
-        <div class="card-header text-center py-4">
-          <h3 class="fw-bold mb-0 text-primary">
-            <i class="fas fa-boxes-stacked me-2"></i>SpareTrack
-          </h3>
-          <p class="text-muted small mb-0 mt-1">Industrial Spare Parts Tracking System</p>
+        <div class="card-header text-center py-4 bg-white border-bottom">
+          <div class="d-flex justify-content-center">
+            <img src="/images/logo.png" alt="FAITH AUTOMATION" style="height: 56px; width: auto; object-fit: contain; max-width: 260px;" />
+          </div>
         </div>
         <div class="card-body login-card-body p-4">
           <p class="login-box-msg text-center text-secondary mb-4">Sign in to start your session</p>

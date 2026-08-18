@@ -3,11 +3,9 @@
     <!-- PERSISTENT & STATIC FIXED LEFT SIDEBAR -->
     <div class="bg-dark text-white p-3 d-flex flex-column shadow" style="position: fixed; top: 0; left: 0; bottom: 0; width: 240px; height: 100vh; z-index: 1030; background-color: #0f172a !important; overflow-y: auto;">
       <!-- Brand Header -->
-      <div class="d-flex align-items-center mb-4 pb-3 border-bottom border-secondary">
-        <i class="fas fa-microchip fa-2x text-primary me-2"></i>
-        <div>
-          <h5 class="fw-bold mb-0 text-white">SpareTrack</h5>
-          <small class="text-white-50 fs-7">Manufacturing MES</small>
+      <div class="mb-4 pb-3 border-bottom border-secondary text-center">
+        <div class="bg-white rounded-3 p-2 shadow-sm d-flex align-items-center justify-content-center" style="height: 52px;">
+          <img src="/images/logo.png" alt="FAITH AUTOMATION" style="max-height: 40px; width: auto; max-width: 100%; object-fit: contain;" />
         </div>
       </div>
 

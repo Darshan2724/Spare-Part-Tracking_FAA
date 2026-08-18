@@ -14,11 +14,67 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 class BomImportService
 {
     /**
+     * Check if the uploaded file has already been successfully imported.
+     */
+    public function checkDuplicateFile(string $path): ?array
+    {
+        if (!is_file($path)) {
+            return null;
+        }
+
+        $fileHash = hash_file('sha256', $path);
+        $existingBatch = BomImportBatch::where('file_hash', $fileHash)
+            ->where('status', 'completed')
+            ->with(['importer', 'project'])
+            ->orderByDesc('created_at')
+            ->first();
+
+        if ($existingBatch) {
+            $importDate = $existingBatch->created_at ? $existingBatch->created_at->format('d M Y, h:i A') : 'Previously';
+            $importerName = $existingBatch->importer?->name ?? 'System Administrator';
+            $origName = $existingBatch->original_filename ?? $existingBatch->filename;
+            $projCode = $existingBatch->project?->project_code ?? 'Project';
+
+            return [
+                'is_duplicate' => true,
+                'file_hash' => $fileHash,
+                'batch_id' => $existingBatch->id,
+                'original_filename' => $origName,
+                'imported_at' => $importDate,
+                'imported_by' => $importerName,
+                'project_code' => $projCode,
+                'message' => "This exact BOM file has already been imported on {$importDate} by {$importerName} (Original: '{$origName}'). The same file cannot be imported again.",
+            ];
+        }
+
+        return null;
+    }
+
+    /**
      * Preview BOM from file path using the FA-279 New MFG BOM Standard.
      */
     public function previewFromPath(string $path, ?string $filename = null): array
     {
         $filename = $filename ?? basename($path);
+
+        // 1. Immediate duplicate check before parsing
+        $duplicateInfo = $this->checkDuplicateFile($path);
+        if ($duplicateInfo) {
+            return [
+                'success' => false,
+                'is_duplicate' => true,
+                'error_title' => 'BOM Already Imported',
+                'message' => $duplicateInfo['message'],
+                'duplicate_details' => $duplicateInfo,
+                'filename' => $filename,
+                'sheet' => 'N/A',
+                'summary' => $this->emptySummary(),
+                'rows' => [],
+                'errors' => [$duplicateInfo['message']],
+                'warnings' => [],
+            ];
+        }
+
         $extracted = $this->extractAndValidateRows($path, $filename);
 
         return [
@@ -38,6 +94,21 @@ class BomImportService
     public function importFromPath(string $path, array $data, int $userId): array
     {
         $filename = $data['filename'] ?? basename($path);
+
+        // 1. Strict duplicate check before transaction
+        $duplicateInfo = $this->checkDuplicateFile($path);
+        if ($duplicateInfo) {
+            return [
+                'success' => false,
+                'is_duplicate' => true,
+                'error_title' => 'BOM Already Imported',
+                'message' => $duplicateInfo['message'],
+                'duplicate_details' => $duplicateInfo,
+                'errors' => [$duplicateInfo['message']],
+                'warnings' => [],
+            ];
+        }
+
         $extracted = $this->extractAndValidateRows($path, $filename);
 
         if (!empty($extracted['errors'])) {
@@ -58,85 +129,108 @@ class BomImportService
             ];
         }
 
-        return DB::transaction(function () use ($rows, $filename, $userId, $extracted) {
-            $createdProjects = [];
-            $totalRequirementsCreated = 0;
-            $totalQuantityImported = 0;
+        $fileHash = hash_file('sha256', $path);
+        $fileSize = is_file($path) ? filesize($path) : null;
 
-            // Group rows by project code
-            $projectGroups = collect($rows)->groupBy('project_code');
+        try {
+            return DB::transaction(function () use ($rows, $filename, $userId, $extracted, $fileHash, $fileSize) {
+                $createdProjects = [];
+                $totalRequirementsCreated = 0;
+                $totalQuantityImported = 0;
 
-            foreach ($projectGroups as $projectCode => $projectRows) {
-                $project = Project::firstOrCreate(
-                    ['project_code' => $projectCode],
-                    [
-                        'name' => $projectCode,
-                        'status' => 'active',
-                        'created_by' => $userId,
-                    ]
-                );
-                $createdProjects[$project->id] = $project;
+                // Group rows by project code
+                $projectGroups = collect($rows)->groupBy('project_code');
+                $projectCodesList = $projectGroups->keys()->values()->toArray();
 
-                $batch = BomImportBatch::create([
-                    'project_id' => $project->id,
-                    'filename' => $filename,
-                    'imported_by' => $userId,
-                    'total_rows' => $projectRows->count(),
-                    'successful_rows' => $projectRows->count(),
-                    'status' => 'completed',
+                foreach ($projectGroups as $projectCode => $projectRows) {
+                    $project = Project::firstOrCreate(
+                        ['project_code' => $projectCode],
+                        [
+                            'name' => $projectCode,
+                            'status' => 'active',
+                            'created_by' => $userId,
+                        ]
+                    );
+                    $createdProjects[$project->id] = $project;
+
+                    $batch = BomImportBatch::create([
+                        'project_id' => $project->id,
+                        'filename' => $filename,
+                        'file_hash' => $fileHash,
+                        'file_size_bytes' => $fileSize,
+                        'original_filename' => $filename,
+                        'project_codes' => $projectCodesList,
+                        'imported_by' => $userId,
+                        'total_rows' => $projectRows->count(),
+                        'successful_rows' => $projectRows->count(),
+                        'status' => 'completed',
+                    ]);
+
+                    foreach ($projectRows as $row) {
+                        $bomItem = BomItem::firstOrCreate(
+                            [
+                                'project_id' => $project->id,
+                                'jig_no' => $row['jig_no'],
+                                'unit_no' => $row['unit_no'],
+                                'standard_part_no' => $row['part_no'],
+                            ],
+                            [
+                                'import_batch_id' => $batch->id,
+                                'proj_spec_yn' => 'Y',
+                            ]
+                        );
+
+                        BomRequirement::updateOrCreate(
+                            [
+                                'bom_item_id' => $bomItem->id,
+                                'side' => $row['side'],
+                            ],
+                            [
+                                'required_quantity' => (int) $row['qty'],
+                            ]
+                        );
+
+                        $totalRequirementsCreated++;
+                        $totalQuantityImported += (int) $row['qty'];
+                    }
+                }
+
+                SystemLogService::log([
+                    'severity' => 'INFO',
+                    'category' => 'system_health_logs',
+                    'module' => 'STORE',
+                    'message' => "BOM imported successfully: {$filename} (Hash: {$fileHash})",
+                    'details' => [
+                        'filename' => $filename,
+                        'file_hash' => $fileHash,
+                        'projects' => array_values(array_map(fn ($p) => $p->project_code, $createdProjects)),
+                        'total_requirements' => $totalRequirementsCreated,
+                        'total_pieces' => $totalQuantityImported,
+                        'user_id' => $userId,
+                    ],
                 ]);
 
-                foreach ($projectRows as $row) {
-                    $bomItem = BomItem::firstOrCreate(
-                        [
-                            'project_id' => $project->id,
-                            'jig_no' => $row['jig_no'],
-                            'unit_no' => $row['unit_no'],
-                            'standard_part_no' => $row['part_no'],
-                        ],
-                        [
-                            'import_batch_id' => $batch->id,
-                            'proj_spec_yn' => 'Y',
-                        ]
-                    );
-
-                    BomRequirement::updateOrCreate(
-                        [
-                            'bom_item_id' => $bomItem->id,
-                            'side' => $row['side'],
-                        ],
-                        [
-                            'required_quantity' => (int) $row['qty'],
-                        ]
-                    );
-
-                    $totalRequirementsCreated++;
-                    $totalQuantityImported += (int) $row['qty'];
-                }
-            }
-
-            SystemLogService::log([
-                'severity' => 'INFO',
-                'category' => 'system_health_logs',
-                'module' => 'STORE',
-                'message' => "FA-279 BOM imported successfully: {$filename}",
-                'details' => [
+                return [
+                    'success' => true,
+                    'message' => "BOM imported successfully. {$totalRequirementsCreated} requirements loaded ({$totalQuantityImported} total pieces).",
                     'filename' => $filename,
-                    'projects' => array_values(array_map(fn ($p) => $p->project_code, $createdProjects)),
-                    'total_requirements' => $totalRequirementsCreated,
-                    'total_pieces' => $totalQuantityImported,
-                    'user_id' => $userId,
-                ],
-            ]);
-
-            return [
-                'success' => true,
-                'message' => "FA-279 BOM imported successfully. {$totalRequirementsCreated} requirements loaded ({$totalQuantityImported} total pieces).",
-                'filename' => $filename,
-                'summary' => $extracted['summary'],
-                'imported_rows' => count($rows),
-            ];
-        });
+                    'file_hash' => $fileHash,
+                    'summary' => $extracted['summary'],
+                    'imported_rows' => count($rows),
+                ];
+            });
+        } catch (\Illuminate\Database\QueryException $e) {
+            if (str_contains($e->getMessage(), 'bom_import_batches_file_hash_unique') || str_contains($e->getMessage(), 'duplicate key')) {
+                return [
+                    'success' => false,
+                    'is_duplicate' => true,
+                    'error_title' => 'BOM Already Imported',
+                    'message' => "This exact BOM file has already been imported by another user/process. Duplicate import was blocked.",
+                    'errors' => ["This exact BOM file has already been imported. Duplicate import was blocked."],
+                ];
+            }
+            throw $e;
+        }
     }
 
     /**

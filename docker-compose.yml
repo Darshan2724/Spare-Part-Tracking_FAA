@@ -22,8 +22,10 @@ services:
     networks:
       - sparetrack-network
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   nginx:
     image: nginx:alpine
@@ -42,15 +44,18 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: sparetrack-postgres
-    restart: always
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_DATABASE:-sparetrack}
       POSTGRES_USER: ${DB_USERNAME:-sparetrack_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-sparetrack_pass}
-    ports:
-      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-sparetrack_user} -d ${DB_DATABASE:-sparetrack}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - sparetrack-network
 
@@ -58,10 +63,13 @@ services:
     image: redis:7-alpine
     container_name: sparetrack-redis
     restart: unless-stopped
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - sparetrack-network
 
@@ -80,8 +88,10 @@ services:
     networks:
       - sparetrack-network
     depends_on:
-      - app
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   worker:
     build:
@@ -105,19 +115,24 @@ services:
     networks:
       - sparetrack-network
     depends_on:
-      - app
-      - redis
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
-  mailpit:
-    image: axllent/mailpit:latest
-    container_name: sparetrack-mailpit
+  adminer:
+    image: adminer:latest
+    container_name: sparetrack-adminer
     restart: unless-stopped
     ports:
-      - "8025:8025"
-      - "1025:1025"
+      - "${ADMINER_PORT:-8088}:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
     networks:
       - sparetrack-network
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 networks:
   sparetrack-network:

@@ -3,6 +3,7 @@ import {
   StyleSheet,
   Text,
   View,
+  Image,
   TextInput,
   TouchableOpacity,
   SafeAreaView,
@@ -15,6 +16,7 @@ import {
   PanResponder,
   Animated,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { registerRootComponent } from 'expo';
@@ -176,7 +178,7 @@ function App() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState('');
-  const [serverHost, setServerHost] = useState('10.17.214.175:8080');
+  const [serverHost, setServerHost] = useState('192.168.100.60:8080');
   const [email, setEmail] = useState('admin@sparetrack.internal');
   const [password, setPassword] = useState('password123');
 
@@ -210,6 +212,13 @@ function App() {
   const [selectedProject, setSelectedProject] = useState('');
   const [showFilterModal, setShowFilterModal] = useState(false);
   const searchTimer = useRef(null);
+  const mainScrollRef = useRef(null);
+
+  const scrollToTop = useCallback((animated = false) => {
+    if (mainScrollRef.current) {
+      mainScrollRef.current.scrollTo({ y: 0, animated });
+    }
+  }, []);
 
   const getCurrentSearchKey = (tab = activeTab, storeSub = storeSubTab, qcSub = qcSubTab) => {
     if (tab === 'store') {
@@ -279,13 +288,16 @@ function App() {
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [unitSideTab, setUnitSideTab] = useState('LH'); // 'LH' | 'RH'
 
-  const toggleSelection = (item) => {
+  const getItemSelectionKey = (item, side = unitSideTab) => `${item.id}_${side}`;
+
+  const toggleSelection = (item, side = unitSideTab) => {
+    const key = getItemSelectionKey(item, side);
     setSelectedItemIds(prev => {
       const next = new Set(prev);
-      if (next.has(item.id)) {
-        next.delete(item.id);
+      if (next.has(key)) {
+        next.delete(key);
       } else {
-        next.add(item.id);
+        next.add(key);
       }
       if (next.size === 0) setIsSelectionMode(false);
       else setIsSelectionMode(true);
@@ -293,10 +305,10 @@ function App() {
     });
   };
 
-  const selectAllVisible = (visibleItems) => {
-    const allIds = visibleItems.map(i => i.id);
-    setSelectedItemIds(new Set(allIds));
-    setIsSelectionMode(allIds.length > 0);
+  const selectAllVisible = (visibleItems, side = unitSideTab) => {
+    const allKeys = visibleItems.map(i => getItemSelectionKey(i, side));
+    setSelectedItemIds(new Set(allKeys));
+    setIsSelectionMode(allKeys.length > 0);
   };
 
   const clearSelection = () => {
@@ -327,6 +339,14 @@ function App() {
       setBaseUrl(serverHost);
     }
   }, [serverHost]);
+
+  // Reactive Context Transition Watcher: Reset scroll to top and clear selection when navigating screens
+  const screenContextKey = `${activeTab}_${storeSubTab}_${qcSubTab}_${paintStatusFilter}_${selectedProject || ''}_${selectedJig?.id || selectedJig?.jig_name || ''}_${selectedUnit?.unit_no || ''}_${unitSideTab}`;
+
+  useEffect(() => {
+    scrollToTop(false);
+    clearSelection();
+  }, [screenContextKey, scrollToTop]);
 
   // 30s Polling Loop for live real-time updates
   useEffect(() => {
@@ -563,7 +583,7 @@ function App() {
 
       setShowReceiveModal(false);
       showToast(`Received ${qty} pcs (${receiveSide}) for ${selectedItemForReceive.standard_part_no}`);
-      loadData('store');
+      loadData('store', false);
     } catch (err) {
       Alert.alert('Receive Failed', err.response?.data?.message || 'Could not record store receipt.');
     }
@@ -573,7 +593,7 @@ function App() {
     try {
       await apiClient.post(`/store/items/${itemId}/send-to-qc`);
       showToast('Item dispatched to QC queue');
-      loadData('store');
+      loadData('store', false);
     } catch (err) {
       Alert.alert('Error', err.response?.data?.message || 'Failed to dispatch item to QC.');
     }
@@ -592,7 +612,7 @@ function App() {
             try {
               const res = await apiClient.post(`/store/items/${historyItem.id}/revert`);
               showToast(res.data.message || 'Stock receipt successfully undone.');
-              loadData('store');
+              loadData('store', false);
             } catch (err) {
               Alert.alert('Revert Failed', err.response?.data?.message || 'Could not revert stock receipt.');
             }
@@ -607,7 +627,7 @@ function App() {
     try {
       await apiClient.post('/qc/receive', { receipt_item_id: receiptItemId });
       showToast(`Physical Arrival Confirmed: ${partNo || 'Item'}`);
-      loadData('qc');
+      loadData('qc', false);
     } catch (err) {
       Alert.alert('Action Failed', err.response?.data?.message || 'Could not confirm physical QC arrival.');
     }
@@ -626,7 +646,7 @@ function App() {
             try {
               const res = await apiClient.post('/qc/reject-arrival', { receipt_item_id: receiptItemId });
               showToast(res.data.message || 'Item returned to store verification.', 'error');
-              loadData('qc');
+              loadData('qc', false);
             } catch (err) {
               Alert.alert('Action Failed', err.response?.data?.message || 'Could not reject physical QC arrival.');
             }
@@ -682,10 +702,15 @@ function App() {
       }
     }
 
+    const payloadSide = selectedQcItem.side || unitSideTab || 'COMMON';
+    const payloadReceiptId = selectedQcItem.id || selectedQcItem.receipt_item_id;
+    const payloadBomId = selectedQcItem.bom_item_id || selectedQcItem.bom_item?.id;
+
     try {
       await apiClient.post('/qc/inspect', {
-        receipt_item_id: selectedQcItem.id,
-        side: selectedQcItem.side || unitSideTab || 'COMMON',
+        receipt_item_id: payloadReceiptId,
+        bom_item_id: payloadBomId,
+        side: payloadSide,
         inspected_quantity: avail,
         result: qcResult,
         destination: qcResult === 'approved' ? qcDestination : null,
@@ -697,9 +722,40 @@ function App() {
         remarks: qcRemarks,
       });
 
+      // Immediate optimistic removal from active QC queue
+      if (selectedUnit && selectedUnit.parts) {
+        setSelectedUnit(prevUnit => {
+          if (!prevUnit) return prevUnit;
+          const updatedParts = (prevUnit.parts || []).map(p => {
+            if (p.id !== payloadBomId) return p;
+            const updatedSideStats = { ...(p.side_stats || {}) };
+            if (updatedSideStats[payloadSide]) {
+              const prevInsp = updatedSideStats[payloadSide].qc_pending_inspection || 0;
+              updatedSideStats[payloadSide] = {
+                ...updatedSideStats[payloadSide],
+                qc_pending_inspection: Math.max(0, prevInsp - avail),
+                qc_approved: (updatedSideStats[payloadSide].qc_approved || 0) + app,
+                qc_rejected: (updatedSideStats[payloadSide].qc_rejected || 0) + rej,
+                qc_rework: (updatedSideStats[payloadSide].qc_rework || 0) + rew,
+                paint_ready: qcDestination === 'PAINT' ? ((updatedSideStats[payloadSide].paint_ready || 0) + app) : (updatedSideStats[payloadSide].paint_ready || 0),
+                assembly_ready: qcDestination === 'ASSEMBLY' ? ((updatedSideStats[payloadSide].assembly_ready || 0) + app) : (updatedSideStats[payloadSide].assembly_ready || 0),
+              };
+            }
+            return {
+              ...p,
+              side_stats: updatedSideStats,
+            };
+          });
+          return {
+            ...prevUnit,
+            parts: updatedParts,
+          };
+        });
+      }
+
       setShowQcModal(false);
-      showToast(`QC ${qcResult.toUpperCase()}: ${selectedQcItem.bom_item?.standard_part_no || 'Item'}`);
-      loadData('qc');
+      showToast(`QC ${qcResult.toUpperCase()}: ${selectedQcItem.bom_item?.standard_part_no || 'Item'} (${payloadSide})`);
+      loadData('qc', false);
     } catch (err) {
       Alert.alert('Inspection Failed', err.response?.data?.message || 'Could not record QC inspection.');
     }
@@ -710,7 +766,7 @@ function App() {
     try {
       await apiClient.post(`/rework/items/${itemId}/start`);
       showToast(`Rework Started: ${partNo || 'Item'}`);
-      loadData('rework');
+      loadData('rework', false);
     } catch (err) {
       Alert.alert('Error', err.response?.data?.message || 'Could not start rework.');
     }
@@ -734,7 +790,7 @@ function App() {
       });
       setShowReworkModal(false);
       showToast(`Rework Completed: ${selectedReworkItem.bom_item?.standard_part_no || 'Item'}`);
-      loadData('rework');
+      loadData('rework', false);
     } catch (err) {
       Alert.alert('Error', err.response?.data?.message || 'Could not complete rework.');
     }
@@ -756,7 +812,7 @@ function App() {
                 remarks: `Processed via Mobile Store App as ${action}`,
               });
               showToast(`Processed as ${action}: ${item.bom_item?.standard_part_no || 'Item'}`);
-              loadData('store');
+              loadData('store', false);
             } catch (err) {
               Alert.alert('Error', err.response?.data?.message || 'Failed to process returned item.');
             }
@@ -788,7 +844,7 @@ function App() {
       await apiClient.post('/paint/items', payload);
       setShowPaintModal(false);
       showToast(`Paint Completed: ${selectedPaintItem.bom_item?.standard_part_no || 'Part'}`);
-      loadData('paint');
+      loadData('paint', false);
     } catch (err) {
       Alert.alert('Action Failed', err.response?.data?.message || 'Could not complete paint process.');
     }
@@ -797,19 +853,23 @@ function App() {
   // --- ASSEMBLY ACTIONS ---
   const handleSubmitAssembly = async (part) => {
     try {
-      const paintRec = (part.paint_records || []).find(p => p.status === 'completed' && (p.side === unitSideTab || p.side === 'COMMON'));
-      const directQcInsp = (part.qc_inspections || []).find(q => q.destination === 'ASSEMBLY' && q.approved_quantity > 0 && (q.side === unitSideTab || q.side === 'COMMON'));
+      const sideStat = part.side_stats?.[unitSideTab] || {};
+      const sidePaintRecords = sideStat.paint_records || (part.paint_records || []).filter(p => p.side === unitSideTab || p.side === 'COMMON');
+      const sideQcInspections = sideStat.qc_inspections || (part.qc_inspections || []).filter(q => q.side === unitSideTab || q.side === 'COMMON');
+
+      const paintRec = sidePaintRecords.find(p => p.status === 'completed');
+      const directQcInsp = sideQcInspections.find(q => q.destination === 'ASSEMBLY' && q.approved_quantity > 0);
 
       await apiClient.post('/assembly/items', {
         bom_item_id: part.id,
         paint_record_id: paintRec ? paintRec.id : null,
         qc_inspection_id: directQcInsp ? directQcInsp.id : null,
         side: unitSideTab,
-        quantity: part.metrics?.assembly_ready || 1,
+        quantity: sideStat.assembly_ready || 1,
         remarks: 'Mobile Assembly Done',
       });
       showToast(`Assembly Complete: ${part.standard_part_no} (${unitSideTab})`);
-      loadData('assembly');
+      loadData('assembly', false);
     } catch (err) {
       Alert.alert('Action Failed', err.response?.data?.message || 'Could not complete assembly.');
     }
@@ -837,7 +897,7 @@ function App() {
       showToast(res.data.message || `Received ${payloadItems.length} items`);
       clearSelection();
       setShowBulkStoreReceiveModal(false);
-      loadData('store');
+      loadData('store', false);
     } catch (err) {
       Alert.alert('Bulk Receive Failed', err.response?.data?.message || 'Could not record bulk receipt.');
     }
@@ -857,7 +917,7 @@ function App() {
     }
     showToast(`Bulk processed ${count} returned items as ${action}`);
     clearSelection();
-    loadData('store');
+    loadData('store', false);
   };
 
   const handleBulkQcArrivalAccept = async (targetItems) => {
@@ -874,7 +934,7 @@ function App() {
       const res = await apiClient.post('/qc/bulk-receive', { receipt_item_ids: receiptIds });
       showToast(res.data.message || `Accepted ${receiptIds.length} items`);
       clearSelection();
-      loadData('qc');
+      loadData('qc', false);
     } catch (err) {
       Alert.alert('Bulk Action Failed', err.response?.data?.message || 'Could not process bulk arrival acceptance.');
     }
@@ -902,7 +962,7 @@ function App() {
             }
             showToast(`Rejected ${count} items returned to Store`, 'error');
             clearSelection();
-            loadData('qc');
+            loadData('qc', false);
           }
         }
       ]
@@ -911,27 +971,32 @@ function App() {
 
   const handleBulkQcInspect = async (targetItems, result, destination = null) => {
     const receiptIds = targetItems
-      .map(item => (item.receipt_items || []).find(r => r.status === 'qc_received' && (r.side === unitSideTab || r.side === 'COMMON'))?.id)
+      .map(item => {
+        const sideStat = item.side_stats?.[unitSideTab];
+        const sideReceipts = sideStat?.receipt_items || (item.receipt_items || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
+        return sideReceipts.find(r => r.status === 'qc_received')?.id;
+      })
       .filter(Boolean);
 
     if (!receiptIds.length) {
-      Alert.alert('No Eligible Items', 'No pending inspection items found for the selected items.');
+      Alert.alert('No Eligible Items', `No pending inspection items found for selected parts on ${unitSideTab} side.`);
       return;
     }
 
     try {
       const res = await apiClient.post('/qc/bulk-inspect', {
         receipt_item_ids: receiptIds,
+        side: unitSideTab,
         result,
         destination: result === 'approved' ? destination : null,
         rejection_reason: result === 'rejected' ? 'Bulk rejection (Defect/Dimensional)' : null,
         rework_reason: result === 'rework' ? 'Bulk rework required' : null,
-        remarks: `Bulk QC inspection marked as ${result.toUpperCase()}`,
+        remarks: `Bulk QC inspection marked as ${result.toUpperCase()} (${unitSideTab})`,
       });
       showToast(res.data.message || `Processed ${receiptIds.length} items as ${result.toUpperCase()}`);
       clearSelection();
       setShowBulkQcDestinationModal(false);
-      loadData('qc');
+      loadData('qc', false);
     } catch (err) {
       Alert.alert('Bulk Inspection Failed', err.response?.data?.message || 'Could not process bulk QC inspection.');
     }
@@ -956,7 +1021,7 @@ function App() {
       showToast(res.data.message || `Bulk rework ${action} completed`);
       clearSelection();
       setShowBulkReworkModal(false);
-      loadData('rework');
+      loadData('rework', false);
     } catch (err) {
       Alert.alert('Bulk Rework Failed', err.response?.data?.message || 'Could not process bulk rework.');
     }
@@ -981,7 +1046,7 @@ function App() {
       showToast(res.data.message || `Bulk paint completed for ${inspIds.length} items`);
       clearSelection();
       setShowBulkPaintModal(false);
-      loadData('paint');
+      loadData('paint', false);
     } catch (err) {
       Alert.alert('Bulk Paint Failed', err.response?.data?.message || 'Could not process bulk paint completion.');
     }
@@ -1013,7 +1078,7 @@ function App() {
       });
       showToast(res.data.message || `Bulk assembly completed for ${assemblyPayload.length} items`);
       clearSelection();
-      loadData('assembly');
+      loadData('assembly', false);
     } catch (err) {
       Alert.alert('Bulk Assembly Failed', err.response?.data?.message || 'Could not process bulk assembly completion.');
     }
@@ -1025,9 +1090,7 @@ function App() {
         <StatusBar style="dark" />
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.loginBox}>
-            <Text style={styles.logoIcon}>⚙️</Text>
-            <Text style={styles.title}>SpareTrack MES</Text>
-            <Text style={styles.subtitle}>Mobile Manufacturing Terminal</Text>
+            <Image source={require('./assets/logo.png')} style={styles.loginLogo} resizeMode="contain" />
 
             {errorMsg ? (
               <View style={styles.errorContainer}>
@@ -1091,13 +1154,16 @@ function App() {
         </View>
       )}
 
-      {/* Top Header */}
+      {/* Top Header with Logo */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>SpareTrack Mobile</Text>
-          <Text style={styles.userSubtitle}>
-            👤 {user?.name || 'User'} • <Text style={styles.roleBadge}>{userRole}</Text>
-          </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+          <Image source={require('./assets/logo.png')} style={styles.headerLogo} resizeMode="contain" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerTitle} numberOfLines={1}>FAITH AUTOMATION</Text>
+            <Text style={styles.userSubtitle} numberOfLines={1}>
+              {user?.name || 'User'} • <Text style={styles.roleBadge}>{userRole}</Text>
+            </Text>
+          </View>
         </View>
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
           <Text style={styles.logoutBtnText}>Logout</Text>
@@ -1239,11 +1305,39 @@ function App() {
         </View>
       )}
 
+      {/* STICKY HIERARCHY CONTEXT HEADER (Always fixed outside ScrollView while content scrolls) */}
+      {selectedProject && (
+        <View style={styles.hierarchyNavRow}>
+          <Text style={styles.hierarchyNavTitle} numberOfLines={1} ellipsizeMode="tail">
+            {hierarchyProject ? (hierarchyProject.project_code || hierarchyProject.name) : 'Project'}
+            {selectedJig ? ` › JIG: ${selectedJig.jig_name}` : ''}
+            {selectedUnit ? ` › ${selectedUnit.unit_no} › ${unitSideTab}` : ''}
+            {selectedUnit && activeTab === 'qc' ? ` (${qcSubTab === 'arrival' ? 'Arrival' : 'Inspection'})` : ''}
+          </Text>
+          <TouchableOpacity
+            style={styles.backLevelBtn}
+            onPress={() => {
+              scrollToTop(false);
+              clearSelection();
+              if (selectedUnit) setSelectedUnit(null);
+              else if (selectedJig) setSelectedJig(null);
+              else handleResetProject();
+            }}>
+            <Text style={styles.backLevelBtnText}>‹ Back</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Main Content Scroll View */}
       <ScrollView
+        ref={mainScrollRef}
         style={styles.content}
+        contentContainerStyle={[
+          styles.scrollContentContainer,
+          selectedItemIds.size > 0 && selectedUnit && { paddingBottom: 120 }
+        ]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
-        {loading && !refreshing ? (
+        {loading && !refreshing && !selectedProject && items.length === 0 && projects.length === 0 ? (
           <ActivityIndicator size="large" color="#2563eb" style={{ marginTop: 40 }} />
         ) : activeTab === 'dashboard' ? (
           <View style={styles.cardContainer}>
@@ -1338,24 +1432,6 @@ function App() {
             {/* LEVEL 2-4: JIG & UNIT DRILLDOWN (when project is selected) */}
             {selectedProject && (
               <View>
-                {/* Breadcrumb Navigation Bar */}
-                <View style={styles.hierarchyNavRow}>
-                  <Text style={styles.hierarchyNavTitle}>
-                    {hierarchyProject ? `${hierarchyProject.name} (${hierarchyProject.project_code})` : 'Project'}
-                    {selectedJig ? ` › JIG: ${selectedJig.jig_name}` : ''}
-                    {selectedUnit ? ` › ${selectedUnit.unit_no}` : ''}
-                  </Text>
-                  <TouchableOpacity
-                    style={styles.backLevelBtn}
-                    onPress={() => {
-                      if (selectedUnit) setSelectedUnit(null);
-                      else if (selectedJig) setSelectedJig(null);
-                      else handleResetProject();
-                    }}>
-                    <Text style={styles.backLevelBtnText}>‹ Back</Text>
-                  </TouchableOpacity>
-                </View>
-
                 {/* LEVEL 2: JIG CARDS GRID (when no JIG selected) */}
                 {!selectedJig && (
                   <View>
@@ -1473,7 +1549,12 @@ function App() {
                                     backgroundColor: lhPartsCount > 0 ? '#f0f9ff' : '#f8fafc' }
                                 ]}
                                 disabled={!(lhPartsCount > 0)}
-                                onPress={() => { setSelectedUnit(unit); setUnitSideTab('LH'); }}>
+                                onPress={() => {
+                                  scrollToTop(false);
+                                  clearSelection();
+                                  setSelectedUnit(unit);
+                                  setUnitSideTab('LH');
+                                }}>
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                                   <View style={styles.sidePillLh}>
                                     <Text style={styles.sidePillTextLh}>🔵 LH</Text>
@@ -1501,7 +1582,12 @@ function App() {
                                     backgroundColor: rhPartsCount > 0 ? '#eef2ff' : '#f8fafc' }
                                 ]}
                                 disabled={!(rhPartsCount > 0)}
-                                onPress={() => { setSelectedUnit(unit); setUnitSideTab('RH'); }}>
+                                onPress={() => {
+                                  scrollToTop(false);
+                                  clearSelection();
+                                  setSelectedUnit(unit);
+                                  setUnitSideTab('RH');
+                                }}>
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                                   <View style={styles.sidePillRh}>
                                     <Text style={styles.sidePillTextRh}>🔷 RH</Text>
@@ -1546,16 +1632,32 @@ function App() {
                       : !!(item.side_stats?.RH || item.side_stats?.COMMON);
                     if (!matchSide) return false;
 
+                    const currentSideStats = unitSideTab === 'LH' ? (item.side_stats?.LH || item.side_stats?.COMMON) : (item.side_stats?.RH || item.side_stats?.COMMON);
+
                     // Store pending filter: Only show parts with remaining pending quantity
                     if (activeTab === 'store' && storeSubTab === 'pending') {
-                      const currentSideStats = unitSideTab === 'LH' ? (item.side_stats?.LH || item.side_stats?.COMMON) : (item.side_stats?.RH || item.side_stats?.COMMON);
                       if (!(currentSideStats && currentSideStats.pending > 0)) return false;
                     }
 
-                    // Department-specific subtab filter for QC
+                    // Department-specific subtab filter for QC: Strictly side-isolated
                     if (activeTab === 'qc') {
-                      if (qcSubTab === 'arrival' && !(item.metrics?.qc_pending_arrival > 0)) return false;
-                      if (qcSubTab === 'inspection' && !(item.metrics?.qc_pending_inspection > 0)) return false;
+                      if (qcSubTab === 'arrival' && !(currentSideStats?.qc_pending_arrival > 0)) return false;
+                      if (qcSubTab === 'inspection' && !(currentSideStats?.qc_pending_inspection > 0)) return false;
+                    }
+
+                    // Department-specific filter for Rework: Strictly side-isolated
+                    if (activeTab === 'rework') {
+                      if (!(currentSideStats && ((currentSideStats.rework_pending || 0) + (currentSideStats.rework_in_progress || 0) > 0))) return false;
+                    }
+
+                    // Department-specific filter for Paint: Strictly side-isolated
+                    if (activeTab === 'paint') {
+                      if (!(currentSideStats && (currentSideStats.paint_ready || 0) > 0)) return false;
+                    }
+
+                    // Department-specific filter for Assembly: Strictly side-isolated
+                    if (activeTab === 'assembly') {
+                      if (!(currentSideStats && (currentSideStats.assembly_ready || 0) > 0)) return false;
                     }
 
                     if (!currentSearchQuery) return true;
@@ -1565,18 +1667,11 @@ function App() {
                            (item.supplier?.name || item.supplier_name_raw || '').toLowerCase().includes(q);
                   });
 
-                  const selectedItemsList = visibleParts.filter(p => selectedItemIds.has(p.id));
+                  const selectedItemsList = visibleParts.filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
 
                   return (
                     <View>
-                      {/* Section Header with Strict Side Label (Issue 1) */}
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <Text style={[styles.sectionHeader, { marginBottom: 0 }]}>
-                          PARTS IN {selectedJig.jig_name} - {selectedUnit.unit_no} • {unitSideTab === 'LH' ? '🔵 LH ONLY' : '🔷 RH ONLY'}
-                        </Text>
-                      </View>
-
-                      {/* Multi-Selection Control Bar (Issue 5) */}
+                      {/* Multi-Selection Control Bar (Compact) */}
                       <View style={styles.selectionControlBar}>
                         <TouchableOpacity
                           style={styles.selectionToggleBtn}
@@ -1596,7 +1691,7 @@ function App() {
                           <View style={{ flexDirection: 'row', gap: 6 }}>
                             <TouchableOpacity
                               style={styles.selectAllBtn}
-                              onPress={() => selectAllVisible(visibleParts)}>
+                              onPress={() => selectAllVisible(visibleParts, unitSideTab)}>
                               <Text style={styles.selectAllBtnText}>Select All ({visibleParts.length})</Text>
                             </TouchableOpacity>
                             {selectedItemIds.size > 0 && (
@@ -1609,42 +1704,54 @@ function App() {
                       </View>
 
                       {/* QC Operational Mode Switcher (Physical Arrival vs Quality Inspection) */}
-                      {activeTab === 'qc' && (
-                        <View style={styles.qcModeRow}>
-                          <TouchableOpacity
-                            style={[styles.qcModeBtn, qcSubTab === 'arrival' && styles.qcModeBtnActiveArrival]}
-                            onPress={() => { setQcSubTab('arrival'); clearSelection(); }}>
-                            <Text style={[styles.qcModeBtnText, qcSubTab === 'arrival' && styles.qcModeBtnTextActiveArrival]}>
-                              📦 1. Physical Arrival ({(selectedUnit.parts || []).filter(p => (p.metrics?.qc_pending_arrival || 0) > 0).length})
-                            </Text>
-                          </TouchableOpacity>
+                      {activeTab === 'qc' && (() => {
+                        const getSideStat = (p) => (unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON) : (p.side_stats?.RH || p.side_stats?.COMMON));
+                        const arrivalCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.qc_pending_arrival || 0) > 0).length;
+                        const inspectionCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.qc_pending_inspection || 0) > 0).length;
 
-                          <TouchableOpacity
-                            style={[styles.qcModeBtn, qcSubTab === 'inspection' && styles.qcModeBtnActiveInspection]}
-                            onPress={() => { setQcSubTab('inspection'); clearSelection(); }}>
-                            <Text style={[styles.qcModeBtnText, qcSubTab === 'inspection' && styles.qcModeBtnTextActiveInspection]}>
-                              🔬 2. Quality Inspection ({(selectedUnit.parts || []).filter(p => (p.metrics?.qc_pending_inspection || 0) > 0).length})
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      )}
+                        return (
+                          <View style={styles.qcModeRow}>
+                            <TouchableOpacity
+                              style={[styles.qcModeBtn, qcSubTab === 'arrival' && styles.qcModeBtnActiveArrival]}
+                              onPress={() => { setQcSubTab('arrival'); clearSelection(); }}>
+                              <Text style={[styles.qcModeBtnText, qcSubTab === 'arrival' && styles.qcModeBtnTextActiveArrival]}>
+                                📦 1. Physical Arrival ({arrivalCount})
+                              </Text>
+                            </TouchableOpacity>
 
-                      {/* Parts Cards */}
+                            <TouchableOpacity
+                              style={[styles.qcModeBtn, qcSubTab === 'inspection' && styles.qcModeBtnActiveInspection]}
+                              onPress={() => { setQcSubTab('inspection'); clearSelection(); }}>
+                              <Text style={[styles.qcModeBtnText, qcSubTab === 'inspection' && styles.qcModeBtnTextActiveInspection]}>
+                                🔬 2. Quality Inspection ({inspectionCount})
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })()}
+
+                      {/* Parts Cards (High-Density Industrial Layout) */}
                       {visibleParts.map((item) => {
-                        const isSelected = selectedItemIds.has(item.id);
+                        const itemKey = `${item.id}_${unitSideTab}`;
+                        const isSelected = selectedItemIds.has(itemKey);
+                        const currentSideStats = unitSideTab === 'LH' ? (item.side_stats?.LH || item.side_stats?.COMMON || {}) : (item.side_stats?.RH || item.side_stats?.COMMON || {});
+                        const req = currentSideStats.required ?? 0;
+                        const rec = currentSideStats.received ?? 0;
+                        const pen = currentSideStats.pending ?? 0;
 
                         return (
                           <TouchableOpacity
-                            key={item.id}
+                            key={`part-${item.id}-side-${unitSideTab}`}
                             activeOpacity={0.85}
-                            onLongPress={() => toggleSelection(item)}
+                            onLongPress={() => toggleSelection(item, unitSideTab)}
                             onPress={() => {
-                              if (isSelectionMode) toggleSelection(item);
+                              if (isSelectionMode) toggleSelection(item, unitSideTab);
                             }}
                             style={[
                               styles.itemCard,
                               isSelected && { borderColor: '#2563eb', borderWidth: 2, backgroundColor: '#eff6ff' }
                             ]}>
+                            {/* Row 1: Part No + Side Pill + Status Badge + Checkbox */}
                             <View style={styles.itemHeader}>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                                 {isSelectionMode && (
@@ -1652,269 +1759,233 @@ function App() {
                                     {isSelected && <Text style={styles.checkmarkText}>✓</Text>}
                                   </View>
                                 )}
-                                <Text style={styles.itemPartNo}>{item.standard_part_no}</Text>
+                                <Text style={styles.itemPartNo} numberOfLines={1}>{item.standard_part_no}</Text>
+                                <View style={unitSideTab === 'LH' ? styles.sidePillLh : styles.sidePillRh}>
+                                  <Text style={unitSideTab === 'LH' ? styles.sidePillTextLh : styles.sidePillTextRh}>
+                                    {unitSideTab}
+                                  </Text>
+                                </View>
                               </View>
                               <Text style={styles.itemStatus}>
                                 {item.is_complete ? 'FULFILLED' : 'ACTIVE'}
                               </Text>
                             </View>
 
-                            <Text style={styles.itemSubText}>Supplier: {item.supplier?.name || item.supplier_name_raw || 'Standard'}</Text>
-                            {item.size ? <Text style={styles.itemSubText}>Size: {item.size}</Text> : null}
+                            {/* Row 2: Inline Stats & Supplier */}
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2, marginBottom: 2 }}>
+                              <Text style={styles.itemSubText}>
+                                <Text style={{ fontWeight: '700', color: '#1e293b' }}>Req: {req}</Text> • Rec: {rec} • Pen: {pen}
+                              </Text>
+                              <Text style={[styles.itemSubText, { fontSize: 10, color: '#64748b', maxWidth: '45%' }]} numberOfLines={1}>
+                                {item.supplier?.name || item.supplier_name_raw || 'Standard'}
+                              </Text>
+                            </View>
 
-                            {/* Side breakdown stats for active side */}
-                            {item.side_stats && (
-                              <View style={styles.statsRow}>
-                                {Object.entries(item.side_stats)
-                                  .filter(([side]) => side === unitSideTab || side === 'COMMON')
-                                  .map(([side, st]) => (
-                                    <View key={side} style={styles.sideCardBox}>
-                                      <Text style={styles.statBadge}>{side} (Req: {st.required} | Rec: {st.received} | Pen: {st.pending})</Text>
-                                      
-                                      {/* Store Level 4 Single Action */}
-                                      {activeTab === 'store' && st.pending > 0 && !isSelectionMode && (
-                                        <TouchableOpacity style={styles.smallReceiveBtn} onPress={() => openReceiveModal(item, side)}>
-                                          <Text style={styles.smallReceiveBtnText}>📥 Receive {side} Stock</Text>
-                                        </TouchableOpacity>
-                                      )}
-                                    </View>
-                                  ))}
-                              </View>
+                            {/* Store Level 4 Single Action */}
+                            {activeTab === 'store' && pen > 0 && !isSelectionMode && (
+                              <TouchableOpacity style={styles.smallReceiveBtn} onPress={() => openReceiveModal(item, unitSideTab)}>
+                                <Text style={styles.smallReceiveBtnText}>RECEIVE {unitSideTab} STOCK ({pen})</Text>
+                              </TouchableOpacity>
                             )}
 
                             {/* QC Actions (Separated strictly by subtab & isolated by side) */}
-                            {activeTab === 'qc' && !isSelectionMode && (
-                              <View style={{ marginTop: 8 }}>
-                                {qcSubTab === 'arrival' && item.metrics?.qc_pending_arrival > 0 ? (
-                                  <View style={{ marginTop: 4 }}>
-                                    <TouchableOpacity
-                                      style={[styles.actionBtn, { backgroundColor: '#10b981' }]}
-                                      onPress={() => {
-                                        const rec = (item.receipt_items || []).find(r => ['received', 'sent_to_qc'].includes(r.status) && (r.side === unitSideTab || r.side === 'COMMON'));
-                                        if (rec) handleConfirmQcPhysicalArrival(rec.id, item.standard_part_no);
-                                        else handleConfirmQcPhysicalArrival(item.id, item.standard_part_no);
-                                      }}>
-                                      <Text style={styles.actionBtnText}>📥 Store Receive Item</Text>
-                                    </TouchableOpacity>
-                                  </View>
-                                ) : null}
+                            {activeTab === 'qc' && !isSelectionMode && (() => {
+                              const sideStat = item.side_stats?.[unitSideTab] || {};
+                              const pendingArrival = sideStat.qc_pending_arrival || 0;
+                              const pendingInsp = sideStat.qc_pending_inspection || 0;
+                              const sideReceipts = sideStat.receipt_items || (item.receipt_items || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
 
-                                {qcSubTab === 'inspection' && item.metrics?.qc_pending_inspection > 0 ? (
-                                  <View style={{ marginTop: 4, gap: 6 }}>
-                                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                              return (
+                                <View style={{ marginTop: 6 }}>
+                                  {qcSubTab === 'arrival' && pendingArrival > 0 ? (
+                                    <View style={{ marginTop: 2 }}>
                                       <TouchableOpacity
-                                        style={[styles.actionBtn, { flex: 1, backgroundColor: '#10b981' }]}
+                                        style={[styles.actionBtn, { backgroundColor: '#10b981' }]}
                                         onPress={() => {
-                                          const rec = (item.receipt_items || []).find(r => r.status === 'qc_received' && (r.side === unitSideTab || r.side === 'COMMON')) || {
-                                            id: item.id,
-                                            received_quantity: item.metrics?.qc_pending_inspection || 1,
-                                            bom_item: item,
-                                            side: unitSideTab
-                                          };
-                                          openQcModal(rec, 'approved');
+                                          const rec = sideReceipts.find(r => ['received', 'sent_to_qc'].includes(r.status));
+                                          if (rec) handleConfirmQcPhysicalArrival(rec.id, item.standard_part_no);
                                         }}>
-                                        <Text style={styles.actionBtnText}>✅ Approve</Text>
-                                      </TouchableOpacity>
-
-                                      <TouchableOpacity
-                                        style={[styles.actionBtn, { flex: 1, backgroundColor: '#f59e0b' }]}
-                                        onPress={() => {
-                                          const rec = (item.receipt_items || []).find(r => r.status === 'qc_received' && (r.side === unitSideTab || r.side === 'COMMON')) || {
-                                            id: item.id,
-                                            received_quantity: item.metrics?.qc_pending_inspection || 1,
-                                            bom_item: item,
-                                            side: unitSideTab
-                                          };
-                                          openQcModal(rec, 'rework');
-                                        }}>
-                                        <Text style={styles.actionBtnText}>🛠️ Rework</Text>
-                                      </TouchableOpacity>
-
-                                      <TouchableOpacity
-                                        style={[styles.actionBtn, { flex: 1, backgroundColor: '#ef4444' }]}
-                                        onPress={() => {
-                                          const rec = (item.receipt_items || []).find(r => r.status === 'qc_received' && (r.side === unitSideTab || r.side === 'COMMON')) || {
-                                            id: item.id,
-                                            received_quantity: item.metrics?.qc_pending_inspection || 1,
-                                            bom_item: item,
-                                            side: unitSideTab
-                                          };
-                                          openQcModal(rec, 'rejected');
-                                        }}>
-                                        <Text style={styles.actionBtnText}>❌ Reject</Text>
+                                        <Text style={styles.actionBtnText}>CONFIRM PHYSICAL ARRIVAL ({pendingArrival})</Text>
                                       </TouchableOpacity>
                                     </View>
-                                  </View>
-                                ) : null}
-                              </View>
-                            )}
+                                  ) : null}
 
-                            {/* Rework Actions */}
-                            {activeTab === 'rework' && !isSelectionMode && (
-                              <View style={{ marginTop: 8 }}>
-                                {item.metrics?.rework_pending > 0 ? (
-                                  <TouchableOpacity
-                                    style={[styles.actionBtn, { backgroundColor: '#f59e0b' }]}
-                                    onPress={() => {
-                                      const rew = (item.rework_records || []).find(r => r.status === 'pending' && (r.side === unitSideTab || r.side === 'COMMON')) || { id: item.id };
-                                      handleStartRework(rew.id, item.standard_part_no);
-                                    }}>
-                                    <Text style={styles.actionBtnText}>▶ Start Rework ({item.metrics.rework_pending} pcs)</Text>
-                                  </TouchableOpacity>
-                                ) : null}
+                                  {qcSubTab === 'inspection' && pendingInsp > 0 ? (
+                                    <View style={{ marginTop: 2, gap: 4 }}>
+                                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                                        <TouchableOpacity
+                                          style={[styles.actionBtn, { flex: 1, backgroundColor: '#10b981' }]}
+                                          onPress={() => {
+                                            const rec = sideReceipts.find(r => r.status === 'qc_received') || {
+                                              id: null,
+                                              bom_item_id: item.id,
+                                              received_quantity: pendingInsp,
+                                              bom_item: item,
+                                              side: unitSideTab
+                                            };
+                                            openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'approved');
+                                          }}>
+                                          <Text style={styles.actionBtnText}>APPROVE</Text>
+                                        </TouchableOpacity>
 
-                                {item.metrics?.rework_in_progress > 0 ? (
-                                  <TouchableOpacity
-                                    style={[styles.actionBtn, { backgroundColor: '#10b981', marginTop: 4 }]}
-                                    onPress={() => {
-                                      const rew = (item.rework_records || []).find(r => r.status === 'in_progress' && (r.side === unitSideTab || r.side === 'COMMON')) || { id: item.id };
-                                      openReworkModal(rew, item);
-                                    }}>
-                                    <Text style={styles.actionBtnText}>✅ Complete & Return to QC</Text>
-                                  </TouchableOpacity>
-                                ) : null}
+                                        <TouchableOpacity
+                                          style={[styles.actionBtn, { flex: 1, backgroundColor: '#f59e0b' }]}
+                                          onPress={() => {
+                                            const rec = sideReceipts.find(r => r.status === 'qc_received') || {
+                                              id: null,
+                                              bom_item_id: item.id,
+                                              received_quantity: pendingInsp,
+                                              bom_item: item,
+                                              side: unitSideTab
+                                            };
+                                            openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'rework');
+                                          }}>
+                                          <Text style={styles.actionBtnText}>REWORK</Text>
+                                        </TouchableOpacity>
 
-                                {!item.metrics?.rework_pending && !item.metrics?.rework_in_progress && (
-                                  <Text style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>✓ No Active Rework</Text>
-                                )}
-                              </View>
-                            )}
+                                        <TouchableOpacity
+                                          style={[styles.actionBtn, { flex: 1, backgroundColor: '#ef4444' }]}
+                                          onPress={() => {
+                                            const rec = sideReceipts.find(r => r.status === 'qc_received') || {
+                                              id: null,
+                                              bom_item_id: item.id,
+                                              received_quantity: pendingInsp,
+                                              bom_item: item,
+                                              side: unitSideTab
+                                            };
+                                            openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'rejected');
+                                          }}>
+                                          <Text style={styles.actionBtnText}>REJECT</Text>
+                                        </TouchableOpacity>
+                                      </View>
+                                    </View>
+                                  ) : null}
+                                </View>
+                              );
+                            })()}
 
-                            {/* Paint Actions */}
-                            {activeTab === 'paint' && !isSelectionMode && (
-                              <View style={{ marginTop: 8 }}>
-                                {item.metrics?.paint_ready > 0 ? (
-                                  <TouchableOpacity
-                                    style={[styles.actionBtn, { backgroundColor: '#7c3aed' }]}
-                                    onPress={() => {
-                                      const insp = (item.qc_inspections || []).find(q => q.approved_quantity > 0 && (q.destination === 'PAINT' || !q.destination) && (q.side === unitSideTab || q.side === 'COMMON')) || {
-                                        id: item.id,
-                                        bom_item_id: item.id,
-                                        bom_item: item,
-                                        approved_quantity: item.metrics.paint_ready,
-                                        side: unitSideTab
-                                      };
-                                      openPaintModal(insp);
-                                    }}>
-                                    <Text style={styles.actionBtnText}>🎨 Log Paint Completion ({item.metrics.paint_ready} pcs)</Text>
-                                  </TouchableOpacity>
-                                ) : (
-                                  <Text style={{ fontSize: 11, color: '#7c3aed', fontWeight: '700', marginTop: 4 }}>
-                                    ✓ {item.metrics?.paint_completed || 0} pcs Coated
-                                  </Text>
-                                )}
-                              </View>
-                            )}
+                            {/* Rework Actions (Strictly side-isolated) */}
+                            {activeTab === 'rework' && !isSelectionMode && (() => {
+                              const sideStat = item.side_stats?.[unitSideTab] || {};
+                              const rewPending = sideStat.rework_pending || 0;
+                              const rewProg = sideStat.rework_in_progress || 0;
+                              const rewComp = sideStat.rework_completed || 0;
+                              const sideReworks = sideStat.rework_records || (item.rework_records || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
 
-                            {/* Assembly Actions */}
-                            {activeTab === 'assembly' && !isSelectionMode && (
-                              <View style={{ marginTop: 8 }}>
-                                {item.metrics?.assembly_ready > 0 ? (
-                                  <TouchableOpacity
-                                    style={[styles.actionBtn, { backgroundColor: '#0d9488' }]}
-                                    onPress={() => handleSubmitAssembly(item)}>
-                                    <Text style={styles.actionBtnText}>🔩 Mark Assembled ({item.metrics.assembly_ready} pcs)</Text>
-                                  </TouchableOpacity>
-                                ) : (
-                                  <Text style={{ fontSize: 11, color: '#0d9488', fontWeight: '700', marginTop: 4 }}>
-                                    ✓ {item.metrics?.assembly_completed || 0} pcs Assembled
-                                  </Text>
-                                )}
-                              </View>
-                            )}
+                              return (
+                                <View style={{ marginTop: 6 }}>
+                                  {rewPending > 0 ? (
+                                    <TouchableOpacity
+                                      style={[styles.actionBtn, { backgroundColor: '#f59e0b' }]}
+                                      onPress={() => {
+                                        const rew = sideReworks.find(r => r.status === 'pending') || { id: item.id };
+                                        handleStartRework(rew.id, item.standard_part_no);
+                                      }}>
+                                      <Text style={styles.actionBtnText}>START REWORK ({rewPending} pcs)</Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+
+                                  {rewProg > 0 ? (
+                                    <TouchableOpacity
+                                      style={[styles.actionBtn, { backgroundColor: '#10b981', marginTop: 4 }]}
+                                      onPress={() => {
+                                        const rew = sideReworks.find(r => r.status === 'in_progress') || { id: item.id };
+                                        openReworkModal(rew, item);
+                                      }}>
+                                      <Text style={styles.actionBtnText}>COMPLETE REWORK ({rewProg} pcs)</Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+
+                                  {rewPending === 0 && rewProg === 0 && (
+                                    <Text style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
+                                      {rewComp > 0 ? `✓ ${rewComp} pcs Rework Completed` : '✓ No Active Rework'}
+                                    </Text>
+                                  )}
+                                </View>
+                              );
+                            })()}
+
+                            {/* Paint Actions (Strictly side-isolated) */}
+                            {activeTab === 'paint' && !isSelectionMode && (() => {
+                              const sideStat = item.side_stats?.[unitSideTab] || {};
+                              const paintReady = sideStat.paint_ready || 0;
+                              const paintComp = sideStat.paint_completed || 0;
+                              const sideInspections = sideStat.qc_inspections || (item.qc_inspections || []).filter(q => q.side === unitSideTab || q.side === 'COMMON');
+                              const insp = sideInspections.find(q => q.approved_quantity > 0 && (q.destination === 'PAINT' || !q.destination));
+
+                              return (
+                                <View style={{ marginTop: 6 }}>
+                                  {paintReady > 0 && insp ? (
+                                    <TouchableOpacity
+                                      style={[styles.actionBtn, { backgroundColor: '#7c3aed' }]}
+                                      onPress={() => {
+                                        openPaintModal({
+                                          ...insp,
+                                          bom_item_id: item.id,
+                                          bom_item: item,
+                                          side: unitSideTab,
+                                          approved_quantity: paintReady,
+                                        });
+                                      }}>
+                                      <Text style={styles.actionBtnText}>COMPLETE PAINT ({paintReady} pcs)</Text>
+                                    </TouchableOpacity>
+                                  ) : (
+                                    <Text style={{ fontSize: 11, color: '#7c3aed', fontWeight: '700', marginTop: 3 }}>
+                                      {paintComp > 0 ? `✓ ${paintComp} pcs Painted` : '✓ No Paint Operations Pending'}
+                                    </Text>
+                                  )}
+                                </View>
+                              );
+                            })()}
+
+                            {/* Assembly Actions (Strictly side-isolated) */}
+                            {activeTab === 'assembly' && !isSelectionMode && (() => {
+                              const sideStat = item.side_stats?.[unitSideTab] || {};
+                              const asmReady = sideStat.assembly_ready || 0;
+                              const asmComp = sideStat.assembly_completed || 0;
+
+                              return (
+                                <View style={{ marginTop: 6 }}>
+                                  {asmReady > 0 ? (
+                                    <TouchableOpacity
+                                      style={[styles.actionBtn, { backgroundColor: '#0d9488' }]}
+                                      onPress={() => handleSubmitAssembly(item)}>
+                                      <Text style={styles.actionBtnText}>MARK ASSEMBLED ({asmReady} pcs)</Text>
+                                    </TouchableOpacity>
+                                  ) : (
+                                    <Text style={{ fontSize: 11, color: '#0d9488', fontWeight: '700', marginTop: 3 }}>
+                                      {asmComp > 0 ? `✓ ${asmComp} pcs Assembled` : '✓ No Assembly Operations Pending'}
+                                    </Text>
+                                  )}
+                                </View>
+                              );
+                            })()}
                           </TouchableOpacity>
                         );
                       })}
 
                       {visibleParts.length === 0 && (
-                        <View style={styles.emptyState}>
-                          <Text style={styles.emptyStateText}>No {unitSideTab} parts found for this unit{currentSearchQuery ? ` matching "${currentSearchQuery}"` : ''}.</Text>
-                        </View>
-                      )}
-
-                      {/* FLOATING BULK ACTION BAR (Issue 5) */}
-                      {selectedItemIds.size > 0 && (
-                        <View style={styles.floatingBulkBar}>
-                          <Text style={styles.floatingBulkText}>
-                            Selected: {selectedItemIds.size} part{selectedItemIds.size > 1 ? 's' : ''} ({unitSideTab})
-                          </Text>
-
-                          {activeTab === 'store' && storeSubTab === 'pending' && (
-                            <View style={{ marginTop: 6 }}>
-                              <TouchableOpacity
-                                style={[styles.bulkBtn, { backgroundColor: '#2563eb' }]}
-                                onPress={() => {
-                                  setBulkDeliveryNote(`DN-${new Date().toISOString().slice(0, 10)}`);
-                                  setShowBulkStoreReceiveModal(true);
-                                }}>
-                                <Text style={styles.bulkBtnText}>📥 Receive All Selected ({selectedItemIds.size} Parts)</Text>
-                              </TouchableOpacity>
-                            </View>
-                          )}
-
-                          {activeTab === 'qc' && qcSubTab === 'arrival' && (
-                            <View style={{ marginTop: 6 }}>
-                              <TouchableOpacity
-                                style={[styles.bulkBtn, { backgroundColor: '#10b981' }]}
-                                onPress={() => handleBulkQcArrivalAccept(selectedItemsList)}>
-                                <Text style={styles.bulkBtnText}>📥 Store Receive Item ({selectedItemIds.size})</Text>
-                              </TouchableOpacity>
-                            </View>
-                          )}
-
-                          {activeTab === 'qc' && qcSubTab === 'inspection' && (
-                            <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
-                              <TouchableOpacity
-                                style={[styles.bulkBtn, { backgroundColor: '#10b981', flex: 1 }]}
-                                onPress={() => setShowBulkQcDestinationModal(true)}>
-                                <Text style={styles.bulkBtnText}>✅ Approve ({selectedItemIds.size})</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={[styles.bulkBtn, { backgroundColor: '#f59e0b', flex: 1 }]}
-                                onPress={() => handleBulkQcInspect(selectedItemsList, 'rework')}>
-                                <Text style={styles.bulkBtnText}>🛠️ Rework ({selectedItemIds.size})</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={[styles.bulkBtn, { backgroundColor: '#ef4444', flex: 1 }]}
-                                onPress={() => handleBulkQcInspect(selectedItemsList, 'rejected')}>
-                                <Text style={styles.bulkBtnText}>❌ Reject ({selectedItemIds.size})</Text>
-                              </TouchableOpacity>
-                            </View>
-                          )}
-
-                          {activeTab === 'rework' && (
-                            <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
-                              <TouchableOpacity
-                                style={[styles.bulkBtn, { backgroundColor: '#f59e0b', flex: 1 }]}
-                                onPress={() => handleBulkReworkAction(selectedItemsList, 'start')}>
-                                <Text style={styles.bulkBtnText}>▶ Start Rework ({selectedItemIds.size})</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={[styles.bulkBtn, { backgroundColor: '#10b981', flex: 1 }]}
-                                onPress={() => setShowBulkReworkModal(true)}>
-                                <Text style={styles.bulkBtnText}>✅ Complete All ({selectedItemIds.size})</Text>
-                              </TouchableOpacity>
-                            </View>
-                          )}
-
-                          {activeTab === 'paint' && (
-                            <View style={{ marginTop: 6 }}>
-                              <TouchableOpacity
-                                style={[styles.bulkBtn, { backgroundColor: '#7c3aed' }]}
-                                onPress={() => setShowBulkPaintModal(true)}>
-                                <Text style={styles.bulkBtnText}>🎨 Complete Painting for {selectedItemIds.size} Parts</Text>
-                              </TouchableOpacity>
-                            </View>
-                          )}
-
-                          {activeTab === 'assembly' && (
-                            <View style={{ marginTop: 6 }}>
-                              <TouchableOpacity
-                                style={[styles.bulkBtn, { backgroundColor: '#0d9488' }]}
-                                onPress={() => handleBulkAssemblyComplete(selectedItemsList)}>
-                                <Text style={styles.bulkBtnText}>🔩 Mark {selectedItemIds.size} Parts Assembled</Text>
-                              </TouchableOpacity>
-                            </View>
+                        <View style={[styles.emptyState, { paddingVertical: 24, alignItems: 'center' }]}>
+                          {activeTab === 'qc' && qcSubTab === 'inspection' ? (
+                            <>
+                              <Text style={[styles.emptyStateText, { fontWeight: '700', fontSize: 15, color: '#1e293b', marginBottom: 4, textAlign: 'center' }]}>
+                                No Parts Ready for Quality Inspection
+                              </Text>
+                              <Text style={[styles.emptyStateText, { color: '#64748b', fontSize: 12, textAlign: 'center' }]}>
+                                Parts will appear here after Physical Arrival is completed.
+                              </Text>
+                            </>
+                          ) : activeTab === 'qc' && qcSubTab === 'arrival' ? (
+                            <>
+                              <Text style={[styles.emptyStateText, { fontWeight: '700', fontSize: 15, color: '#1e293b', marginBottom: 4, textAlign: 'center' }]}>
+                                No Pending Physical Arrivals
+                              </Text>
+                              <Text style={[styles.emptyStateText, { color: '#64748b', fontSize: 12, textAlign: 'center' }]}>
+                                All parts for this unit have completed physical arrival.
+                              </Text>
+                            </>
+                          ) : (
+                            <Text style={styles.emptyStateText}>No {unitSideTab} parts found for this unit{currentSearchQuery ? ` matching "${currentSearchQuery}"` : ''}.</Text>
                           )}
                         </View>
                       )}
@@ -2032,6 +2103,99 @@ function App() {
         )}
       </ScrollView>
 
+      {/* FIXED BOTTOM STICKY ACTION BAR */}
+      {selectedItemIds.size > 0 && selectedUnit && (
+        <View style={styles.stickyBottomActionBar}>
+          <View style={styles.stickyBarHeader}>
+            <Text style={styles.stickyBarCountBadge}>
+              Selected: {selectedItemIds.size} {selectedItemIds.size === 1 ? 'part' : 'parts'} ({unitSideTab})
+            </Text>
+            <TouchableOpacity onPress={clearSelection} style={styles.stickyBarClearBtn}>
+              <Text style={styles.stickyBarClearText}>✕ Clear</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Department-specific primary bulk action controls */}
+          {(() => {
+            const selectedItemsList = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
+
+            return (
+              <View>
+                {activeTab === 'store' && storeSubTab === 'pending' && (
+                  <TouchableOpacity
+                    style={[styles.bulkBtn, { backgroundColor: '#2563eb' }]}
+                    onPress={() => {
+                      setBulkDeliveryNote(`DN-${new Date().toISOString().slice(0, 10)}`);
+                      setShowBulkStoreReceiveModal(true);
+                    }}>
+                    <Text style={styles.bulkBtnText}>RECEIVE SELECTED ({selectedItemIds.size} PARTS)</Text>
+                  </TouchableOpacity>
+                )}
+
+                {activeTab === 'qc' && qcSubTab === 'arrival' && (
+                  <TouchableOpacity
+                    style={[styles.bulkBtn, { backgroundColor: '#10b981' }]}
+                    onPress={() => handleBulkQcArrivalAccept(selectedItemsList)}>
+                    <Text style={styles.bulkBtnText}>CONFIRM ARRIVAL ({selectedItemIds.size})</Text>
+                  </TouchableOpacity>
+                )}
+
+                {activeTab === 'qc' && qcSubTab === 'inspection' && (
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    <TouchableOpacity
+                      style={[styles.bulkBtn, { backgroundColor: '#10b981', flex: 1 }]}
+                      onPress={() => setShowBulkQcDestinationModal(true)}>
+                      <Text style={styles.bulkBtnText}>APPROVE ({selectedItemIds.size})</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.bulkBtn, { backgroundColor: '#f59e0b', flex: 1 }]}
+                      onPress={() => handleBulkQcInspect(selectedItemsList, 'rework')}>
+                      <Text style={styles.bulkBtnText}>REWORK ({selectedItemIds.size})</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.bulkBtn, { backgroundColor: '#ef4444', flex: 1 }]}
+                      onPress={() => handleBulkQcInspect(selectedItemsList, 'rejected')}>
+                      <Text style={styles.bulkBtnText}>REJECT ({selectedItemIds.size})</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {activeTab === 'rework' && (
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity
+                      style={[styles.bulkBtn, { backgroundColor: '#f59e0b', flex: 1 }]}
+                      onPress={() => handleBulkReworkAction(selectedItemsList, 'start')}>
+                      <Text style={styles.bulkBtnText}>START REWORK ({selectedItemIds.size})</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.bulkBtn, { backgroundColor: '#10b981', flex: 1 }]}
+                      onPress={() => setShowBulkReworkModal(true)}>
+                      <Text style={styles.bulkBtnText}>COMPLETE ALL ({selectedItemIds.size})</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {activeTab === 'paint' && (
+                  <TouchableOpacity
+                    style={[styles.bulkBtn, { backgroundColor: '#7c3aed' }]}
+                    onPress={() => setShowBulkPaintModal(true)}>
+                    <Text style={styles.bulkBtnText}>COMPLETE PAINT ({selectedItemIds.size} PARTS)</Text>
+                  </TouchableOpacity>
+                )}
+
+                {activeTab === 'assembly' && (
+                  <TouchableOpacity
+                    style={[styles.bulkBtn, { backgroundColor: '#0d9488' }]}
+                    onPress={() => handleBulkAssemblyComplete(selectedItemsList)}>
+                    <Text style={styles.bulkBtnText}>MARK ASSEMBLED ({selectedItemIds.size} PARTS)</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })()}
+        </View>
+      )}
+
       {/* FILTER MODAL */}
       <Modal visible={showFilterModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
@@ -2134,7 +2298,7 @@ function App() {
               <TouchableOpacity
                 style={[styles.button, { flex: 1, backgroundColor: '#2563eb' }]}
                 onPress={() => {
-                  const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(p.id));
+                  const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
                   handleBulkStoreReceive(parts);
                 }}>
                 <Text style={styles.buttonText}>Receive ({selectedItemIds.size})</Text>
@@ -2170,7 +2334,7 @@ function App() {
                       { color: '#7c3aed' },
                       qcDestination === 'PAINT' && { color: '#ffffff' }
                     ]}>
-                      🎨 Route 1: Paint Shop
+                      PAINT SHOP
                     </Text>
                     <Text style={[
                       styles.routeCardDesc,
@@ -2192,7 +2356,7 @@ function App() {
                       { color: '#0d9488' },
                       qcDestination === 'ASSEMBLY' && { color: '#ffffff' }
                     ]}>
-                      🔩 Route 2: Assembly
+                      DIRECT ASSEMBLY
                     </Text>
                     <Text style={[
                       styles.routeCardDesc,
@@ -2260,11 +2424,11 @@ function App() {
               <TouchableOpacity
                 style={[styles.routeCard, { borderColor: '#7c3aed', padding: 14 }]}
                 onPress={() => {
-                  const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(p.id));
+                  const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
                   handleBulkQcInspect(parts, 'approved', 'PAINT');
                 }}>
                 <Text style={[styles.routeCardTitle, { color: '#7c3aed', fontSize: 14 }]}>
-                  🎨 1. Route All to Paint Station
+                  1. ROUTE ALL TO PAINT SHOP
                 </Text>
                 <Text style={styles.routeCardDesc}>
                   Pushes all selected parts into the Paint department queue.
@@ -2274,11 +2438,11 @@ function App() {
               <TouchableOpacity
                 style={[styles.routeCard, { borderColor: '#0d9488', padding: 14 }]}
                 onPress={() => {
-                  const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(p.id));
+                  const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
                   handleBulkQcInspect(parts, 'approved', 'ASSEMBLY');
                 }}>
                 <Text style={[styles.routeCardTitle, { color: '#0d9488', fontSize: 14 }]}>
-                  🔩 2. Route Directly to Assembly
+                  2. ROUTE DIRECTLY TO ASSEMBLY
                 </Text>
                 <Text style={styles.routeCardDesc}>
                   Bypasses the paint station directly into the Assembly queue.
@@ -2355,7 +2519,7 @@ function App() {
               <TouchableOpacity
                 style={[styles.button, { flex: 1, backgroundColor: '#7c3aed' }]}
                 onPress={() => {
-                  const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(p.id));
+                  const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
                   handleBulkPaintComplete(parts);
                 }}>
                 <Text style={styles.buttonText}>Complete Paint ({selectedItemIds.size})</Text>
@@ -2421,7 +2585,7 @@ function App() {
               <TouchableOpacity
                 style={[styles.button, { flex: 1, backgroundColor: '#10b981' }]}
                 onPress={() => {
-                  const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(p.id));
+                  const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
                   handleBulkReworkAction(parts, 'complete');
                 }}>
                 <Text style={styles.buttonText}>Complete & Return QC</Text>
@@ -2458,10 +2622,15 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  logoIcon: {
-    fontSize: 40,
-    textAlign: 'center',
-    marginBottom: 8,
+  loginLogo: {
+    width: 220,
+    height: 48,
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  headerLogo: {
+    width: 92,
+    height: 24,
   },
   title: {
     fontSize: 24,
@@ -2515,7 +2684,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   header: {
-    padding: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderColor: '#e2e8f0',
@@ -2524,14 +2694,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: 'bold',
     color: '#0f172a',
   },
   userSubtitle: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#64748b',
-    marginTop: 2,
+    marginTop: 1,
   },
   roleBadge: {
     color: '#2563eb',
@@ -2539,35 +2709,35 @@ const styles = StyleSheet.create({
   },
   logoutBtn: {
     backgroundColor: '#fef2f2',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
     borderWidth: 1,
     borderColor: '#fca5a5',
   },
   logoutBtnText: {
     color: '#ef4444',
     fontWeight: 'bold',
-    fontSize: 13,
+    fontSize: 11,
   },
   tabsContainer: {
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderColor: '#e2e8f0',
-    maxHeight: 46,
-    paddingHorizontal: 8,
+    maxHeight: 38,
+    paddingHorizontal: 6,
   },
   tab: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginRight: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginRight: 2,
   },
   activeTab: {
     borderBottomWidth: 2,
     borderBottomColor: '#2563eb',
   },
   tabText: {
-    fontSize: 13,
+    fontSize: 11.5,
     color: '#64748b',
     fontWeight: '600',
   },
@@ -2578,26 +2748,27 @@ const styles = StyleSheet.create({
   subTabsContainer: {
     flexDirection: 'row',
     backgroundColor: '#f1f5f9',
-    padding: 4,
-    marginHorizontal: 12,
-    marginTop: 8,
-    borderRadius: 8,
+    padding: 2,
+    marginHorizontal: 10,
+    marginTop: 4,
+    marginBottom: 2,
+    borderRadius: 6,
   },
   subTab: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 5,
     alignItems: 'center',
-    borderRadius: 6,
+    borderRadius: 4,
   },
   activeSubTab: {
     backgroundColor: '#ffffff',
     shadowColor: '#000',
     shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowRadius: 2,
     elevation: 1,
   },
   subTabText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: '#64748b',
   },
@@ -2607,63 +2778,69 @@ const styles = StyleSheet.create({
   },
   searchBarContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    gap: 8,
+    paddingHorizontal: 10,
+    paddingTop: 5,
+    paddingBottom: 2,
+    gap: 6,
   },
   searchInput: {
     flex: 1,
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#cbd5e1',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    fontSize: 12.5,
+    height: 32,
   },
   filterBtn: {
     backgroundColor: '#e2e8f0',
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
+    height: 32,
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: 6,
   },
   clearSearchBtn: {
     backgroundColor: '#fee2e2',
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
+    height: 32,
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: 6,
   },
   clearSearchBtnText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: 'bold',
     color: '#ef4444',
   },
   filterBtnText: {
-    fontSize: 13,
+    fontSize: 11.5,
     fontWeight: 'bold',
     color: '#334155',
   },
   chipsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingTop: 6,
-    gap: 6,
+    paddingHorizontal: 10,
+    paddingTop: 3,
+    paddingBottom: 1,
+    gap: 4,
   },
   chip: {
     backgroundColor: '#eff6ff',
     borderColor: '#93c5fd',
     borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
   },
   chipText: {
     color: '#2563eb',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
   },
   content: {
-    padding: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   cardContainer: {
     flexDirection: 'row',
@@ -2672,30 +2849,30 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '48%',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   cardLabel: {
     color: 'rgba(255,255,255,0.85)',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
   cardValue: {
     color: '#ffffff',
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: 'bold',
-    marginTop: 4,
+    marginTop: 2,
   },
   listContainer: {
-    paddingBottom: 30,
+    paddingBottom: 20,
   },
   sectionHeader: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 'bold',
     color: '#64748b',
-    marginBottom: 10,
+    marginBottom: 6,
     letterSpacing: 0.5,
   },
   hierarchyNavRow: {
@@ -2703,35 +2880,41 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
-    marginBottom: 8,
+    marginHorizontal: 10,
+    marginTop: 4,
+    marginBottom: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#cbd5e1',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
   },
   hierarchyNavTitle: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '700',
     color: '#1e293b',
     flex: 1,
   },
   backLevelBtn: {
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 5,
+    backgroundColor: '#2563eb',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
     marginLeft: 6,
   },
   backLevelBtnText: {
     color: '#ffffff',
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '700',
   },
   jigCard: {
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 8,
+    padding: 8,
+    borderRadius: 6,
+    marginBottom: 5,
     borderWidth: 1.5,
   },
   jigCardIncomplete: {
@@ -2743,17 +2926,17 @@ const styles = StyleSheet.create({
     borderColor: '#22c55e',
   },
   jigName: {
-    fontSize: 13.5,
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#1e293b',
     flex: 1,
   },
   jigBadge: {
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '800',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 3,
     marginLeft: 6,
   },
   jigBadgeComplete: {
@@ -2765,9 +2948,9 @@ const styles = StyleSheet.create({
     color: '#ffffff',
   },
   unitCard: {
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 8,
+    padding: 8,
+    borderRadius: 6,
+    marginBottom: 5,
     borderWidth: 1.5,
   },
   unitCardIncomplete: {
@@ -2780,59 +2963,59 @@ const styles = StyleSheet.create({
   },
   mobileSidePanel: {
     flex: 1,
-    padding: 8,
-    borderRadius: 6,
+    padding: 6,
+    borderRadius: 5,
     borderWidth: 1,
   },
   unitTitle: {
-    fontSize: 13.5,
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#1e293b',
   },
   unitBadge: {
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '800',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 3,
   },
   unitBadgePending: {
     backgroundColor: '#f59e0b',
     color: '#ffffff',
   },
   progressBarBg: {
-    height: 5,
+    height: 4,
     backgroundColor: '#e2e8f0',
-    borderRadius: 2.5,
-    marginTop: 6,
-    marginBottom: 4,
+    borderRadius: 2,
+    marginTop: 4,
+    marginBottom: 3,
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
-    borderRadius: 2.5,
+    borderRadius: 2,
   },
   tapExploreText: {
-    fontSize: 10.5,
+    fontSize: 10,
     fontWeight: '700',
     color: '#2563eb',
     marginTop: 2,
   },
   emptyState: {
     backgroundColor: '#ffffff',
-    padding: 20,
-    borderRadius: 8,
+    padding: 16,
+    borderRadius: 6,
     alignItems: 'center',
   },
   emptyStateText: {
     color: '#94a3b8',
-    fontSize: 13,
+    fontSize: 12,
   },
   itemCard: {
     backgroundColor: '#ffffff',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 8,
+    padding: 6,
+    borderRadius: 5,
+    marginBottom: 4,
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
@@ -2840,82 +3023,83 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   itemPartNo: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 'bold',
     color: '#0f172a',
     flex: 1,
     marginRight: 6,
   },
   itemStatus: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: 'bold',
     color: '#2563eb',
     backgroundColor: '#eff6ff',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
   },
   itemSubText: {
-    fontSize: 11.5,
+    fontSize: 10.5,
     color: '#64748b',
     marginTop: 1,
   },
   actionBtn: {
-    paddingVertical: 7,
-    paddingHorizontal: 8,
-    borderRadius: 5,
+    paddingVertical: 4.5,
+    paddingHorizontal: 6,
+    borderRadius: 4,
     alignItems: 'center',
   },
   actionBtnText: {
     color: '#ffffff',
-    fontWeight: 'bold',
-    fontSize: 11.5,
+    fontWeight: '800',
+    fontSize: 10,
+    letterSpacing: 0.2,
   },
   revertBtn: {
     backgroundColor: '#fef2f2',
     borderColor: '#fca5a5',
     borderWidth: 1,
-    padding: 6,
-    borderRadius: 5,
-    marginTop: 6,
+    padding: 5,
+    borderRadius: 4,
+    marginTop: 4,
     alignItems: 'center',
   },
   revertBtnText: {
     color: '#ef4444',
     fontWeight: 'bold',
-    fontSize: 11,
+    fontSize: 10.5,
   },
   statsRow: {
-    marginTop: 5,
-    gap: 6,
+    marginTop: 3,
+    gap: 4,
   },
   sideCardBox: {
     backgroundColor: '#f8fafc',
-    padding: 6,
-    borderRadius: 5,
+    padding: 5,
+    borderRadius: 4,
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
   statBadge: {
     color: '#334155',
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '600',
   },
   smallReceiveBtn: {
     backgroundColor: '#2563eb',
-    paddingVertical: 5,
-    paddingHorizontal: 8,
+    paddingVertical: 4.5,
+    paddingHorizontal: 6,
     borderRadius: 4,
-    marginTop: 5,
+    marginTop: 3,
     alignItems: 'center',
   },
   smallReceiveBtnText: {
     color: '#ffffff',
     fontWeight: 'bold',
-    fontSize: 10.5,
+    fontSize: 10,
   },
   swipeLegendText: {
     textAlign: 'center',
@@ -3147,7 +3331,53 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginTop: -2,
   },
-  // Floating Bulk Action Bar
+  // Fixed Sticky Bottom Action Bar
+  stickyBottomActionBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#0f172a',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 32 : 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 24,
+    zIndex: 9999,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#334155',
+  },
+  stickyBarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  stickyBarCountBadge: {
+    color: '#ffffff',
+    fontSize: 13.5,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  stickyBarClearBtn: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  stickyBarClearText: {
+    color: '#cbd5e1',
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  // Floating Bulk Action Bar (Legacy Support)
   floatingBulkBar: {
     backgroundColor: '#0f172a',
     borderRadius: 12,

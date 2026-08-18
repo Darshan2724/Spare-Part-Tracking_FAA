@@ -560,104 +560,10 @@
         </div>
       </div>
 
-      <!-- ROW 2: OPERATIONAL EFFICIENCY & CAPACITY (Cards 4, 5, 6) -->
+      <!-- ROW 2: SUPPLIER ACCURACY & QUALITY COST PRESSURE -->
       <div class="row g-3 mb-4">
-        <!-- 4. Process Flow Efficiency & Stage Dwell Time -->
-        <div class="col-12 col-lg-4">
-          <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-              <div>
-                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
-                  <i class="fas fa-hourglass-half text-purple me-2"></i>Process Flow Efficiency
-                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Measures average workstation dwell and turnaround duration in hours for parts progressing through Store, QC Inspection, Rework, Paint, and Assembly against standard targets."></i>
-                </h5>
-              </div>
-              <span class="badge bg-purple text-white">Stage Dwell</span>
-            </div>
-            <div class="card-body p-3">
-              <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0 small">
-                  <thead class="table-light">
-                    <tr>
-                      <th>Workstation Stage</th>
-                      <th>Avg Dwell</th>
-                      <th>Benchmark</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="stg in stageDwellTimes" :key="stg.stage">
-                      <td class="fw-semibold text-dark">{{ stg.stage }}</td>
-                      <td class="fw-bold">{{ stg.avg_hours }} hrs</td>
-                      <td class="text-muted">{{ stg.benchmark_hours }} hrs</td>
-                      <td>
-                        <span class="badge" :class="stg.status === 'Optimal' ? 'bg-success' : (stg.status === 'Attention' ? 'bg-warning text-dark' : 'bg-secondary')">
-                          {{ stg.status }}
-                        </span>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 5. Quality Stability Index (QSI Volatility Control Chart) -->
-        <div class="col-12 col-lg-4">
-          <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-              <div>
-                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
-                  <i class="fas fa-shield-alt text-warning me-2"></i>Quality Stability Index (QSI)
-                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Statistical Process Control (SPC) metric monitoring day-to-day QC yield consistency within Upper Control Limit (UCL = Mean + 2σ) and Lower Control Limit (LCL = Mean - 2σ) thresholds."></i>
-                </h5>
-              </div>
-              <span class="badge bg-warning text-dark">Mean: {{ qualityStability.mean_yield || 0 }}%</span>
-            </div>
-            <div class="card-body p-3">
-              <div style="height: 220px; position: relative;">
-                <canvas ref="qsiChartCanvas"></canvas>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 6. Capacity Load by Department (Active WIP) -->
-        <div class="col-12 col-lg-4">
-          <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-              <div>
-                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
-                  <i class="fas fa-layer-group text-primary me-2"></i>Capacity Load by Department
-                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Displays live Work-In-Progress (WIP) volume (pieces) currently queued or being processed across each individual department."></i>
-                </h5>
-              </div>
-              <span class="badge bg-primary">Active WIP</span>
-            </div>
-            <div class="card-body p-3">
-              <div class="d-flex flex-column gap-3">
-                <div v-for="cap in capacityLoad" :key="cap.department">
-                  <div class="d-flex justify-content-between align-items-center mb-1 small">
-                    <span class="fw-bold text-dark">{{ cap.department }}</span>
-                    <span class="badge px-2 py-1" :style="{ backgroundColor: cap.color, color: '#fff' }">
-                      {{ cap.wip_count }} pcs in WIP
-                    </span>
-                  </div>
-                  <div class="progress" style="height: 8px;">
-                    <div class="progress-bar" :style="{ width: Math.min(100, (cap.wip_count / (totalWipSum || 1)) * 100) + '%', backgroundColor: cap.color }"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ROW 3: VENDOR QUALITY, VARIANCE & QUALITY COST (Cards 7, 8, 9, 10) -->
-      <div class="row g-3 mb-4">
-        <!-- 7. Supplier Fill Accuracy (RH vs LH Separate) -->
-        <div class="col-12 col-lg-6">
+        <!-- 4. Supplier Fill Accuracy (RH vs LH Separate) -->
+        <div class="col-12 col-lg-7">
           <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
               <div>
@@ -710,118 +616,7 @@
           </div>
         </div>
 
-        <!-- 8. Project Completion Variance -->
-        <div class="col-12 col-lg-6">
-          <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-              <div>
-                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
-                  <i class="fas fa-balance-scale text-info me-2"></i>Project Completion Variance
-                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Compares required BOM specifications against actual assembled units per active project to identify schedule variance and part shortages."></i>
-                </h5>
-              </div>
-              <span class="badge bg-info text-white">Project Delta</span>
-            </div>
-            <div class="card-body p-0">
-              <div class="table-responsive">
-                <table class="table table-sm table-hover align-middle mb-0 small">
-                  <thead class="table-dark">
-                    <tr>
-                      <th>Project</th>
-                      <th>Planned BOM</th>
-                      <th>Actual Assembled</th>
-                      <th>Variance</th>
-                      <th style="width: 140px;">Readiness</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="proj in projectVariance" :key="proj.id">
-                      <td>
-                        <strong>{{ proj.project_name || proj.project_code }}</strong>
-                        <div class="extra-small text-muted">{{ proj.project_code }}</div>
-                      </td>
-                      <td>{{ proj.planned_qty }} pcs</td>
-                      <td class="text-teal fw-bold">{{ proj.actual_qty }} pcs</td>
-                      <td>
-                        <span class="badge" :class="proj.variance_qty >= 0 ? 'bg-success' : 'bg-danger'">
-                          {{ proj.variance_qty }} pcs
-                        </span>
-                      </td>
-                      <td>
-                        <div class="d-flex align-items-center gap-2">
-                          <div class="progress flex-grow-1" style="height: 6px;">
-                            <div class="progress-bar bg-teal" :style="{ width: proj.completion_pct + '%' }"></div>
-                          </div>
-                          <span class="extra-small fw-bold">{{ proj.completion_pct }}%</span>
-                        </div>
-                      </td>
-                    </tr>
-                    <tr v-if="!projectVariance.length">
-                      <td colspan="5" class="text-center py-4 text-muted">No active projects found.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ROW 4: BOTTLENECKS & QUALITY COST (Cards 9, 10) -->
-      <div class="row g-3 mb-4">
-        <!-- 9. Critical Dependency Monitor (Top Bottleneck Parts) -->
-        <div class="col-12 col-lg-7">
-          <div class="card border-0 shadow-sm h-100 border-start border-danger border-4">
-            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-              <div>
-                <h5 class="card-title fw-bold mb-0 text-danger d-flex align-items-center">
-                  <i class="fas fa-exclamation-triangle me-2"></i>Critical Dependency Monitor (Bottleneck Ranking)
-                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;" title="Ranks the most critical missing or bottleneck spare parts currently blocking project assembly and shipment."></i>
-                </h5>
-              </div>
-              <span class="badge bg-danger">{{ criticalBottlenecks.length }} Critical Parts</span>
-            </div>
-            <div class="card-body p-0">
-              <div class="table-responsive">
-                <table class="table table-sm table-hover align-middle mb-0 small">
-                  <thead class="table-dark">
-                    <tr>
-                      <th>Standard Part Number</th>
-                      <th>Project</th>
-                      <th>Supplier</th>
-                      <th>Required</th>
-                      <th>Assembled</th>
-                      <th>Shortage</th>
-                      <th>Criticality</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="bn in criticalBottlenecks" :key="bn.id">
-                      <td class="fw-bold text-primary">{{ bn.standard_part_no }}</td>
-                      <td><span class="badge bg-light text-dark border">{{ bn.project_code }}</span></td>
-                      <td class="text-muted">{{ bn.supplier }}</td>
-                      <td>{{ bn.required }} pcs</td>
-                      <td class="text-teal">{{ bn.assembled }} pcs</td>
-                      <td class="text-danger fw-bold">{{ bn.shortage }} pcs</td>
-                      <td>
-                        <span class="badge" :class="bn.criticality === 'CRITICAL' ? 'bg-danger' : 'bg-warning text-dark'">
-                          {{ bn.criticality }}
-                        </span>
-                      </td>
-                    </tr>
-                    <tr v-if="!criticalBottlenecks.length">
-                      <td colspan="7" class="text-center py-4 text-success">
-                        <i class="fas fa-check-circle me-1"></i> No critical bottlenecks detected!
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 10. Quality Cost Pressure Score -->
+        <!-- 5. Quality Cost Pressure Score -->
         <div class="col-12 col-lg-5">
           <div class="card border-0 shadow-sm h-100 border-start border-warning border-4">
             <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
@@ -910,6 +705,7 @@
                     <th style="background: #0f172a; color:#fff;">Qty</th>
                     <th style="background: #0f172a; color:#fff;">Department Movement</th>
                     <th style="background: #0f172a; color:#fff;">Processed By</th>
+                    <th style="background: #0f172a; color:#fff;">Date</th>
                     <th style="background: #0f172a; color:#fff;">Time</th>
                   </tr>
                   <!-- Excel-style column filter inputs row -->
@@ -938,6 +734,9 @@
                       <input v-model="modalColFilters.user" type="text" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 80px;" placeholder="User" />
                     </th>
                     <th style="background: #1e293b; padding: 4px 6px;">
+                      <input v-model="modalColFilters.date" type="text" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 80px;" placeholder="Date" />
+                    </th>
+                    <th style="background: #1e293b; padding: 4px 6px;">
                       <input v-model="modalColFilters.time" type="text" class="form-control form-control-sm" style="font-size:0.72rem; min-width: 70px;" placeholder="Time" />
                     </th>
                   </tr>
@@ -950,10 +749,11 @@
                     <td class="fw-bold">{{ part.quantity }}</td>
                     <td><span class="badge bg-info text-dark">{{ part.department_event }}</span></td>
                     <td>{{ part.user }}</td>
+                    <td class="text-muted">{{ formatLocalDate(part.created_at_iso || part.date, part.date) }}</td>
                     <td class="text-muted">{{ formatLocalTime(part.created_at_iso || part.time) }}</td>
                   </tr>
                   <tr v-if="!filteredModalParts.length">
-                    <td colspan="7" class="text-center py-4 text-muted">No parts match the selected filters.</td>
+                    <td colspan="8" class="text-center py-4 text-muted">No parts match the selected filters.</td>
                   </tr>
                 </tbody>
               </table>
@@ -986,7 +786,7 @@ const dailyMatrix = ref([]);
 const dailyTotals = ref({});
 const selectedDateRow = ref(null);
 const modalDeptFilter = ref('');
-const modalColFilters = ref({ partNo: '', project: '', side: '', qty: '', dept: '', user: '', time: '' });
+const modalColFilters = ref({ partNo: '', project: '', side: '', qty: '', dept: '', user: '', date: '', time: '' });
 const expandedPriorityKey = ref(null);
 const projectsProgress = ref([]);
 
@@ -1011,22 +811,13 @@ const filters = ref({
   date_to: '',
 });
 
-// 10 Industry-Grade Management Analytics State
+// Retained Core Analytics State
 const readinessScore = ref(0);
 const readinessBreakdown = ref([]);
 const conversionData = ref({});
 const velocitySeries = ref([]);
-const stageDwellTimes = ref([]);
-const qualityStability = ref({});
-const capacityLoad = ref([]);
 const supplierFillAccuracy = ref([]);
-const projectVariance = ref([]);
-const criticalBottlenecks = ref([]);
 const qualityCostPressure = ref({});
-
-const totalWipSum = computed(() => {
-  return (capacityLoad.value || []).reduce((acc, c) => acc + (c.wip_count || 0), 0);
-});
 
 // Computed Filtered Modal Parts (department filter + Excel column filters)
 const filteredModalParts = computed(() => {
@@ -1047,6 +838,10 @@ const filteredModalParts = computed(() => {
     if (cf.qty && String(p.quantity) !== String(cf.qty)) return false;
     if (cf.dept && !(p.department_event || '').toLowerCase().includes(cf.dept.toLowerCase())) return false;
     if (cf.user && !(p.user || '').toLowerCase().includes(cf.user.toLowerCase())) return false;
+    if (cf.date) {
+      const dateStr = formatLocalDate(p.created_at_iso || p.date, p.date).toLowerCase();
+      if (!dateStr.includes(cf.date.toLowerCase())) return false;
+    }
     if (cf.time) {
       const timeStr = formatLocalTime(p.created_at_iso || p.time);
       if (!timeStr.includes(cf.time)) return false;
@@ -1088,11 +883,9 @@ const filteredPriorityUnits = computed(() => {
 // Chart canvas refs & instances
 const priorityChartCanvas = ref(null);
 const velocityChartCanvas = ref(null);
-const qsiChartCanvas = ref(null);
 
 let priorityChart = null;
 let velocityChart = null;
-let qsiChart = null;
 
 const resetFilters = () => {
   filters.value = {
@@ -1118,12 +911,28 @@ const handleMatrixQuickRangeChange = () => {
 const openDatePartsModal = (row) => {
   selectedDateRow.value = row;
   modalDeptFilter.value = '';
-  modalColFilters.value = { partNo: '', project: '', side: '', qty: '', dept: '', user: '', time: '' };
+  modalColFilters.value = { partNo: '', project: '', side: '', qty: '', dept: '', user: '', date: '', time: '' };
 };
 
 const clearModalFilters = () => {
   modalDeptFilter.value = '';
-  modalColFilters.value = { partNo: '', project: '', side: '', qty: '', dept: '', user: '', time: '' };
+  modalColFilters.value = { partNo: '', project: '', side: '', qty: '', dept: '', user: '', date: '', time: '' };
+};
+
+const formatLocalDate = (isoString, fallbackDate = '') => {
+  if (isoString) {
+    try {
+      const d = new Date(isoString);
+      if (!isNaN(d.getTime())) {
+        const day = String(d.getDate()).padStart(2, '0');
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const month = months[d.getMonth()];
+        const year = String(d.getFullYear()).slice(-2);
+        return `${day}-${month}-${year}`;
+      }
+    } catch (e) {}
+  }
+  return fallbackDate || selectedDateRow.value?.formatted_date || '';
 };
 
 const formatLocalTime = (isoString) => {
@@ -1173,18 +982,13 @@ const fetchData = async () => {
 
     await fetchDailyMovement();
 
-    // 10 Industry-Grade Analytics Data
+    // Retained Core Analytics Data
     const ana = anaRes.data || {};
     readinessScore.value = ana.project_readiness_index?.readiness_score || 0;
     readinessBreakdown.value = ana.project_readiness_index?.breakdown || [];
     conversionData.value = ana.conversion_rate || {};
     velocitySeries.value = ana.velocity_series || [];
-    stageDwellTimes.value = ana.stage_dwell_times || [];
-    qualityStability.value = ana.quality_stability_index || {};
-    capacityLoad.value = ana.capacity_load || [];
     supplierFillAccuracy.value = ana.supplier_fill_accuracy || [];
-    projectVariance.value = ana.project_variance || [];
-    criticalBottlenecks.value = ana.critical_bottlenecks || [];
     qualityCostPressure.value = ana.quality_cost_pressure || {};
 
     await fetchPriorityMap();
@@ -1304,65 +1108,6 @@ const renderAnalyticsCharts = () => {
           },
           scales: {
             y: { beginAtZero: true, title: { display: true, text: 'Pieces' } }
-          }
-        }
-      });
-    }
-
-    // 2. QSI Control Chart
-    if (qsiChart) {
-      qsiChart.destroy();
-      qsiChart = null;
-    }
-    if (qsiChartCanvas.value && qualityStability.value.history?.length) {
-      const hist = qualityStability.value.history;
-      qsiChart = new Chart(qsiChartCanvas.value, {
-        type: 'line',
-        data: {
-          labels: hist.map(h => h.label),
-          datasets: [
-            {
-              label: 'QC Yield %',
-              data: hist.map(h => h.yield_pct),
-              borderColor: '#10b981',
-              backgroundColor: 'rgba(16, 185, 129, 0.1)',
-              tension: 0.2,
-              pointRadius: 4,
-            },
-            {
-              label: 'UCL (Upper Limit)',
-              data: hist.map(() => qualityStability.value.ucl),
-              borderColor: '#ef4444',
-              borderDash: [4, 4],
-              pointRadius: 0,
-              fill: false,
-            },
-            {
-              label: 'Mean Yield',
-              data: hist.map(() => qualityStability.value.mean_yield),
-              borderColor: '#6b7280',
-              borderDash: [2, 2],
-              pointRadius: 0,
-              fill: false,
-            },
-            {
-              label: 'LCL (Lower Limit)',
-              data: hist.map(() => qualityStability.value.lcl),
-              borderColor: '#ef4444',
-              borderDash: [4, 4],
-              pointRadius: 0,
-              fill: false,
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { position: 'top', labels: { boxWidth: 10 } }
-          },
-          scales: {
-            y: { min: 0, max: 105, title: { display: true, text: 'Yield %' } }
           }
         }
       });

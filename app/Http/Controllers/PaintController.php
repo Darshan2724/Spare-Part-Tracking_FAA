@@ -73,10 +73,18 @@ class PaintController extends Controller
         ]);
 
         return DB::transaction(function () use ($request) {
+            $side = $request->input('side');
             $inspection = QcInspection::where('id', $request->input('qc_inspection_id'))
+                ->where(function ($q) use ($side) {
+                    $q->where('side', $side)->orWhere('side', 'COMMON');
+                })
                 ->lockForUpdate()
                 ->with(['receiptItem', 'bomItem', 'paintRecord'])
-                ->firstOrFail();
+                ->first();
+
+            if (!$inspection) {
+                return response()->json(['success' => false, 'message' => "No eligible QC inspection found for {$side} side."], 422);
+            }
 
             if ($inspection->paintRecord) {
                 return response()->json(['success' => false, 'message' => 'Paint operation already completed for this inspection.'], 422);

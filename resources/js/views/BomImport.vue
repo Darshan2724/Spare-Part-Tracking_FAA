@@ -27,6 +27,22 @@
         </div>
 
         <div class="card-body">
+          <!-- DUPLICATE BOM WARNING BANNER -->
+          <div v-if="duplicateInfo" class="alert alert-warning border-warning shadow-sm mb-4">
+            <div class="d-flex align-items-start">
+              <i class="fas fa-ban fs-3 text-danger me-3 mt-1"></i>
+              <div class="flex-grow-1">
+                <h5 class="fw-bold text-dark mb-1"><i class="fas fa-copy me-2 text-danger"></i>BOM Already Imported (Duplicate Blocked)</h5>
+                <p class="mb-2 text-dark">{{ duplicateInfo.message || 'This exact BOM file has already been imported and cannot be imported again.' }}</p>
+                <div class="row g-2 small text-muted bg-white p-2 rounded border">
+                  <div class="col-md-4"><strong>Original File:</strong> {{ duplicateInfo.original_filename || 'N/A' }}</div>
+                  <div class="col-md-4"><strong>Import Date:</strong> {{ duplicateInfo.imported_at || 'N/A' }}</div>
+                  <div class="col-md-4"><strong>Imported By:</strong> {{ duplicateInfo.imported_by || 'N/A' }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div v-if="error" class="alert alert-danger shadow-sm d-flex align-items-center">
             <i class="fas fa-exclamation-triangle fs-4 me-3"></i>
             <div>
@@ -230,6 +246,7 @@ const authStore = useAuthStore();
 const activeTab = ref('import'); // 'import' | 'history'
 const importHistory = ref([]);
 
+const duplicateInfo = ref(null);
 const selectedFile = ref(null);
 const path = ref('BOM/FA-279 NEW MFG BOM.xlsx');
 const previewRows = ref([]);
@@ -239,10 +256,11 @@ const error = ref('');
 const successMessage = ref('');
 const loading = ref(false);
 
-const canImport = computed(() => previewRows.value.length > 0 && validationErrors.value.length === 0);
+const canImport = computed(() => previewRows.value.length > 0 && validationErrors.value.length === 0 && !duplicateInfo.value);
 
 const handleFileChange = (event) => {
   selectedFile.value = event.target.files?.[0] || null;
+  duplicateInfo.value = null;
   if (selectedFile.value) {
     path.value = '';
   }
@@ -251,6 +269,7 @@ const handleFileChange = (event) => {
 const clearMessages = () => {
   error.value = '';
   successMessage.value = '';
+  duplicateInfo.value = null;
 };
 
 const previewBom = async () => {
@@ -259,6 +278,7 @@ const previewBom = async () => {
   validationErrors.value = [];
   previewRows.value = [];
   previewSummary.value = null;
+  duplicateInfo.value = null;
 
   try {
     const formData = new FormData();
@@ -274,13 +294,29 @@ const previewBom = async () => {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
 
-    previewRows.value = response.data.rows || [];
-    previewSummary.value = response.data.summary || null;
-    validationErrors.value = response.data.errors || [];
-    if (!previewRows.value.length && !validationErrors.value.length) {
-      successMessage.value = 'Preview completed. No data rows were found in the selected BOM.';
+    if (response.data.is_duplicate) {
+      duplicateInfo.value = response.data.duplicate_details || {
+        message: response.data.message,
+        original_filename: response.data.filename,
+      };
+      error.value = response.data.message || 'This exact BOM file has already been imported.';
+      previewRows.value = [];
+      previewSummary.value = null;
+    } else {
+      previewRows.value = response.data.rows || [];
+      previewSummary.value = response.data.summary || null;
+      validationErrors.value = response.data.errors || [];
+      if (!previewRows.value.length && !validationErrors.value.length) {
+        successMessage.value = 'Preview completed. No data rows were found in the selected BOM.';
+      }
     }
   } catch (err) {
+    if (err.response?.data?.is_duplicate) {
+      duplicateInfo.value = err.response.data.duplicate_details || {
+        message: err.response.data.message,
+        original_filename: err.response.data.filename,
+      };
+    }
     error.value = err.response?.data?.message || err.response?.data?.errors?.[0] || 'Unable to preview BOM.';
     if (err.response?.data?.errors && Array.isArray(err.response?.data?.errors)) {
       validationErrors.value = err.response.data.errors;
@@ -309,16 +345,27 @@ const importBom = async () => {
     });
 
     if (response.data.success) {
-      successMessage.value = response.data.message || 'FA-279 BOM imported successfully.';
+      successMessage.value = response.data.message || 'BOM imported successfully.';
       previewRows.value = [];
       previewSummary.value = null;
       validationErrors.value = [];
+      duplicateInfo.value = null;
       fetchHistory();
     } else {
+      if (response.data.is_duplicate) {
+        duplicateInfo.value = response.data.duplicate_details || {
+          message: response.data.message,
+        };
+      }
       error.value = response.data.message || 'Import failed.';
       validationErrors.value = response.data.errors || [];
     }
   } catch (err) {
+    if (err.response?.data?.is_duplicate) {
+      duplicateInfo.value = err.response.data.duplicate_details || {
+        message: err.response.data.message,
+      };
+    }
     error.value = err.response?.data?.message || 'Unable to import BOM.';
     validationErrors.value = err.response?.data?.errors || [];
   } finally {

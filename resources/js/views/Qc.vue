@@ -413,10 +413,10 @@
                             </td>
                             <td>
                               <div v-if="authStore.userRole === 'ADMIN'" class="d-flex flex-column gap-1">
-                                <button v-if="part.metrics.qc_pending_arrival > 0" class="btn btn-xs btn-primary fw-bold text-nowrap w-100" @click="openArrivalModal(part)">
+                                <button v-if="part.metrics.qc_pending_arrival > 0" class="btn btn-xs btn-primary fw-bold text-nowrap w-100" @click="openArrivalModal(part, selectedUnitSide)">
                                   <i class="fas fa-check-double me-1"></i> Store Receive Item
                                 </button>
-                                <button v-if="part.metrics.qc_pending_inspection > 0" class="btn btn-xs btn-warning text-dark fw-bold text-nowrap w-100" @click="openInspectModalFromPart(part)">
+                                <button v-if="part.metrics.qc_pending_inspection > 0" class="btn btn-xs btn-warning text-dark fw-bold text-nowrap w-100" @click="openInspectModalFromPart(part, selectedUnitSide)">
                                   <i class="fas fa-microscope me-1"></i> Inspect
                                 </button>
                                 <span v-if="part.metrics.qc_pending_arrival === 0 && part.metrics.qc_pending_inspection === 0" class="text-muted extra-small text-center">
@@ -613,10 +613,10 @@ const openUnitSide = (unit, side) => {
 const selectedUnitLhParts = computed(() => {
   if (!selectedUnit.value?.parts) return [];
   return selectedUnit.value.parts.filter(item => {
-    const hasSide = !!(item.side_stats?.LH || item.side_stats?.COMMON);
-    if (!hasSide) return false;
-    if (qcStageFilter.value === 'arrival' && !(item.metrics?.qc_pending_arrival > 0)) return false;
-    if (qcStageFilter.value === 'inspection' && !(item.metrics?.qc_pending_inspection > 0)) return false;
+    const sideStat = item.side_stats?.LH || item.side_stats?.COMMON;
+    if (!sideStat) return false;
+    if (qcStageFilter.value === 'arrival' && !(sideStat.qc_pending_arrival > 0)) return false;
+    if (qcStageFilter.value === 'inspection' && !(sideStat.qc_pending_inspection > 0)) return false;
     return true;
   });
 });
@@ -624,10 +624,10 @@ const selectedUnitLhParts = computed(() => {
 const selectedUnitRhParts = computed(() => {
   if (!selectedUnit.value?.parts) return [];
   return selectedUnit.value.parts.filter(item => {
-    const hasSide = !!(item.side_stats?.RH || item.side_stats?.COMMON);
-    if (!hasSide) return false;
-    if (qcStageFilter.value === 'arrival' && !(item.metrics?.qc_pending_arrival > 0)) return false;
-    if (qcStageFilter.value === 'inspection' && !(item.metrics?.qc_pending_inspection > 0)) return false;
+    const sideStat = item.side_stats?.RH || item.side_stats?.COMMON;
+    if (!sideStat) return false;
+    if (qcStageFilter.value === 'arrival' && !(sideStat.qc_pending_arrival > 0)) return false;
+    if (qcStageFilter.value === 'inspection' && !(sideStat.qc_pending_inspection > 0)) return false;
     return true;
   });
 });
@@ -725,14 +725,17 @@ const onSearchInput = () => {
   }, 300);
 };
 
-const openArrivalModal = (part) => {
-  // Find receipt item awaiting physical check
-  const recItem = (part.receipt_items || []).find(r => ['received', 'sent_to_qc'].includes(r.status));
+const openArrivalModal = (part, explicitSide = null) => {
+  const targetSide = explicitSide || selectedSide.value || Object.keys(part.side_stats || {})[0] || 'RH';
+  const sideStat = part.side_stats?.[targetSide] || {};
+  const sideReceipts = sideStat.receipt_items || (part.receipt_items || []).filter(r => r.side === targetSide || r.side === 'COMMON');
+  const recItem = sideReceipts.find(r => ['received', 'sent_to_qc'].includes(r.status));
+
   activeArrivalItem.value = recItem || {
     id: part.id,
     standard_part_no: part.standard_part_no,
-    side: Object.keys(part.side_stats || {})[0] || 'RH',
-    received_quantity: part.metrics?.qc_pending_arrival || 1,
+    side: targetSide,
+    received_quantity: sideStat.qc_pending_arrival || part.metrics?.qc_pending_arrival || 1,
   };
 
   const modalEl = document.getElementById('arrivalModal');
@@ -760,20 +763,29 @@ const confirmArrival = async () => {
   }
 };
 
-const openInspectModalFromPart = (part) => {
-  // Find receipt item in bay (status 'qc_received')
-  const recItem = (part.receipt_items || []).find(r => r.status === 'qc_received') || {
-    id: part.id,
+const openInspectModalFromPart = (part, explicitSide = null) => {
+  const targetSide = explicitSide || selectedSide.value || Object.keys(part.side_stats || {})[0] || 'RH';
+  const sideStat = part.side_stats?.[targetSide] || {};
+  const sideReceipts = sideStat.receipt_items || (part.receipt_items || []).filter(r => r.side === targetSide || r.side === 'COMMON');
+  const recItem = sideReceipts.find(r => r.status === 'qc_received') || {
+    id: null,
     bom_item_id: part.id,
     standard_part_no: part.standard_part_no,
-    side: Object.keys(part.side_stats || {})[0] || 'RH',
-    received_quantity: part.metrics?.qc_pending_inspection || 1,
+    side: targetSide,
+    received_quantity: sideStat.qc_pending_inspection || part.metrics?.qc_pending_inspection || 1,
   };
 
-  activeInspectItem.value = recItem;
+  const finalQty = recItem.received_quantity || sideStat.qc_pending_inspection || 1;
+  activeInspectItem.value = {
+    ...recItem,
+    bom_item_id: part.id,
+    side: targetSide,
+    received_quantity: finalQty
+  };
+
   inspectForm.value = {
     result: 'approved',
-    approved_qty: recItem.received_quantity,
+    approved_qty: finalQty,
     rework_qty: 0,
     rejected_qty: 0,
     rejection_reason: '',
@@ -817,7 +829,8 @@ const submitInspection = async () => {
     }
 
     const formData = new FormData();
-    formData.append('receipt_item_id', activeInspectItem.value.id);
+    formData.append('receipt_item_id', activeInspectItem.value.id || '');
+    formData.append('bom_item_id', activeInspectItem.value.bom_item_id || activeInspectItem.value.bom_item?.id || '');
     formData.append('side', activeInspectItem.value.side);
     formData.append('inspected_quantity', totalArrived);
     formData.append('result', inspectForm.value.result);
