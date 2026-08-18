@@ -1,8 +1,8 @@
 import axios from 'axios';
 
-// Tier 1: Environment variable if injected during EAS build or development
-// Tier 2: Default company LAN server fallback (never localhost)
-const ENV_API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.100.60:8080/api/v1';
+// Default company LAN server fallback
+const DEFAULT_HOST = 'http://192.168.100.60:8080/api/v1';
+const ENV_API_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_HOST;
 
 let currentBaseUrl = ENV_API_URL;
 
@@ -18,8 +18,8 @@ const apiClient = axios.create({
 });
 
 /**
- * Dynamically configure or override the Server Base URL at runtime from the Mobile Login screen.
- * Handles inputs like "192.168.100.60:8080", "http://192.168.100.60:8080", or internal DNS names.
+ * Robust Server Base URL normalizer.
+ * Supports: "192.168.100.60:8080", "http://192.168.100.60:8080", "192.168.100.60:8080/api/v1", etc.
  */
 export const setBaseUrl = (url) => {
   if (url && typeof url === 'string') {
@@ -27,11 +27,11 @@ export const setBaseUrl = (url) => {
     if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
       cleanUrl = `http://${cleanUrl}`;
     }
-    if (!cleanUrl.endsWith('/api/v1')) {
-      cleanUrl = cleanUrl.replace(/\/$/, '') + '/api/v1';
-    }
-    currentBaseUrl = cleanUrl;
-    apiClient.defaults.baseURL = cleanUrl;
+    // Strip trailing /api/v1 or slashes to normalize root
+    cleanUrl = cleanUrl.replace(/\/api\/v1\/?$/i, '').replace(/\/+$/, '');
+    const finalApiUrl = `${cleanUrl}/api/v1`;
+    currentBaseUrl = finalApiUrl;
+    apiClient.defaults.baseURL = finalApiUrl;
   }
 };
 
