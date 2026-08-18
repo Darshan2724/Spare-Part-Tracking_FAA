@@ -393,8 +393,9 @@ function App() {
       await loadData(role === 'STORE' ? 'store' : role === 'QC' ? 'qc' : 'dashboard');
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Could not connect to server.';
-      setErrorMsg(`Connection Error: ${msg}\n\nMake sure server host IP is correct and backend is running.`);
-      Alert.alert('Login Failed', msg);
+      const targetUrl = `${apiClient.defaults.baseURL || getBaseUrl()}/auth/login`;
+      setErrorMsg(`Connection Error: ${msg}\n\nTarget Endpoint: ${targetUrl}\n\nPlease ensure phone is on the same Wi-Fi and Mobile Data is turned OFF.`);
+      Alert.alert('Login Failed', `${msg}\n\nTarget: ${targetUrl}`);
     } finally {
       setLoading(false);
     }
