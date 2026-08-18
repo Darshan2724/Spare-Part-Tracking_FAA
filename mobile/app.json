@@ -4,7 +4,7 @@
     "slug": "faith-automation-sparetrack",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/logo.png",
+    "icon": "./assets/logo_app.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/logo.png",
@@ -18,8 +18,9 @@
     "android": {
       "package": "com.faithautomation.sparetrack",
       "versionCode": 1,
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/logo.png",
+        "foregroundImage": "./assets/logo_app.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
