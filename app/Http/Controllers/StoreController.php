@@ -103,6 +103,89 @@ class StoreController extends Controller
         ]);
     }
 
+    /**
+     * Dedicated Store Pending Requirements API.
+     * Returns un-collapsed, side-isolated requirement records.
+     */
+    public function pending(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE']) ?: abort(403);
+
+        $query = BomRequirement::query()
+            ->with(['bomItem.project', 'bomItem.supplier'])
+            ->whereHas('bomItem', function ($q) use ($request) {
+                if ($request->filled('project_id')) {
+                    $q->where('project_id', $request->input('project_id'));
+                }
+                if ($request->filled('jig_no')) {
+                    $q->where('jig_no', $request->input('jig_no'));
+                }
+                if ($request->filled('unit_no')) {
+                    $q->where('unit_no', $request->input('unit_no'));
+                }
+                if ($request->filled('search')) {
+                    $search = trim($request->input('search'));
+                    $q->where(function ($sq) use ($search) {
+                        $sq->where('standard_part_no', 'LIKE', "%{$search}%")
+                          ->orWhere('item_no', 'LIKE', "%{$search}%");
+                    });
+                }
+            });
+
+        if ($request->filled('side')) {
+            $query->where('side', $request->input('side'));
+        }
+
+        $requirements = $query->get();
+        $bomItemIds = $requirements->pluck('bom_item_id')->unique()->toArray();
+
+        $receiptTotals = ReceiptItem::query()
+            ->select('bom_item_id', 'side', DB::raw('SUM(received_quantity) as total_received'))
+            ->whereIn('bom_item_id', $bomItemIds)
+            ->groupBy('bom_item_id', 'side')
+            ->get();
+
+        $pendingList = [];
+
+        foreach ($requirements as $req) {
+            $item = $req->bomItem;
+            if (!$item) continue;
+
+            $rec = $receiptTotals->first(fn($r) => $r->bom_item_id == $req->bom_item_id && $r->side === $req->side);
+            $receivedQty = $rec ? (int) $rec->total_received : 0;
+            $requiredQty = (int) $req->required_quantity;
+            $pendingQty = max(0, $requiredQty - $receivedQty);
+
+            // If filtering for only pending items
+            if ($request->boolean('only_pending', true) && $pendingQty <= 0) {
+                continue;
+            }
+
+            $status = $receivedQty === 0 ? 'pending' : ($pendingQty === 0 ? 'received' : 'partially_received');
+
+            $pendingList[] = [
+                'project_id' => $item->project_id,
+                'project_code' => $item->project?->project_code ?? 'N/A',
+                'jig_id' => $item->jig_no ?? 'GENERAL',
+                'unit_id' => $item->unit_no ? 'Unit ' . $item->unit_no : 'Unit 00',
+                'part_id' => $item->id,
+                'part_no' => $item->standard_part_no,
+                'side' => $req->side,
+                'required_qty' => $requiredQty,
+                'received_qty' => $receivedQty,
+                'pending_qty' => $pendingQty,
+                'status' => $status,
+                'supplier_name' => $item->supplier?->name ?? ($item->supplier_name_raw ?? 'Standard'),
+                'size' => $item->size,
+            ];
+        }
+
+        return response()->json([
+            'total' => count($pendingList),
+            'data' => $pendingList,
+        ]);
+    }
+
     public function store(Request $request)
     {
         $request->user()?->hasAnyRole(['ADMIN', 'STORE']) ?: abort(403, 'Unauthorized. Store operational permission required.');

@@ -12,6 +12,10 @@ class BomImportBatch extends Model
     protected $fillable = [
         'project_id',
         'filename',
+        'file_hash',
+        'file_size_bytes',
+        'original_filename',
+        'project_codes',
         'imported_by',
         'total_rows',
         'successful_rows',
@@ -22,6 +26,8 @@ class BomImportBatch extends Model
 
     protected $casts = [
         'errors' => 'array',
+        'project_codes' => 'array',
+        'file_size_bytes' => 'integer',
     ];
 
     public function project()

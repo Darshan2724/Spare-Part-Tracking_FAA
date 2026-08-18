@@ -104,11 +104,25 @@ class DashboardController extends Controller
 
         $pendingPurchase = (int) (clone $pqQuery)->where('status', 'pending_purchase')->count();
 
-        $paintPending   = (int) (clone $recQuery)->where('status', 'qc_approved')->sum('received_quantity');
+        // Paint Pending: QC Approved inspections routed to PAINT (or default) that do not yet have completed paint records
+        $paintPending = (int) (clone $qcQuery)
+            ->where('approved_quantity', '>', 0)
+            ->where(function ($q) {
+                $q->where('destination', 'PAINT')->orWhereNull('destination');
+            })
+            ->whereDoesntHave('paintRecord')
+            ->sum('approved_quantity');
+
         $paintCompleted = (int) (clone $paintQuery)->where('status', 'completed')->sum('quantity');
 
-        $assemblyPending   = (int) (clone $paintQuery)->where('status', 'completed')->sum('quantity');
+        // Assembly Pending: Completed Paint records + Direct Assembly QC Approvals minus Assembly Completed
+        $directAssemblyApp = (int) (clone $qcQuery)
+            ->where('approved_quantity', '>', 0)
+            ->where('destination', 'ASSEMBLY')
+            ->sum('approved_quantity');
+
         $assemblyCompleted = (int) (clone $asmQuery)->where('status', 'completed')->sum('quantity');
+        $assemblyPending = max(0, ($paintCompleted + $directAssemblyApp) - $assemblyCompleted);
 
         // Part Status Distribution
         $statusDistribution = (clone $recQuery)
@@ -502,6 +516,8 @@ class DashboardController extends Controller
                 'quantity' => $evt->quantity,
                 'department_event' => $eventLabel,
                 'user' => $evt->user?->name ?? 'System',
+                'date' => $evt->created_at->format('d-M-y'),
+                'time' => $evt->created_at->format('h:i:s A'),
                 'created_at_iso' => $evt->created_at->toIso8601String(),
             ];
         }
@@ -894,119 +910,7 @@ class DashboardController extends Controller
             ],
         ];
 
-        // 4. Process Flow Efficiency (Real Dwell Time from PostgreSQL timestamps)
-        $pfeStages = [
-            'store' => ['name' => 'Store Receiving', 'start' => 'store_received', 'end' => 'sent_to_qc', 'benchmark' => 6.0],
-            'qc' => ['name' => 'QC Inspection', 'start' => 'sent_to_qc', 'end' => 'qc_inspected', 'benchmark' => 8.0],
-            'rework' => ['name' => 'Rework Cycle', 'start' => 'qc_rework', 'end' => 'rework_completed', 'benchmark' => 12.0],
-            'paint' => ['name' => 'Paint Shop Coating', 'start' => 'qc_approved', 'end' => 'paint_completed', 'benchmark' => 16.0],
-            'assembly' => ['name' => 'Final Assembly Fit', 'start' => 'paint_completed', 'end' => 'assembly_completed', 'benchmark' => 10.0],
-        ];
-
-        $stageDwellTimes = [];
-        foreach ($pfeStages as $key => $pfe) {
-            $avgDuration = DB::table('workflow_events as e1')
-                ->join('workflow_events as e2', function ($join) use ($pfe) {
-                    $join->on('e1.bom_item_id', '=', 'e2.bom_item_id')
-                         ->on('e1.side', '=', 'e2.side')
-                         ->where('e1.event_type', '=', $pfe['start'])
-                         ->where('e2.event_type', '=', $pfe['end'])
-                         ->whereColumn('e2.created_at', '>', 'e1.created_at');
-                })
-                ->selectRaw('AVG(EXTRACT(EPOCH FROM (e2.created_at - e1.created_at)) / 3600) as avg_hours, COUNT(*) as samples')
-                ->first();
-
-            $hours = ($avgDuration && $avgDuration->samples > 0) ? round((float) $avgDuration->avg_hours, 1) : 0;
-            $status = $hours > 0 ? ($hours <= $pfe['benchmark'] ? 'Optimal' : 'Attention') : 'No Data';
-
-            $stageDwellTimes[] = [
-                'stage' => $pfe['name'],
-                'avg_hours' => $hours,
-                'benchmark_hours' => $pfe['benchmark'],
-                'status' => $status,
-                'samples' => (int) ($avgDuration->samples ?? 0),
-            ];
-        }
-
-        $processFlowEfficiency = [
-            'stages' => $stageDwellTimes,
-            'info' => [
-                'name' => 'Process Flow Efficiency',
-                'meaning' => 'Measures waiting and processing time through Store, QC, Rework, Paint and Assembly.',
-                'use_case' => 'Identifies slow departments and operational bottlenecks.',
-                'formula' => 'Average elapsed duration in hours between sequential stage workflow event timestamps.',
-                'visual' => 'Stage comparison',
-            ],
-        ];
-
-        // 5. Quality Stability Index (QSI - Real QC Volatility Control Chart)
-        $qcDays = [];
-        $yields = [];
-        for ($i = 13; $i >= 0; $i--) {
-            $d = now()->subDays($i)->format('Y-m-d');
-            $app = (int) QcInspection::whereDate('inspection_date', $d)->sum('approved_quantity');
-            $rej = (int) QcInspection::whereDate('inspection_date', $d)->sum('rejected_quantity');
-            $rew = (int) QcInspection::whereDate('inspection_date', $d)->sum('rework_quantity');
-            $tot = $app + $rej + $rew;
-            $yield = $tot > 0 ? round(($app / $tot) * 100, 1) : null;
-            if ($yield !== null) {
-                $yields[] = $yield;
-            }
-            $qcDays[] = [
-                'date' => $d,
-                'label' => now()->subDays($i)->format('d M'),
-                'yield_pct' => $yield,
-                'inspected_qty' => $tot,
-            ];
-        }
-
-        if (count($yields) > 0) {
-            $meanYield = round(array_sum($yields) / count($yields), 1);
-            $variance = 0;
-            foreach ($yields as $y) $variance += pow($y - $meanYield, 2);
-            $stdDev = count($yields) > 1 ? sqrt($variance / (count($yields) - 1)) : 1.5;
-            $ucl = min(100.0, round($meanYield + 2 * $stdDev, 1));
-            $lcl = max(0.0, round($meanYield - 2 * $stdDev, 1));
-        } else {
-            $meanYield = 0;
-            $ucl = 0;
-            $lcl = 0;
-        }
-
-        $qualityStabilityIndex = [
-            'mean_yield' => $meanYield,
-            'ucl' => $ucl,
-            'lcl' => $lcl,
-            'has_data' => count($yields) > 0,
-            'history' => $qcDays,
-            'info' => [
-                'name' => 'Quality Stability Index',
-                'meaning' => 'Measures whether QC performance is stable or fluctuating.',
-                'use_case' => 'Helps identify sudden deterioration in quality performance.',
-                'formula' => 'Statistical Process Control (SPC) metric monitoring day-to-day QC yield with Upper (UCL = Mean + 2σ) and Lower (LCL = Mean - 2σ) Control Limits.',
-                'visual' => 'Trend/control chart',
-            ],
-        ];
-
-        // 6. Capacity Load by Department (Live Active WIP)
-        $capacityLoad = [
-            'departments' => [
-                ['department' => 'Store', 'wip_count' => (int) ReceiptItem::where('status', 'received')->sum('received_quantity'), 'color' => '#2563eb'],
-                ['department' => 'QC Bay', 'wip_count' => (int) ReceiptItem::whereIn('status', ['sent_to_qc', 'qc_received'])->sum('received_quantity'), 'color' => '#eab308'],
-                ['department' => 'Rework Bay', 'wip_count' => (int) ReworkRecord::whereIn('status', ['pending', 'in_progress'])->sum('quantity'), 'color' => '#f97316'],
-                ['department' => 'Paint Shop', 'wip_count' => max(0, $totalQcAll - $totalPntAll), 'color' => '#7c3aed'],
-                ['department' => 'Assembly Floor', 'wip_count' => max(0, $totalPntAll - $totalAsmAll), 'color' => '#0d9488'],
-            ],
-            'info' => [
-                'name' => 'Capacity Load by Department',
-                'meaning' => 'Shows how much active/pending work is currently sitting in each department.',
-                'use_case' => 'Helps management identify overloaded departments and work accumulation.',
-                'formula' => 'Active work-in-progress (WIP) quantities awaiting completion per department workstation.',
-                'visual' => 'Stacked horizontal bar',
-            ],
-        ];
-
-        // 7. Supplier Fill Accuracy (RH vs LH Measured Independently)
+        // 4. Supplier Fill Accuracy (RH vs LH Measured Independently)
         $topSuppliers = Supplier::where('is_active', true)->with(['bomItems.requirements', 'bomItems.receiptItems'])->limit(5)->get();
         $supplierAccuracyList = $topSuppliers->map(function ($sup) {
             $rhReq = (int) $sup->bomItems->flatMap->requirements->where('side', 'RH')->sum('required_quantity');
@@ -1037,74 +941,7 @@ class DashboardController extends Controller
             ],
         ];
 
-        // 8. Project Completion Variance
-        $projectVarianceList = Project::where('status', 'active')->get()->map(function ($p) {
-            $plan = (int) BomRequirement::whereHas('bomItem', fn($b) => $b->where('project_id', $p->id))->sum('required_quantity');
-            $actual = (int) AssemblyRecord::whereHas('bomItem', fn($b) => $b->where('project_id', $p->id))->where('status', 'completed')->sum('quantity');
-            $diff = $actual - $plan;
-            $pct = $plan > 0 ? round(($actual / $plan) * 100, 1) : 0;
-            return [
-                'id' => $p->id,
-                'project_name' => $p->name,
-                'project_code' => $p->project_code,
-                'planned_qty' => $plan,
-                'actual_qty' => $actual,
-                'variance_qty' => $diff,
-                'completion_pct' => $pct,
-                'is_delayed' => $pct < 50,
-            ];
-        });
-
-        $projectVariance = [
-            'projects' => $projectVarianceList,
-            'info' => [
-                'name' => 'Project Completion Variance',
-                'meaning' => 'Difference between actual project progress and planned required baseline.',
-                'use_case' => 'Shows which projects are ahead or behind plan.',
-                'formula' => 'Actual Completed Assembly Quantity - Total Required Planned Quantity.',
-                'visual' => 'Variance chart',
-            ],
-        ];
-
-        // 9. Critical Dependency Monitor (Top Bottleneck Spare Parts)
-        $criticalBottlenecks = BomItem::query()
-            ->with(['project', 'supplier', 'requirements', 'receiptItems', 'assemblyRecords'])
-            ->when($projectId, fn($q) => $q->where('project_id', $projectId))
-            ->get()
-            ->map(function ($item) {
-                $req = (int) $item->requirements->sum('required_quantity');
-                $rec = (int) $item->receiptItems->sum('received_quantity');
-                $asm = (int) $item->assemblyRecords->where('status', 'completed')->sum('quantity');
-                $shortage = max(0, $req - $asm);
-                return [
-                    'id' => $item->id,
-                    'standard_part_no' => $item->standard_part_no,
-                    'project_code' => $item->project?->project_code ?? 'N/A',
-                    'supplier' => $item->supplier?->name ?? 'Standard',
-                    'required' => $req,
-                    'received' => $rec,
-                    'assembled' => $asm,
-                    'shortage' => $shortage,
-                    'criticality' => $shortage > 10 ? 'CRITICAL' : ($shortage > 0 ? 'HIGH' : 'RESOLVED'),
-                ];
-            })
-            ->filter(fn($b) => $b['shortage'] > 0)
-            ->sortByDesc('shortage')
-            ->values()
-            ->take(6);
-
-        $criticalDependencyMonitor = [
-            'bottlenecks' => $criticalBottlenecks,
-            'info' => [
-                'name' => 'Critical Dependency Monitor',
-                'meaning' => 'Ranks the dependencies currently preventing project progress.',
-                'use_case' => 'Highlights shortages, QC bottlenecks, rework, paint delays, assembly delays and supplier issues.',
-                'formula' => 'Top ranked spare parts sorted by Total Shortage (Required Quantity - Assembled Quantity).',
-                'visual' => 'Ranked chart',
-            ],
-        ];
-
-        // 10. Quality Cost Pressure Score
+        // 5. Quality Cost Pressure Score
         $reworkCount = (int) ReworkRecord::count();
         $rejectedCount = (int) QcInspection::sum('rejected_quantity');
         $pressureScore = min(100, round(($reworkCount * 2.5) + ($rejectedCount * 4.0), 0));
@@ -1129,14 +966,7 @@ class DashboardController extends Controller
             'conversion_rate' => $conversionRate,
             'velocity_series' => $velocityData,
             'project_velocity' => $projectVelocity,
-            'stage_dwell_times' => $stageDwellTimes,
-            'process_flow_efficiency' => $processFlowEfficiency,
-            'quality_stability_index' => $qualityStabilityIndex,
-            'capacity_load' => $capacityLoad,
             'supplier_fill_accuracy' => $supplierFillAccuracy,
-            'project_variance' => $projectVariance,
-            'critical_bottlenecks' => $criticalBottlenecks,
-            'critical_dependency_monitor' => $criticalDependencyMonitor,
             'quality_cost_pressure' => $qualityCostPressure,
         ]);
     }

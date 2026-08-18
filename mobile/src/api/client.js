@@ -1,6 +1,10 @@
 import axios from 'axios';
 
-let currentBaseUrl = 'http://10.17.214.175:8080/api/v1';
+// Tier 1: Environment variable if injected during EAS build or development
+// Tier 2: Default company LAN server fallback (never localhost)
+const ENV_API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.100.60:8080/api/v1';
+
+let currentBaseUrl = ENV_API_URL;
 
 const apiClient = axios.create({
   baseURL: currentBaseUrl,
@@ -13,8 +17,12 @@ const apiClient = axios.create({
   },
 });
 
+/**
+ * Dynamically configure or override the Server Base URL at runtime from the Mobile Login screen.
+ * Handles inputs like "192.168.100.60:8080", "http://192.168.100.60:8080", or internal DNS names.
+ */
 export const setBaseUrl = (url) => {
-  if (url) {
+  if (url && typeof url === 'string') {
     let cleanUrl = url.trim();
     if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
       cleanUrl = `http://${cleanUrl}`;
@@ -22,8 +30,13 @@ export const setBaseUrl = (url) => {
     if (!cleanUrl.endsWith('/api/v1')) {
       cleanUrl = cleanUrl.replace(/\/$/, '') + '/api/v1';
     }
+    currentBaseUrl = cleanUrl;
     apiClient.defaults.baseURL = cleanUrl;
   }
+};
+
+export const getBaseUrl = () => {
+  return currentBaseUrl;
 };
 
 export const setAuthToken = (token) => {

@@ -12,6 +12,7 @@ use App\Http\Controllers\QcController;
 use App\Http\Controllers\ReworkController;
 use App\Http\Controllers\StoreController;
 use App\Http\Controllers\SupplierController;
+use App\Http\Controllers\HealthController;
 
 use App\Http\Controllers\Admin\SystemLogController;
 use App\Http\Middleware\CaptureSystemLogsMiddleware;
@@ -27,6 +28,9 @@ use App\Http\Middleware\CaptureSystemLogsMiddleware;
 */
 
 Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(function () {
+    // Public Health Check Endpoint
+    Route::get('/health', [HealthController::class, 'check']);
+
     // Public Authentication Routes
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
 
@@ -64,6 +68,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
         // Store Operations
         Route::prefix('store')->group(function () {
             Route::get('/items', [StoreController::class, 'index']);
+            Route::get('/pending', [StoreController::class, 'pending']);
             Route::get('/hierarchy', [StoreController::class, 'hierarchy']);
             Route::get('/history', [StoreController::class, 'history']);
             Route::get('/returned', [StoreController::class, 'returnedItems']);

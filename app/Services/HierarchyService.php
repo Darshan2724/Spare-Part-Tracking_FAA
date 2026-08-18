@@ -139,9 +139,6 @@ class HierarchyService
 
             foreach ($item->requirements as $req) {
                 $side = $req->side;
-                if (!empty($filters['side']) && $filters['side'] !== $side) {
-                    continue;
-                }
 
                 $recForSide = $itemReceipts->where('side', $side);
                 $qcForSide = $itemQcInspections->where('side', $side);
@@ -192,27 +189,35 @@ class HierarchyService
                     'paint_completed' => $paintComp,
                     'assembly_ready' => $asmReady,
                     'assembly_completed' => $asmComp,
+                    'receipt_items' => $recForSide->values(),
+                    'qc_inspections' => $qcForSide->values(),
+                    'rework_records' => $reworkForSide->values(),
+                    'paint_records' => $paintForSide->values(),
+                    'assembly_records' => $assemblyForSide->values(),
                 ];
 
-                $itemMetrics['total_required'] += $reqQty;
-                $itemMetrics['total_received'] += min($recQty, $reqQty);
-                $itemMetrics['total_pending'] += $pendingQty;
-                $itemMetrics['qc_pending_arrival'] += $qcPendingArrival;
-                $itemMetrics['qc_pending_inspection'] += $qcPendingInsp;
-                $itemMetrics['qc_approved'] += $qcApp;
-                $itemMetrics['qc_rejected'] += $qcRej;
-                $itemMetrics['qc_rework'] += $qcRew;
-                $itemMetrics['rework_pending'] += $rewPending;
-                $itemMetrics['rework_in_progress'] += $rewProg;
-                $itemMetrics['rework_completed'] += $rewComp;
-                $itemMetrics['paint_ready'] += $paintReady;
-                $itemMetrics['paint_completed'] += $paintComp;
-                $itemMetrics['assembly_ready'] += $asmReady;
-                $itemMetrics['assembly_completed'] += $asmComp;
+                // Accumulate into item metrics (only include in top-level metric if matches filter when filter is active)
+                if (empty($filters['side']) || $filters['side'] === $side || $side === 'COMMON') {
+                    $itemMetrics['total_required'] += $reqQty;
+                    $itemMetrics['total_received'] += min($recQty, $reqQty);
+                    $itemMetrics['total_pending'] += $pendingQty;
+                    $itemMetrics['qc_pending_arrival'] += $qcPendingArrival;
+                    $itemMetrics['qc_pending_inspection'] += $qcPendingInsp;
+                    $itemMetrics['qc_approved'] += $qcApp;
+                    $itemMetrics['qc_rejected'] += $qcRej;
+                    $itemMetrics['qc_rework'] += $qcRew;
+                    $itemMetrics['rework_pending'] += $rewPending;
+                    $itemMetrics['rework_in_progress'] += $rewProg;
+                    $itemMetrics['rework_completed'] += $rewComp;
+                    $itemMetrics['paint_ready'] += $paintReady;
+                    $itemMetrics['paint_completed'] += $paintComp;
+                    $itemMetrics['assembly_ready'] += $asmReady;
+                    $itemMetrics['assembly_completed'] += $asmComp;
+                }
             }
 
-            // If side filter caused empty sideStats, skip
-            if (empty($sideStats) && !empty($filters['side'])) {
+            // If side filter is active and this item has no requirements for that side, skip
+            if (!empty($filters['side']) && !isset($sideStats[$filters['side']]) && !isset($sideStats['COMMON'])) {
                 continue;
             }
 
