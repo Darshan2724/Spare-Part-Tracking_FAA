@@ -394,6 +394,24 @@ class HierarchyService
                     default => count($rhParts) > 0,
                 };
 
+                $lhEligibleCount = match ($department) {
+                    'store' => $lhPending,
+                    'qc' => ($lhMetrics['qc_pending_arrival'] + $lhMetrics['qc_pending_inspection']),
+                    'rework' => ($lhMetrics['rework_pending'] + $lhMetrics['rework_in_progress']),
+                    'paint' => $lhMetrics['paint_ready'],
+                    'assembly' => $lhMetrics['assembly_ready'],
+                    default => count($lhParts),
+                };
+
+                $rhEligibleCount = match ($department) {
+                    'store' => $rhPending,
+                    'qc' => ($rhMetrics['qc_pending_arrival'] + $rhMetrics['qc_pending_inspection']),
+                    'rework' => ($rhMetrics['rework_pending'] + $rhMetrics['rework_in_progress']),
+                    'paint' => $rhMetrics['paint_ready'],
+                    'assembly' => $rhMetrics['assembly_ready'],
+                    default => count($rhParts),
+                };
+
                 $unitData['sides'] = [
                     'LH' => [
                         'side' => 'LH',
@@ -401,6 +419,7 @@ class HierarchyService
                         'total_required' => $lhRequired,
                         'total_received' => $lhReceived,
                         'pending_quantity' => $lhPending,
+                        'eligible_count' => $lhEligibleCount,
                         'completion_pct' => $lhCompletionPct,
                         'is_complete' => ($lhCompletionPct >= 100),
                         'has_eligible' => $lhHasEligible,
@@ -412,6 +431,7 @@ class HierarchyService
                         'total_required' => $rhRequired,
                         'total_received' => $rhReceived,
                         'pending_quantity' => $rhPending,
+                        'eligible_count' => $rhEligibleCount,
                         'completion_pct' => $rhCompletionPct,
                         'is_complete' => ($rhCompletionPct >= 100),
                         'has_eligible' => $rhHasEligible,
