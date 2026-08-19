@@ -43,15 +43,20 @@ try {
 }
 
 # 4. Configure Windows Firewall Rules for Factory LAN Access
-Write-Host "[3/6] Configuring Windows Firewall for Factory LAN..." -ForegroundColor Yellow
+Write-Host "[3/6] Configuring Windows Firewall for Factory LAN (Cross-Subnet Support)..." -ForegroundColor Yellow
 if ($isAdmin) {
-    # Port 8080: Web Application and REST API
-    netsh advfirewall firewall add rule name="SpareTrack Web and API (Port 8080)" dir=in action=allow protocol=TCP localport=8080 profile=private,domain | Out-Null
-    # Port 8085: Laravel Reverb WebSockets
-    netsh advfirewall firewall add rule name="SpareTrack Reverb WebSockets (Port 8085)" dir=in action=allow protocol=TCP localport=8085 profile=private,domain | Out-Null
-    # Port 8088: Adminer Database Admin (Restricted)
-    netsh advfirewall firewall add rule name="SpareTrack Adminer DB Console (Port 8088)" dir=in action=allow protocol=TCP localport=8088 profile=private,domain | Out-Null
-    Write-Host "  -> Windows Firewall rules added for ports: 8080 (Web/API), 8085 (WebSockets), 8088 (Adminer)" -ForegroundColor Green
+    # Remove existing conflicting rules if present
+    netsh advfirewall firewall delete rule name="SpareTrack Web and API (Port 8080)" 2>&1 | Out-Null
+    netsh advfirewall firewall delete rule name="SpareTrack Reverb WebSockets (Port 8085)" 2>&1 | Out-Null
+    netsh advfirewall firewall delete rule name="SpareTrack Adminer DB Console (Port 8088)" 2>&1 | Out-Null
+
+    # Port 8080: Web Application and REST API (Cross-Subnet Support)
+    netsh advfirewall firewall add rule name="SpareTrack Web and API (Port 8080)" dir=in action=allow protocol=TCP localport=8080 profile=any remoteip=any | Out-Null
+    # Port 8085: Laravel Reverb WebSockets (Cross-Subnet Support)
+    netsh advfirewall firewall add rule name="SpareTrack Reverb WebSockets (Port 8085)" dir=in action=allow protocol=TCP localport=8085 profile=any remoteip=any | Out-Null
+    # Port 8088: Adminer Database Admin (Restricted / Internal LAN)
+    netsh advfirewall firewall add rule name="SpareTrack Adminer DB Console (Port 8088)" dir=in action=allow protocol=TCP localport=8088 profile=any remoteip=any | Out-Null
+    Write-Host "  -> Windows Firewall rules configured for ports: 8080 (Web/API), 8085 (WebSockets), 8088 (Adminer) [Cross-Subnet Enabled]" -ForegroundColor Green
 } else {
     Write-Host "  -> Skipped firewall configuration (requires Admin rights)." -ForegroundColor Gray
 }

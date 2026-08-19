@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Default company LAN server fallback
-const DEFAULT_HOST = 'http://192.168.100.60:8080/api/v1';
+const DEFAULT_HOST = 'http://192.168.9.200:8080/api/v1';
 const ENV_API_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_HOST;
 
 let currentBaseUrl = ENV_API_URL;
@@ -17,7 +17,7 @@ const apiClient = axios.create({
 
 /**
  * Robust Server Base URL normalizer.
- * Supports: "192.168.100.60:8080", "http://192.168.100.60:8080", "192.168.100.60:8080/api/v1", etc.
+ * Supports: "192.168.9.200:8080", "http://192.168.9.200:8080", "192.168.9.200:8080/api/v1", etc.
  */
 export const setBaseUrl = (url) => {
   if (url && typeof url === 'string') {

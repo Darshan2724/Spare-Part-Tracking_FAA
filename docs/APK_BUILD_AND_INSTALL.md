@@ -52,6 +52,6 @@ When the build completes, EAS outputs a download link for the `.apk` file (e.g. 
 ## 3. Initial App Launch & Connection
 
 1. On the login screen, verify the **Server Host / IP** field:
-   - Example: `192.168.100.60:8080` (your Windows Server LAN IP and port).
-2. Enter department credentials (e.g. `store@faithautomation.internal` or `admin@sparetrack.internal`).
+   - Default: `192.168.9.200:8080` (your Windows Server LAN IP and port).
+2. Enter department credentials (e.g. `store@sparetrack.internal` or `admin@sparetrack.internal`).
 3. Tap **Sign In to Mobile Terminal**.

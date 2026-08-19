@@ -122,15 +122,18 @@ All default user passwords in development/local deployment are set to: **`passwo
 
 ## 5. Network Configuration & Ports
 
-| Service | Port | Host Address (Example) | Purpose |
+| Service | Port | Host Address (Server) | Purpose |
 | :--- | :--- | :--- | :--- |
-| **Web & REST API** | `8080` | `http://192.168.100.60:8080` | Main Web Application and Mobile API Gateway |
-| **Reverb WebSockets** | `8085` | `ws://192.168.100.60:8085` | Real-time cross-device event broadcasting |
-| **Database Adminer** | `8088` | `http://192.168.100.60:8088` | PostgreSQL Database Browser |
-| **PostgreSQL Engine** | `5432` | `192.168.100.60:5432` | Native PostgreSQL connection port |
+| **Web & REST API** | `8080` | `http://192.168.9.200:8080` | Main Web Application and Mobile API Gateway |
+| **Reverb WebSockets** | `8085` | `ws://192.168.9.200:8085` | Real-time cross-device event broadcasting |
+| **Database Adminer** | `8088` | `http://192.168.9.200:8088` | PostgreSQL Database Browser |
+| **PostgreSQL Engine** | `5432` | `192.168.9.200:5432` | Native PostgreSQL connection port (Internal Docker) |
 
-> **Crucial Network Rule:**  
-> Windows 11 Wi-Fi network profile MUST be set to **Private network** (in `Settings > Network & internet > Wi-Fi > Network profile type`) so incoming LAN traffic from mobile devices is permitted by Windows Firewall.
+> **Crucial Network Rules:**  
+> 1. **Server Host Address:** The Windows 11 Desktop server runs at **`192.168.9.200`**.  
+> 2. **Cross-Subnet LAN Communication:** Mobile devices connect to the Wi-Fi AP at `192.168.14.238` (receiving IPs in `192.168.14.x`). Windows Defender Firewall rules must explicitly allow inbound traffic from `remoteip=any` for ports `8080`, `8085`, and `8088`.  
+> 3. **Mobile Device Setting:** Mobile Data must be switched OFF on mobile phones to ensure Android routes requests through the local Wi-Fi interface.  
+> 4. **Wi-Fi AP Isolation:** AP Isolation / Client Isolation must remain DISABLED on the Wi-Fi AP (`192.168.14.238`).
 
 ---
 

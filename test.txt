@@ -1,0 +1,26 @@
+Step 1: Run the Database Setup Command
+In the terminal inside your SpareTrack folder, run:
+
+cmd
+docker exec -it sparetrack-app php artisan migrate:fresh --seed
+Then create the storage link:
+
+cmd
+docker exec -it sparetrack-app php artisan storage:link
+Step 2: Open Windows Firewall Ports
+Open PowerShell as Administrator and paste these 3 lines:
+
+powershell
+New-NetFirewallRule -DisplayName "SpareTrack Web API 8080" -Direction Inbound -LocalPort 8080 -Protocol TCP -Action Allow -Profile Any
+New-NetFirewallRule -DisplayName "SpareTrack Reverb 8085" -Direction Inbound -LocalPort 8085 -Protocol TCP -Action Allow -Profile Any
+New-NetFirewallRule -DisplayName "SpareTrack Expo Metro 8081" -Direction Inbound -LocalPort 8081 -Protocol TCP -Action Allow -Profile Any
+Step 3: Test Web & Mobile App
+On the PC Browser:
+
+
+netsh advfirewall firewall add rule name="SpareTrack 8080" dir=in action=allow protocol=TCP localport=8080
+
+
+
+netsh advfirewall firewall add rule name="SpareTrack 8085" dir=in action=allow protocol=TCP localport=8085
+
