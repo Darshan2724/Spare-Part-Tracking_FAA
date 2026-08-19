@@ -25,13 +25,13 @@ To ensure Android devices and desktop browsers can permanently communicate with 
 
 1. **Option A (Recommended): DHCP IP Reservation**
    - Log into the company Wi-Fi router / switch.
-   - Bind the Windows 11 Desktop's MAC address to a fixed IP (e.g. `192.168.100.60` or `192.168.1.100`).
+   - Bind the Windows 11 Desktop's MAC address to a fixed IP (e.g. `192.168.9.200`).
 2. **Option B: Windows Static IP Assignment**
    - Open **Windows Settings** > **Network & Internet** > **Ethernet / Wi-Fi** > **IP Assignment** > **Edit**.
    - Set to **Manual (IPv4)** and enter:
-     - IP Address: `192.168.100.60` (example)
+     - IP Address: `192.168.9.200`
      - Subnet Mask: `255.255.255.0`
-     - Gateway: `192.168.100.1` (your router IP)
+     - Gateway: `192.168.9.1` (or your company gateway IP)
      - DNS: `8.8.8.8` / `1.1.1.1`
 
 ---
