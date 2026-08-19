@@ -21,6 +21,14 @@ class WorkflowIntegrityTest extends TestCase
         if (!$user) {
             $user = User::first();
         }
+        if (!$user) {
+            $user = User::create([
+                'name' => 'Admin User',
+                'email' => 'admin@sparetrack.internal',
+                'password' => bcrypt('password'),
+            ]);
+            $user->assignRole('ADMIN');
+        }
         return $user;
     }
 

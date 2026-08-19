@@ -10,10 +10,15 @@ use App\Models\QcInspection;
 use App\Models\ReworkRecord;
 use App\Models\PaintRecord;
 use App\Models\AssemblyRecord;
+use App\Services\QuantityCalculationService;
 use Illuminate\Support\Facades\DB;
 
 class HierarchyService
 {
+    public function __construct(
+        protected QuantityCalculationService $quantityService = new QuantityCalculationService()
+    ) {}
+
     /**
      * Build unified hierarchy tree for any operational department.
      *
@@ -26,8 +31,8 @@ class HierarchyService
     {
         $projects = Project::orderBy('name')->get();
 
-        $projectsList = $projects->map(function ($proj) use ($department) {
-            return $this->getProjectOverviewStats($proj, $department);
+        $projectsList = $projects->map(function ($proj) use ($department, $filters) {
+            return $this->getProjectOverviewStats($proj, $department, $filters);
         });
 
         if (!$projectId) {
@@ -76,9 +81,10 @@ class HierarchyService
 
         $bomItemIds = $bomItems->pluck('id')->toArray();
 
-        // Pre-fetch related operational records in bulk
+        // Pre-fetch related operational records in bulk, only valid non-reverted/non-scrapped receipts
         $receiptItemsGrouped = ReceiptItem::query()
             ->whereIn('bom_item_id', $bomItemIds)
+            ->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES)
             ->get()
             ->groupBy('bom_item_id');
 
@@ -510,22 +516,25 @@ class HierarchyService
     /**
      * Get high level progress stats for Project level cards
      */
-    protected function getProjectOverviewStats(Project $proj, string $department): array
+    protected function getProjectOverviewStats(Project $proj, string $department, array $filters = []): array
     {
-        $reqSum = (int) BomRequirement::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('required_quantity');
-        $recSum = (int) ReceiptItem::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('received_quantity');
-        $appSum = (int) QcInspection::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('approved_quantity');
-        $rewCompSum = (int) ReworkRecord::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->where('status', 'completed')->sum('quantity');
-        $rewActiveSum = (int) ReworkRecord::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->whereIn('status', ['pending', 'in_progress'])->sum('quantity');
-        $paintCompSum = (int) PaintRecord::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->where('status', 'completed')->sum('quantity');
-        $asmCompSum = (int) AssemblyRecord::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->where('status', 'completed')->sum('quantity');
+        $side = $filters['side'] ?? null;
+        $m = $this->quantityService->calculateProjectMetrics($proj, $side, $filters);
 
-        $qcPendingSum = (int) ReceiptItem::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->whereIn('status', ['received', 'sent_to_qc', 'qc_received'])->sum('received_quantity');
-        $paintReadySum = max(0, $appSum - $paintCompSum);
-        $asmReadySum = max(0, $paintCompSum - $asmCompSum);
+        $reqSum = $m['required_qty'];
+        $recSum = $m['received_qty'];
+        $appSum = $m['approved_qty'];
+        $paintCompSum = $m['paint_qty'];
+        $asmCompSum = $m['assembly_qty'];
+        $rewActiveSum = $m['rework_qty'];
+        $rewCompSum = $m['rework_completed'] ?? 0;
+        $qcPendingSum = $m['awaiting_qc'];
+
+        $paintReadySum = $m['paint_ready'];
+        $asmReadySum = $m['assembly_ready'];
 
         $eligibleCount = match ($department) {
-            'store' => $reqSum,
+            'store' => $m['pending_qty'],
             'qc' => $qcPendingSum,
             'rework' => $rewActiveSum,
             'paint' => $paintReadySum,
@@ -534,12 +543,12 @@ class HierarchyService
         };
 
         $progressPercent = match ($department) {
-            'store' => ($reqSum > 0 ? round(($recSum / $reqSum) * 100, 1) : 0),
-            'qc' => ($reqSum > 0 ? round(($appSum / $reqSum) * 100, 1) : 0),
-            'rework' => ($rewCompSum + $rewActiveSum > 0 ? round(($rewCompSum / ($rewCompSum + $rewActiveSum)) * 100, 1) : 100),
-            'paint' => ($reqSum > 0 ? round(($paintCompSum / $reqSum) * 100, 1) : 0),
-            'assembly' => ($reqSum > 0 ? round(($asmCompSum / $reqSum) * 100, 1) : 0),
-            default => ($reqSum > 0 ? round(($asmCompSum / $reqSum) * 100, 1) : 0),
+            'store' => ($reqSum > 0 ? min(100, round(($recSum / $reqSum) * 100, 1)) : 100),
+            'qc' => ($reqSum > 0 ? min(100, round(($appSum / $reqSum) * 100, 1)) : 100),
+            'rework' => ($rewCompSum + $rewActiveSum > 0 ? min(100, round(($rewCompSum / ($rewCompSum + $rewActiveSum)) * 100, 1)) : 100),
+            'paint' => ($reqSum > 0 ? min(100, round(($paintCompSum / $reqSum) * 100, 1)) : 100),
+            'assembly' => ($reqSum > 0 ? min(100, round(($asmCompSum / $reqSum) * 100, 1)) : 100),
+            default => ($reqSum > 0 ? min(100, round(($asmCompSum / $reqSum) * 100, 1)) : 100),
         };
 
         return [
@@ -548,10 +557,14 @@ class HierarchyService
             'project_code' => $proj->project_code,
             'description' => $proj->description,
             'status' => $proj->status,
+            'total_items' => $m['total_items'] ?? 0,
             'total_required' => $reqSum,
             'total_received' => $recSum,
             'required_qty' => $reqSum,
             'received_qty' => $recSum,
+            'raw_received' => $m['raw_received'] ?? $recSum,
+            'excess_received' => $m['excess_received'] ?? 0,
+            'pending_qty' => $m['pending_qty'],
             'approved_qty' => $appSum,
             'paint_qty' => $paintCompSum,
             'assembly_qty' => $asmCompSum,
