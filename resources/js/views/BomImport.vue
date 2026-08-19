@@ -63,18 +63,14 @@
           <div v-if="activeTab === 'import'">
             <form @submit.prevent="previewBom">
               <div class="row g-3">
-                <div class="col-md-6">
+                <div class="col-12">
                   <label class="form-label fw-semibold">Upload BOM Excel File (.xlsx, .xls)</label>
                   <input class="form-control" type="file" accept=".xls,.xlsx" @change="handleFileChange" />
-                </div>
-                <div class="col-md-6">
-                  <label class="form-label fw-semibold">Or Server File Path / Filename</label>
-                  <input v-model="path" class="form-control" placeholder="BOM/FA-279 NEW MFG BOM.xlsx" />
                 </div>
               </div>
 
               <div class="mt-4 d-flex gap-2">
-                <button type="submit" class="btn btn-primary px-4 fw-bold" :disabled="loading">
+                <button type="submit" class="btn btn-primary px-4 fw-bold" :disabled="loading || !selectedFile">
                   <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
                   <i v-else class="fas fa-search me-2"></i>Preview & Validate
                 </button>
@@ -413,7 +409,6 @@ const importHistory = ref([]);
 
 const duplicateInfo = ref(null);
 const selectedFile = ref(null);
-const path = ref('BOM/FA-279 NEW MFG BOM.xlsx');
 const previewRows = ref([]);
 const previewSummary = ref(null);
 const validationErrors = ref([]);
@@ -434,9 +429,6 @@ const canImport = computed(() => previewRows.value.length > 0 && validationError
 const handleFileChange = (event) => {
   selectedFile.value = event.target.files?.[0] || null;
   duplicateInfo.value = null;
-  if (selectedFile.value) {
-    path.value = '';
-  }
 };
 
 const clearMessages = () => {
@@ -446,6 +438,11 @@ const clearMessages = () => {
 };
 
 const previewBom = async () => {
+  if (!selectedFile.value) {
+    error.value = 'Please select a BOM Excel file to preview.';
+    return;
+  }
+
   clearMessages();
   loading.value = true;
   validationErrors.value = [];
@@ -455,13 +452,8 @@ const previewBom = async () => {
 
   try {
     const formData = new FormData();
-    if (selectedFile.value) {
-      formData.append('file', selectedFile.value);
-      formData.append('filename', selectedFile.value.name);
-    } else if (path.value) {
-      formData.append('path', path.value);
-      formData.append('filename', path.value.split(/[\\/]/).pop());
-    }
+    formData.append('file', selectedFile.value);
+    formData.append('filename', selectedFile.value.name);
 
     const response = await axios.post('/api/v1/bom/preview', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -500,18 +492,18 @@ const previewBom = async () => {
 };
 
 const importBom = async () => {
+  if (!selectedFile.value) {
+    error.value = 'Please select a BOM Excel file to import.';
+    return;
+  }
+
   clearMessages();
   loading.value = true;
 
   try {
     const formData = new FormData();
-    if (selectedFile.value) {
-      formData.append('file', selectedFile.value);
-      formData.append('filename', selectedFile.value.name);
-    } else if (path.value) {
-      formData.append('path', path.value);
-      formData.append('filename', path.value.split(/[\\/]/).pop());
-    }
+    formData.append('file', selectedFile.value);
+    formData.append('filename', selectedFile.value.name);
 
     const response = await axios.post('/api/v1/bom/import', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

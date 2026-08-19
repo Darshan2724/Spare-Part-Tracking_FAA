@@ -297,7 +297,7 @@
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  <tr v-for="part in (unit.pending_parts || [])" :key="part.id + (part.side || 'COMMON')">
+                                  <tr v-for="part in (unit.pending_parts || [])" :key="part.id || (part.bom_item_id + '_' + (part.side || 'COMMON'))">
                                     <td class="fw-bold text-primary">{{ part.standard_part_no }}</td>
                                     <td><span class="badge bg-secondary">{{ part.side }}</span></td>
                                     <td>{{ part.required }}</td>

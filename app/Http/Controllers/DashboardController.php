@@ -653,31 +653,47 @@ class DashboardController extends Controller
                 ];
             }
 
-            $reqQty = (int) $item->requirements->sum('required_quantity');
-            $recQty = (int) $item->receiptItems->sum('received_quantity');
-            $asmQty = (int) $item->assemblyRecords->where('status', 'completed')->sum('quantity');
+            // Iterate over each distinct side requirement (RH, LH, COMMON) separately
+            $requirements = $item->requirements;
+            if ($requirements->isEmpty()) {
+                $requirements = collect([
+                    (object) [
+                        'side' => 'COMMON',
+                        'required_quantity' => 0,
+                    ]
+                ]);
+            }
 
-            $unitsMap[$unitKey]['total_required'] += $reqQty;
-            $unitsMap[$unitKey]['total_received'] += min($recQty, $reqQty);
-            $unitsMap[$unitKey]['total_assembled'] += $asmQty;
-            $unitsMap[$unitKey]['parts_count']++;
+            foreach ($requirements as $requirement) {
+                $side = $requirement->side ?? 'COMMON';
+                $reqQty = (int) ($requirement->required_quantity ?? 0);
 
-            $partObj = [
-                'id' => $item->id,
-                'bom_item_id' => $item->id,
-                'standard_part_no' => $item->standard_part_no,
-                'side' => $item->requirements->first()?->side ?? 'COMMON',
-                'required' => $reqQty,
-                'received' => $recQty,
-                'assembled' => $asmQty,
-                'pending' => max(0, $reqQty - $recQty),
-                'supplier' => $item->supplier?->name ?? 'Standard Supplier',
-                'is_assembled' => ($reqQty > 0 && $asmQty >= $reqQty),
-            ];
+                // Calculate received and assembled strictly matching the exact side
+                $recQty = (int) $item->receiptItems->where('side', $side)->sum('received_quantity');
+                $asmQty = (int) $item->assemblyRecords->where('status', 'completed')->where('side', $side)->sum('quantity');
 
-            $unitsMap[$unitKey]['parts'][] = $partObj;
-            if ($partObj['pending'] > 0) {
-                $unitsMap[$unitKey]['pending_parts'][] = $partObj;
+                $unitsMap[$unitKey]['total_required'] += $reqQty;
+                $unitsMap[$unitKey]['total_received'] += min($recQty, $reqQty);
+                $unitsMap[$unitKey]['total_assembled'] += $asmQty;
+                $unitsMap[$unitKey]['parts_count']++;
+
+                $partObj = [
+                    'id' => $item->id . '_' . $side,
+                    'bom_item_id' => $item->id,
+                    'standard_part_no' => $item->standard_part_no,
+                    'side' => $side,
+                    'required' => $reqQty,
+                    'received' => $recQty,
+                    'assembled' => $asmQty,
+                    'pending' => max(0, $reqQty - $recQty),
+                    'supplier' => $item->supplier?->name ?? 'Standard Supplier',
+                    'is_assembled' => ($reqQty > 0 && $asmQty >= $reqQty),
+                ];
+
+                $unitsMap[$unitKey]['parts'][] = $partObj;
+                if ($partObj['pending'] > 0) {
+                    $unitsMap[$unitKey]['pending_parts'][] = $partObj;
+                }
             }
         }
 
