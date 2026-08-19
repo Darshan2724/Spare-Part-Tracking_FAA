@@ -13,11 +13,16 @@ use App\Models\PaintRecord;
 use App\Models\AssemblyRecord;
 use App\Models\WorkflowEvent;
 use App\Models\Supplier;
+use App\Services\QuantityCalculationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
+    public function __construct(
+        protected QuantityCalculationService $quantityService = new QuantityCalculationService()
+    ) {}
+
     public function summary(Request $request)
     {
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC', 'REWORK', 'PAINT', 'ASSEMBLY', 'PURCHASE']) ?: abort(403);
@@ -28,101 +33,52 @@ class DashboardController extends Controller
         $side = $request->query('side');
         $supplierId = $request->query('supplier_id');
 
-        // Query builders
-        $reqQuery = BomRequirement::query();
-        $recQuery = ReceiptItem::query();
+        $filters = [
+            'project_id' => $projectId,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'side' => $side,
+            'supplier_id' => $supplierId,
+        ];
+
+        // Authoritative canonical calculations
+        $canonicalSummary = $this->quantityService->calculateDashboardSummary($filters);
+        $canonicalProjectsProgress = $this->quantityService->calculateProjectsProgress($filters);
+
+        // Query builders for contextual widgets
+        $recQuery = ReceiptItem::query()->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES);
         $qcQuery = QcInspection::query();
         $reworkQuery = ReworkRecord::query();
-        $pqQuery = PurchaseQueueItem::query();
-        $paintQuery = PaintRecord::query();
-        $asmQuery = AssemblyRecord::query();
 
         if ($projectId) {
-            $reqQuery->whereHas('bomItem', fn($q) => $q->where('project_id', $projectId));
             $recQuery->whereHas('bomItem', fn($q) => $q->where('project_id', $projectId));
             $qcQuery->whereHas('bomItem', fn($q) => $q->where('project_id', $projectId));
             $reworkQuery->whereHas('bomItem', fn($q) => $q->where('project_id', $projectId));
-            $pqQuery->where('project_id', $projectId);
-            $paintQuery->whereHas('bomItem', fn($q) => $q->where('project_id', $projectId));
-            $asmQuery->whereHas('bomItem', fn($q) => $q->where('project_id', $projectId));
         }
 
         if ($side) {
-            $reqQuery->where('side', $side);
             $recQuery->where('side', $side);
             $qcQuery->where('side', $side);
             $reworkQuery->where('side', $side);
-            $pqQuery->where('side', $side);
-            $paintQuery->where('side', $side);
-            $asmQuery->where('side', $side);
         }
 
         if ($supplierId) {
-            $reqQuery->whereHas('bomItem', fn($q) => $q->where('supplier_id', $supplierId));
             $recQuery->whereHas('bomItem', fn($q) => $q->where('supplier_id', $supplierId));
             $qcQuery->whereHas('bomItem', fn($q) => $q->where('supplier_id', $supplierId));
             $reworkQuery->whereHas('bomItem', fn($q) => $q->where('supplier_id', $supplierId));
-            $paintQuery->whereHas('bomItem', fn($q) => $q->where('supplier_id', $supplierId));
-            $asmQuery->whereHas('bomItem', fn($q) => $q->where('supplier_id', $supplierId));
         }
 
         if ($dateFrom) {
             $recQuery->where('created_at', '>=', $dateFrom);
             $qcQuery->where('inspection_date', '>=', $dateFrom);
             $reworkQuery->where('created_at', '>=', $dateFrom);
-            $pqQuery->where('created_at', '>=', $dateFrom);
-            $paintQuery->where('created_at', '>=', $dateFrom);
-            $asmQuery->where('created_at', '>=', $dateFrom);
         }
 
         if ($dateTo) {
             $recQuery->where('created_at', '<=', $dateTo);
             $qcQuery->where('inspection_date', '<=', $dateTo);
             $reworkQuery->where('created_at', '<=', $dateTo);
-            $pqQuery->where('created_at', '<=', $dateTo);
-            $paintQuery->where('created_at', '<=', $dateTo);
-            $asmQuery->where('created_at', '<=', $dateTo);
         }
-
-        $totalProjects = Project::where('status', 'active')->count();
-        $completedProjects = Project::where('status', 'completed')->count();
-        
-        // Delayed projects: active projects created > 14 days ago with zero receipt updates in last 14 days
-        $delayedProjects = Project::where('status', 'active')
-            ->where('created_at', '<', now()->subDays(14))
-            ->whereDoesntHave('bomItems.receiptItems', fn($q) => $q->where('updated_at', '>=', now()->subDays(14)))
-            ->count();
-
-        $totalRequired = (int) $reqQuery->sum('required_quantity');
-        $totalReceived = (int) $recQuery->sum('received_quantity');
-        $totalPendingStore = max(0, $totalRequired - $totalReceived);
-
-        $awaitingQc = (int) (clone $recQuery)->whereIn('status', ['received', 'sent_to_qc', 'qc_received'])->sum('received_quantity');
-        $qcApproved = (int) $qcQuery->sum('approved_quantity');
-        $qcRework   = (int) (clone $reworkQuery)->whereIn('status', ['pending', 'in_progress'])->sum('quantity');
-        $qcRejected = (int) $qcQuery->sum('rejected_quantity');
-
-        $pendingPurchase = (int) (clone $pqQuery)->where('status', 'pending_purchase')->count();
-
-        // Paint Pending: QC Approved inspections routed to PAINT (or default) that do not yet have completed paint records
-        $paintPending = (int) (clone $qcQuery)
-            ->where('approved_quantity', '>', 0)
-            ->where(function ($q) {
-                $q->where('destination', 'PAINT')->orWhereNull('destination');
-            })
-            ->whereDoesntHave('paintRecord')
-            ->sum('approved_quantity');
-
-        $paintCompleted = (int) (clone $paintQuery)->where('status', 'completed')->sum('quantity');
-
-        // Assembly Pending: Completed Paint records + Direct Assembly QC Approvals minus Assembly Completed
-        $directAssemblyApp = (int) (clone $qcQuery)
-            ->where('approved_quantity', '>', 0)
-            ->where('destination', 'ASSEMBLY')
-            ->sum('approved_quantity');
-
-        $assemblyCompleted = (int) (clone $asmQuery)->where('status', 'completed')->sum('quantity');
-        $assemblyPending = max(0, ($paintCompleted + $directAssemblyApp) - $assemblyCompleted);
 
         // Part Status Distribution
         $statusDistribution = (clone $recQuery)
@@ -134,7 +90,7 @@ class DashboardController extends Controller
         // Delayed Parts (> 3 days in current status without progress)
         $delayedParts = ReceiptItem::query()
             ->with(['bomItem.project'])
-            ->whereNotIn('status', ['assembly_completed', 'qc_rejected', 'reverted'])
+            ->whereNotIn('status', ['assembly_completed', 'qc_rejected', 'reverted', 'scrapped', 'returned_to_vendor'])
             ->where('updated_at', '<', now()->subDays(3))
             ->orderBy('updated_at', 'asc')
             ->limit(10)
@@ -170,36 +126,6 @@ class DashboardController extends Controller
             ->orderByDesc('created_at')
             ->limit(10)
             ->get();
-
-        // Project Progress Breakdown
-        $projectsProgress = Project::withCount('bomItems')
-            ->get()
-            ->map(function ($proj) {
-                $reqSum = (int) BomRequirement::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('required_quantity');
-                $recSum = (int) ReceiptItem::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('received_quantity');
-                $appSum = (int) QcInspection::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('approved_quantity');
-                $rewSum = (int) ReworkRecord::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->whereIn('status', ['pending', 'in_progress'])->sum('quantity');
-                $rejSum = (int) QcInspection::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('rejected_quantity');
-                $paintSum = (int) PaintRecord::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->where('status', 'completed')->sum('quantity');
-                $asmSum = (int) AssemblyRecord::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->where('status', 'completed')->sum('quantity');
-                
-                $progress = $reqSum > 0 ? min(100, round(($recSum / $reqSum) * 100, 1)) : 0;
-
-                return [
-                    'id' => $proj->id,
-                    'project_code' => $proj->project_code,
-                    'name' => $proj->name,
-                    'total_items' => $proj->bom_items_count,
-                    'required_qty' => $reqSum,
-                    'received_qty' => $recSum,
-                    'approved_qty' => $appSum,
-                    'rework_qty' => $rewSum,
-                    'rejected_qty' => $rejSum,
-                    'paint_qty' => $paintSum,
-                    'assembly_qty' => $asmSum,
-                    'progress_percent' => $progress,
-                ];
-            });
 
         // Supplier Quality & Delivery Metrics
         $supplierPerformance = Supplier::where('is_active', true)
@@ -279,28 +205,12 @@ class DashboardController extends Controller
             });
 
         return response()->json([
-            'summary' => [
-                'total_projects' => $totalProjects,
-                'completed_projects' => $completedProjects,
-                'delayed_projects' => $delayedProjects,
-                'total_required' => $totalRequired,
-                'total_received' => $totalReceived,
-                'pending_store' => $totalPendingStore,
-                'awaiting_qc' => $awaitingQc,
-                'qc_approved' => $qcApproved,
-                'qc_rework' => $qcRework,
-                'qc_rejected' => $qcRejected,
-                'pending_purchase' => $pendingPurchase,
-                'paint_pending' => $paintPending,
-                'paint_completed' => $paintCompleted,
-                'assembly_pending' => $assemblyPending,
-                'assembly_completed' => $assemblyCompleted,
-            ],
+            'summary' => $canonicalSummary,
             'status_distribution' => $statusDistribution,
             'delayed_parts' => $delayedParts,
             'quality_trend' => $qualityTrend,
             'recent_events' => $recentEvents,
-            'projects_progress' => $projectsProgress,
+            'projects_progress' => $canonicalProjectsProgress,
             'supplier_performance' => $supplierPerformance,
             'today_throughput' => $todayThroughput,
             'stagnant_parts' => $stagnantParts,

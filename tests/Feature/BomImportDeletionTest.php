@@ -14,9 +14,20 @@ class BomImportDeletionTest extends TestCase
 {
     protected function getAdminUser(): User
     {
+        $role = \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'ADMIN', 'guard_name' => 'web']);
         $user = User::where('email', 'admin@sparetrack.internal')->first();
         if (!$user) {
             $user = User::first();
+        }
+        if (!$user) {
+            $user = User::create([
+                'name' => 'Admin Test',
+                'email' => 'admin@sparetrack.internal',
+                'password' => bcrypt('password'),
+            ]);
+        }
+        if (!$user->hasRole('ADMIN')) {
+            $user->assignRole($role);
         }
         return $user;
     }

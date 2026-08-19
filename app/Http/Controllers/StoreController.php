@@ -8,11 +8,16 @@ use App\Models\Receipt;
 use App\Models\ReceiptItem;
 use App\Models\BomRequirement;
 use App\Models\WorkflowEvent;
+use App\Services\QuantityCalculationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class StoreController extends Controller
 {
+    public function __construct(
+        protected QuantityCalculationService $quantityService = new QuantityCalculationService()
+    ) {}
+
     public function index(Request $request)
     {
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE']) ?: abort(403);
@@ -53,11 +58,12 @@ class StoreController extends Controller
         if ($perPage > 500) $perPage = 500;
         $bomItems = $query->orderBy('standard_part_no')->paginate($perPage);
 
-        // Calculate received quantities per bom_item and side
+        // Calculate received quantities per bom_item and side (only valid active receipt statuses)
         $bomItemIds = $bomItems->pluck('id')->toArray();
         $receiptTotals = ReceiptItem::query()
             ->select('bom_item_id', 'side', DB::raw('SUM(received_quantity) as total_received'))
             ->whereIn('bom_item_id', $bomItemIds)
+            ->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES)
             ->groupBy('bom_item_id', 'side')
             ->get()
             ->groupBy('bom_item_id');
@@ -83,17 +89,18 @@ class StoreController extends Controller
         });
 
         $projects = Project::orderBy('name')->get()->map(function ($proj) {
-            $reqSum = (int) BomRequirement::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('required_quantity');
-            $recSum = (int) ReceiptItem::whereHas('bomItem', fn($q) => $q->where('project_id', $proj->id))->sum('received_quantity');
-            $progress = $reqSum > 0 ? min(100, round(($recSum / $reqSum) * 100, 1)) : 0;
+            $m = $this->quantityService->calculateProjectMetrics($proj);
             return [
                 'id' => $proj->id,
                 'project_code' => $proj->project_code,
                 'name' => $proj->name,
-                'total_required' => $reqSum,
-                'total_received' => $recSum,
-                'completion_pct' => $progress,
-                'is_complete' => ($reqSum > 0 && $recSum >= $reqSum),
+                'total_required' => $m['required_qty'],
+                'total_received' => $m['received_qty'],
+                'raw_received' => $m['raw_received'],
+                'excess_received' => $m['excess_received'],
+                'pending_qty' => $m['pending_qty'],
+                'completion_pct' => $m['completion_pct'],
+                'is_complete' => $m['is_complete'],
             ];
         });
 
@@ -142,6 +149,7 @@ class StoreController extends Controller
         $receiptTotals = ReceiptItem::query()
             ->select('bom_item_id', 'side', DB::raw('SUM(received_quantity) as total_received'))
             ->whereIn('bom_item_id', $bomItemIds)
+            ->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES)
             ->groupBy('bom_item_id', 'side')
             ->get();
 
@@ -211,13 +219,24 @@ class StoreController extends Controller
             ]);
 
             foreach ($request->input('items') as $item) {
+                $req = BomRequirement::where('bom_item_id', $item['bom_item_id'])
+                    ->where('side', $item['side'])
+                    ->first();
+                $existingRec = (int) ReceiptItem::where('bom_item_id', $item['bom_item_id'])
+                    ->where('side', $item['side'])
+                    ->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES)
+                    ->sum('received_quantity');
+                $requiredQty = $req ? (int) $req->required_quantity : 0;
+                $newTotal = $existingRec + (int) $item['received_quantity'];
+                $excessNotice = ($newTotal > $requiredQty) ? " [Over-receipt: total {$newTotal}/{$requiredQty} req]" : "";
+
                 $receiptItem = ReceiptItem::create([
                     'receipt_id' => $receipt->id,
                     'bom_item_id' => $item['bom_item_id'],
                     'side' => $item['side'],
                     'received_quantity' => $item['received_quantity'],
                     'status' => 'received',
-                    'remarks' => $item['remarks'] ?? null,
+                    'remarks' => ($item['remarks'] ?? null) . $excessNotice,
                 ]);
 
                 WorkflowEvent::create([
@@ -229,7 +248,7 @@ class StoreController extends Controller
                     'quantity' => $item['received_quantity'],
                     'previous_state' => 'pending',
                     'new_state' => 'received',
-                    'remarks' => "Received {$item['received_quantity']} units in store. DN: " . ($request->input('delivery_note_number') ?? 'N/A'),
+                    'remarks' => "Received {$item['received_quantity']} units in store. DN: " . ($request->input('delivery_note_number') ?? 'N/A') . $excessNotice,
                 ]);
 
                 try {

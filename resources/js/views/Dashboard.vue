@@ -117,7 +117,12 @@
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold small">Store Received</div>
-                <h2 class="fw-bold mb-0">{{ metrics.total_received || 0 }}</h2>
+                <h2 class="fw-bold mb-0">
+                  {{ metrics.total_received || 0 }}
+                  <span v-if="metrics.excess_received > 0" class="badge bg-warning text-dark fs-6 ms-1" :title="'Excess/Over-receipt: ' + metrics.excess_received + ' units'">
+                    +{{ metrics.excess_received }} Excess
+                  </span>
+                </h2>
                 <small class="text-white-50">{{ metrics.pending_store || 0 }} Pending Arrival</small>
               </div>
               <i class="fas fa-boxes fa-2x text-white-50"></i>
