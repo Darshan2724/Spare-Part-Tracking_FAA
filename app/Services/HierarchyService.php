@@ -307,22 +307,12 @@ class HierarchyService
             $completeUnitsCount = 0;
 
             foreach ($jigData['units'] as $unitNo => $unitData) {
-                // Skip units that have no eligible parts for downstream departments
+                // Skip units that are completely empty (no parts at all)
                 if (empty($unitData['parts'])) {
                     continue;
                 }
-
-                $hasEligibleUnitParts = match ($department) {
-                    'qc' => (($unitData['metrics']['qc_pending_arrival'] + $unitData['metrics']['qc_pending_inspection']) > 0),
-                    'rework' => (($unitData['metrics']['rework_pending'] + $unitData['metrics']['rework_in_progress']) > 0),
-                    'paint' => ($unitData['metrics']['paint_ready'] > 0),
-                    'assembly' => ($unitData['metrics']['assembly_ready'] > 0),
-                    default => true,
-                };
-
-                if (!$hasEligibleUnitParts) {
-                    continue;
-                }
+                // Always include units that have parts — the mobile UI shows
+                // appropriate "no active work" state per department context.
 
                 $req = $unitData['total_required'];
                 $rec = $unitData['total_received'];
