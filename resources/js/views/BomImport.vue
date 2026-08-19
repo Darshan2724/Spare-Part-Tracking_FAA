@@ -197,6 +197,7 @@
                     <th>Requirements Count</th>
                     <th>Status</th>
                     <th>Date & Timestamp</th>
+                    <th class="text-end">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -219,9 +220,20 @@
                       </span>
                     </td>
                     <td class="text-muted">{{ formatTimestamp(batch.created_at) }}</td>
+                    <td class="text-end">
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline-danger fw-semibold px-2 py-1"
+                        :disabled="batch.status === 'processing'"
+                        title="Delete this BOM import and associated project"
+                        @click="openDeleteModal(batch)"
+                      >
+                        <i class="fas fa-trash-alt me-1"></i>Delete
+                      </button>
+                    </td>
                   </tr>
                   <tr v-if="!importHistory.length">
-                    <td colspan="6" class="text-center py-5 text-muted">
+                    <td colspan="7" class="text-center py-5 text-muted">
                       <i class="fas fa-history fa-3x mb-3 text-secondary"></i>
                       <p class="mb-0">No BOM import history found.</p>
                     </td>
@@ -231,6 +243,159 @@
             </div>
           </div>
 
+        </div>
+      </div>
+    </div>
+
+    <!-- DELETE CONFIRMATION & IMPACT PREVIEW MODAL -->
+    <div v-if="showDeleteModal" class="modal fade show d-block" tabindex="-1" style="background-color: rgba(15, 23, 42, 0.65); z-index: 1055;" role="dialog" aria-modal="true">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-lg">
+          <!-- Modal Header -->
+          <div class="modal-header bg-danger text-white py-3">
+            <h5 class="modal-title fw-bold">
+              <i class="fas fa-exclamation-triangle me-2"></i>Delete BOM Import?
+            </h5>
+            <button type="button" class="btn-close btn-close-white" :disabled="isDeleting" @click="closeDeleteModal"></button>
+          </div>
+
+          <!-- Modal Body -->
+          <div class="modal-body p-4">
+            <!-- Scoped Deletion Guarantee Alert -->
+            <div class="alert alert-danger bg-danger-subtle border-danger d-flex align-items-start mb-3">
+              <i class="fas fa-trash-alt text-danger fs-4 me-3 mt-1"></i>
+              <div>
+                <div class="fw-bold text-danger fs-6">Targeted Deletion Scope</div>
+                <div class="text-dark small">
+                  This will delete the selected BOM import and the Project created by it. <strong>This action will not delete unrelated projects or data.</strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- Target Record Details -->
+            <div class="card border mb-3 bg-light">
+              <div class="card-header bg-white py-2 fw-bold text-secondary small text-uppercase">
+                <i class="fas fa-info-circle me-1 text-primary"></i>Target Import Record Details
+              </div>
+              <div class="card-body p-3">
+                <div class="row g-2 small">
+                  <div class="col-md-6">
+                    <span class="text-muted">File Name:</span>
+                    <div class="fw-bold text-dark font-monospace">{{ selectedDeleteBatch?.filename }}</div>
+                  </div>
+                  <div class="col-md-6">
+                    <span class="text-muted">Project:</span>
+                    <div class="fw-bold text-primary">
+                      {{ selectedDeleteBatch?.project?.name || 'N/A' }}
+                      <span class="badge bg-secondary ms-1">{{ selectedDeleteBatch?.project?.project_code || 'N/A' }}</span>
+                    </div>
+                  </div>
+                  <div class="col-md-4">
+                    <span class="text-muted">Imported By:</span>
+                    <div class="fw-semibold text-dark">{{ selectedDeleteBatch?.importer?.name || 'System' }}</div>
+                  </div>
+                  <div class="col-md-4">
+                    <span class="text-muted">Requirements Count:</span>
+                    <div class="fw-bold text-dark">{{ selectedDeleteBatch?.total_rows || 0 }} reqs</div>
+                  </div>
+                  <div class="col-md-4">
+                    <span class="text-muted">Import Date & Time:</span>
+                    <div class="text-muted">{{ formatTimestamp(selectedDeleteBatch?.created_at) }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pre-Deletion Impact Preview -->
+            <div class="card border mb-3">
+              <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+                <span class="fw-bold text-secondary small text-uppercase">
+                  <i class="fas fa-layer-group me-1 text-info"></i>Pre-Deletion Impact Preview
+                </span>
+                <span v-if="impactLoading" class="spinner-border spinner-border-sm text-primary" role="status"></span>
+              </div>
+              <div class="card-body p-3">
+                <div v-if="impactLoading" class="text-center py-3 text-muted">
+                  <span class="spinner-border spinner-border-sm me-2 text-primary"></span>
+                  Calculating affected records...
+                </div>
+
+                <div v-else-if="deleteImpact">
+                  <div class="row g-2 text-center">
+                    <div class="col-6 col-md-3">
+                      <div class="p-2 border rounded bg-light">
+                        <div class="fs-5 fw-bold text-primary">{{ deleteImpact.counts?.jigs_count || 0 }}</div>
+                        <div class="small text-muted">Jigs</div>
+                      </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                      <div class="p-2 border rounded bg-light">
+                        <div class="fs-5 fw-bold text-info">{{ deleteImpact.counts?.units_count || 0 }}</div>
+                        <div class="small text-muted">Units</div>
+                      </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                      <div class="p-2 border rounded bg-light">
+                        <div class="fs-5 fw-bold text-secondary">{{ deleteImpact.counts?.unique_parts_count || 0 }}</div>
+                        <div class="small text-muted">Unique Parts</div>
+                      </div>
+                    </div>
+                    <div class="col-6 col-md-3">
+                      <div class="p-2 border rounded bg-light">
+                        <div class="fs-5 fw-bold text-dark">{{ deleteImpact.counts?.bom_requirements_count || 0 }}</div>
+                        <div class="small text-muted">BOM Reqs</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Operational Warning if transactions exist -->
+                  <div v-if="deleteImpact.has_operational_data" class="alert alert-warning border-warning mt-3 mb-0 p-3">
+                    <div class="d-flex align-items-start">
+                      <i class="fas fa-exclamation-circle text-warning fs-5 me-2 mt-1"></i>
+                      <div class="small text-dark">
+                        <div class="fw-bold text-dark mb-1">Production Transactions Detected ({{ deleteImpact.counts?.total_operational_records }} records):</div>
+                        <ul class="mb-1 ps-3">
+                          <li v-if="deleteImpact.counts?.receipts_count">Store Receipts: <strong>{{ deleteImpact.counts.receipts_count }}</strong> ({{ deleteImpact.counts.receipt_items_count }} items)</li>
+                          <li v-if="deleteImpact.counts?.qc_inspections_count">QC Inspections: <strong>{{ deleteImpact.counts.qc_inspections_count }}</strong></li>
+                          <li v-if="deleteImpact.counts?.rework_records_count">Rework Records: <strong>{{ deleteImpact.counts.rework_records_count }}</strong></li>
+                          <li v-if="deleteImpact.counts?.paint_records_count">Paint Records: <strong>{{ deleteImpact.counts.paint_records_count }}</strong></li>
+                          <li v-if="deleteImpact.counts?.assembly_records_count">Assembly Records: <strong>{{ deleteImpact.counts.assembly_records_count }}</strong></li>
+                          <li v-if="deleteImpact.counts?.purchase_queue_count">Purchase Items: <strong>{{ deleteImpact.counts.purchase_queue_count }}</strong></li>
+                        </ul>
+                        <div>Deleting this BOM import will permanently delete all workflow history associated exclusively with this project.</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p class="small text-muted mt-3 mb-0">
+                    <i class="fas fa-shield-alt text-success me-1"></i>Only the records listed above and directly owned by this BOM import will be deleted.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Error Banner in Modal -->
+            <div v-if="deleteError" class="alert alert-danger shadow-sm mb-0 d-flex align-items-center">
+              <i class="fas fa-times-circle fs-5 me-2"></i>
+              <div>{{ deleteError }}</div>
+            </div>
+          </div>
+
+          <!-- Modal Footer -->
+          <div class="modal-footer bg-light py-2">
+            <button type="button" class="btn btn-secondary px-3" :disabled="isDeleting" @click="closeDeleteModal">
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn btn-danger fw-bold px-4"
+              :disabled="isDeleting || impactLoading"
+              @click="executeDelete"
+            >
+              <span v-if="isDeleting" class="spinner-border spinner-border-sm me-2" role="status"></span>
+              <i v-else class="fas fa-trash-alt me-2"></i>Delete BOM & Project
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -255,6 +420,14 @@ const validationErrors = ref([]);
 const error = ref('');
 const successMessage = ref('');
 const loading = ref(false);
+
+// Deletion state
+const showDeleteModal = ref(false);
+const selectedDeleteBatch = ref(null);
+const deleteImpact = ref(null);
+const impactLoading = ref(false);
+const isDeleting = ref(false);
+const deleteError = ref('');
 
 const canImport = computed(() => previewRows.value.length > 0 && validationErrors.value.length === 0 && !duplicateInfo.value);
 
@@ -379,6 +552,58 @@ const fetchHistory = async () => {
     importHistory.value = res.data.history || [];
   } catch (err) {
     console.error('Failed to fetch BOM import history:', err);
+  }
+};
+
+const openDeleteModal = async (batch) => {
+  deleteError.value = '';
+  selectedDeleteBatch.value = batch;
+  deleteImpact.value = null;
+  impactLoading.value = true;
+  showDeleteModal.value = true;
+
+  try {
+    const res = await axios.get(`/api/v1/bom/history/${batch.id}/impact`);
+    deleteImpact.value = res.data;
+  } catch (err) {
+    console.error('Failed to load deletion impact:', err);
+    deleteError.value = err.response?.data?.message || 'Failed to calculate pre-deletion impact.';
+  } finally {
+    impactLoading.value = false;
+  }
+};
+
+const closeDeleteModal = () => {
+  if (isDeleting.value) return;
+  showDeleteModal.value = false;
+  selectedDeleteBatch.value = null;
+  deleteImpact.value = null;
+  deleteError.value = '';
+};
+
+const executeDelete = async () => {
+  if (!selectedDeleteBatch.value) return;
+  const batchId = selectedDeleteBatch.value.id;
+  isDeleting.value = true;
+  deleteError.value = '';
+
+  try {
+    const res = await axios.delete(`/api/v1/bom/history/${batchId}`);
+    if (res.data.success) {
+      // Remove row from table immediately without reloading unrelated state
+      importHistory.value = importHistory.value.filter(b => b.id !== batchId);
+      successMessage.value = res.data.message || 'BOM import and associated project deleted successfully.';
+      showDeleteModal.value = false;
+      selectedDeleteBatch.value = null;
+      deleteImpact.value = null;
+    } else {
+      deleteError.value = res.data.message || 'Failed to delete BOM import.';
+    }
+  } catch (err) {
+    console.error('Failed to delete BOM import:', err);
+    deleteError.value = err.response?.data?.message || 'An error occurred while deleting the BOM import.';
+  } finally {
+    isDeleting.value = false;
   }
 };
 

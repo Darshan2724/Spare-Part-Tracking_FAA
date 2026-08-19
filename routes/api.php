@@ -71,6 +71,8 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::post('/preview', [BomImportController::class, 'preview']);
             Route::post('/import', [BomImportController::class, 'import']);
             Route::get('/history', [BomImportController::class, 'history']);
+            Route::get('/history/{id}/impact', [BomImportController::class, 'impactPreview']);
+            Route::delete('/history/{id}', [BomImportController::class, 'destroy']);
         });
 
         // Store Operations
