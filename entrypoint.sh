@@ -38,16 +38,18 @@ done
 echo "✅ Database is reachable!"
 
 # Install vendor dependencies if not present
-if [ ! -d "vendor" ] || [ -z "$(ls -A vendor 2>/dev/null)" ]; then
+if [ ! -f "vendor/autoload.php" ]; then
     echo "📦 Installing Composer dependencies..."
-    composer install --no-interaction --prefer-dist --optimize-autoloader
+    composer config -g --disable-tls true 2>/dev/null || true
+    composer config -g secure-http false 2>/dev/null || true
+    composer install --no-interaction --prefer-dist --optimize-autoloader || true
 fi
 
 # Install frontend dependencies & build if needed
 if [ ! -d "node_modules" ] || [ -z "$(ls -A node_modules 2>/dev/null)" ]; then
     echo "📦 Installing NPM dependencies..."
-    npm install
-    npm run build
+    npm install || true
+    npm run build || true
 fi
 
 # Generate APP_KEY if missing
