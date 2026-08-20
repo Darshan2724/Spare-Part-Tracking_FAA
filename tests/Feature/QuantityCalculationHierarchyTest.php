@@ -607,15 +607,17 @@ class QuantityCalculationHierarchyTest extends TestCase
         $this->assertEquals(20, $metrics['parts_in_qc']);
         $this->assertEquals(10, $metrics['parts_in_rework']);
         $this->assertEquals(20, $metrics['parts_in_paint']);
-        $this->assertEquals(20, $metrics['parts_in_assembly']);
+        $this->assertEquals(10, $metrics['parts_in_assembly']);
+        $this->assertEquals(10, $metrics['assembly_completed']);
 
         // Mandatory Section 11 Received Workflow Reconciliation Invariant:
-        // Total Parts Received = Store + QC Active + Rework + Paint + Assembly + Rejected
+        // Total Parts Received = Store + QC Active + Rework + Paint + Assembly Active + Assembly Completed + Rejected
         $reconciledSum = $metrics['parts_in_store'] +
                          $metrics['parts_in_qc'] +
                          $metrics['parts_in_rework'] +
                          $metrics['parts_in_paint'] +
                          $metrics['parts_in_assembly'] +
+                         $metrics['assembly_completed'] +
                          $metrics['rejected_qty'];
 
         $this->assertEquals($metrics['received_qty'], $reconciledSum);

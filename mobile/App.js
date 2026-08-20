@@ -925,7 +925,7 @@ function App() {
       const sidePaintRecords = sideStat.paint_records || (part.paint_records || []).filter(p => p.side === unitSideTab || p.side === 'COMMON');
       const sideQcInspections = sideStat.qc_inspections || (part.qc_inspections || []).filter(q => q.side === unitSideTab || q.side === 'COMMON');
 
-      const paintRec = sidePaintRecords.find(p => p.status === 'completed');
+      const paintRec = sidePaintRecords.find(p => ['completed', 'assembled'].includes(p.status));
       const directQcInsp = sideQcInspections.find(q => q.destination === 'ASSEMBLY' && q.approved_quantity > 0);
 
       await apiClient.post('/assembly/items', {
@@ -1184,7 +1184,7 @@ function App() {
   const handleBulkAssemblyComplete = async (targetItems) => {
     if (isSubmittingBulk) return;
     const assemblyPayload = targetItems.map(item => {
-      const paintRec = (item.paint_records || []).find(p => p.status === 'completed' && (p.side === unitSideTab || p.side === 'COMMON'));
+      const paintRec = (item.paint_records || []).find(p => ['completed', 'assembled'].includes(p.status) && (p.side === unitSideTab || p.side === 'COMMON'));
       const directQcInsp = (item.qc_inspections || []).find(q => q.destination === 'ASSEMBLY' && q.approved_quantity > 0 && (q.side === unitSideTab || q.side === 'COMMON'));
 
       return {
@@ -1499,6 +1499,17 @@ function App() {
             <View style={[styles.card, { backgroundColor: '#f59e0b' }]}>
               <Text style={styles.cardLabel}>Awaiting QC</Text>
               <Text style={styles.cardValue}>{summary?.awaiting_qc || 0}</Text>
+            </View>
+            <View style={[styles.card, { backgroundColor: '#7c3aed' }]}>
+              <Text style={styles.cardLabel}>Paint Active</Text>
+              <Text style={styles.cardValue}>{summary?.parts_in_paint || 0}</Text>
+            </View>
+            <View style={[styles.card, { backgroundColor: '#db2777' }]}>
+              <Text style={styles.cardLabel}>Assembly Active</Text>
+              <Text style={styles.cardValue}>
+                {summary?.parts_in_assembly || 0}
+                <Text style={{ fontSize: 13, fontWeight: 'normal', color: '#fbcfe8' }}> ({summary?.assembly_completed || 0} Done)</Text>
+              </Text>
             </View>
             <View style={[styles.card, { backgroundColor: '#ef4444' }]}>
               <Text style={styles.cardLabel}>Purchase Queue</Text>
