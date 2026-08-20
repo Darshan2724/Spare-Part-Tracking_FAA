@@ -55,14 +55,16 @@
         </div>
       </div>
 
-      <!-- KPI Summary Row 1: Project Overview -->
+      <!-- PRIMARY MANAGEMENT KPI CARDS (2 Rows × 5 Cards = 10 Total Cards) -->
+      <!-- ROW 1: Project & Total Parts Overview -->
       <div class="row g-3 mb-3">
-        <div class="col-12 col-sm-6 col-md-3">
+        <!-- 1. Active Projects -->
+        <div class="col-12 col-sm-6 col-lg-4 col-xl">
           <div class="card border-0 shadow-sm bg-primary text-white h-100">
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold small">Active Projects</div>
-                <h2 class="fw-bold mb-0">{{ metrics.total_projects || 0 }}</h2>
+                <h2 class="fw-bold mb-0">{{ metrics.active_projects ?? metrics.total_projects ?? 0 }}</h2>
                 <small class="text-white-50">{{ metrics.completed_projects || 0 }} Completed</small>
               </div>
               <i class="fas fa-folder-open fa-2x text-white-50"></i>
@@ -70,8 +72,9 @@
           </div>
         </div>
 
-        <div class="col-12 col-sm-6 col-md-3">
-          <div class="card border-0 shadow-sm bg-info text-white h-100">
+        <!-- 2. Completed Projects -->
+        <div class="col-12 col-sm-6 col-lg-4 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #0d9488;">
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold small">Completed Projects</div>
@@ -83,94 +86,208 @@
           </div>
         </div>
 
-        <div class="col-12 col-sm-6 col-md-3">
-          <div class="card border-0 shadow-sm bg-danger text-white h-100">
-            <div class="card-body p-3 d-flex justify-content-between align-items-center">
-              <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Delayed Projects</div>
-                <h2 class="fw-bold mb-0">{{ metrics.delayed_projects || 0 }}</h2>
-                <small class="text-white-50">No progress >14 days</small>
-              </div>
-              <i class="fas fa-exclamation-triangle fa-2x text-white-50"></i>
-            </div>
-          </div>
-        </div>
-
-        <div class="col-12 col-sm-6 col-md-3">
-          <div class="card border-0 shadow-sm bg-secondary text-white h-100">
+        <!-- 3. Total Parts Required -->
+        <div class="col-12 col-sm-6 col-lg-4 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #4f46e5;">
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold small">Total Parts Required</div>
                 <h2 class="fw-bold mb-0">{{ metrics.total_required || 0 }}</h2>
-                <small class="text-white-50">Across All Projects</small>
+                <small class="text-white-50">Across {{ filters.project_id ? 'Selected' : 'All Active' }} Projects</small>
               </div>
               <i class="fas fa-cubes fa-2x text-white-50"></i>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- KPI Summary Row 2: Part Flow & QC Breakdown -->
-      <div class="row g-3 mb-3">
-        <div class="col-12 col-sm-6 col-md-3">
+        <!-- 4. Total Parts Received -->
+        <div class="col-12 col-sm-6 col-lg-4 col-xl">
           <div class="card border-0 shadow-sm bg-success text-white h-100">
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Store Received</div>
+                <div class="text-white-50 text-uppercase fw-bold small">Total Parts Received</div>
                 <h2 class="fw-bold mb-0">
                   {{ metrics.total_received || 0 }}
                   <span v-if="metrics.excess_received > 0" class="badge bg-warning text-dark fs-6 ms-1" :title="'Excess/Over-receipt: ' + metrics.excess_received + ' units'">
                     +{{ metrics.excess_received }} Excess
                   </span>
                 </h2>
-                <small class="text-white-50">{{ metrics.pending_store || 0 }} Pending Arrival</small>
+                <small class="text-white-50">{{ metrics.completion_pct || 0 }}% BOM Fulfilled</small>
               </div>
               <i class="fas fa-boxes fa-2x text-white-50"></i>
             </div>
           </div>
         </div>
 
-        <div class="col-12 col-sm-6 col-md-3">
+        <!-- 5. Total Parts Pending -->
+        <div class="col-12 col-sm-6 col-lg-4 col-xl">
           <div class="card border-0 shadow-sm bg-dark text-white h-100">
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Parts Pending Store</div>
-                <h2 class="fw-bold mb-0">{{ metrics.pending_store || 0 }}</h2>
+                <div class="text-white-50 text-uppercase fw-bold small">Total Parts Pending</div>
+                <h2 class="fw-bold mb-0">{{ metrics.total_pending ?? metrics.pending_store ?? 0 }}</h2>
                 <small class="text-white-50">Awaiting Delivery</small>
               </div>
               <i class="fas fa-truck-loading fa-2x text-white-50"></i>
             </div>
           </div>
         </div>
+      </div>
 
-        <div class="col-12 col-sm-6 col-md-3">
-          <div class="card border-0 shadow-sm bg-warning text-dark h-100">
+      <!-- ROW 2: Physical Workflow Location Inventory Residency -->
+      <div class="row g-3 mb-4">
+        <!-- 6. Parts in Store -->
+        <div class="col-12 col-sm-6 col-lg-4 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #d97706;">
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-dark-50 text-uppercase fw-bold small">Awaiting QC</div>
-                <h2 class="fw-bold mb-0">{{ metrics.awaiting_qc || 0 }}</h2>
-                <small class="text-dark-50">Pending Inspection</small>
+                <div class="text-white-50 text-uppercase fw-bold small">Parts in Store</div>
+                <h2 class="fw-bold mb-0">{{ metrics.parts_in_store || 0 }}</h2>
+                <small class="text-white-50">Awaiting QC Dispatch</small>
               </div>
-              <i class="fas fa-clipboard-check fa-2x text-dark-50"></i>
+              <i class="fas fa-warehouse fa-2x text-white-50"></i>
             </div>
           </div>
         </div>
 
-        <!-- ENHANCED QC RESULTS BREAKDOWN KPI CARD -->
-        <div class="col-12 col-sm-6 col-md-3">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #0d9488;">
-            <div class="card-body p-3 d-flex flex-column justify-content-between">
-              <div class="d-flex justify-content-between align-items-center">
-                <div>
-                  <div class="text-white-50 text-uppercase fw-bold small">QC Inspection Breakdown</div>
-                  <h2 class="fw-bold mb-0">{{ metrics.qc_approved || 0 }} <span class="fs-6 text-white-50">Approved</span></h2>
-                </div>
-                <i class="fas fa-shield-alt fa-2x text-white-50"></i>
+        <!-- 7. Parts in QC -->
+        <div class="col-12 col-sm-6 col-lg-4 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #0284c7;">
+            <div class="card-body p-3 d-flex justify-content-between align-items-center">
+              <div>
+                <div class="text-white-50 text-uppercase fw-bold small">Parts in QC</div>
+                <h2 class="fw-bold mb-0">{{ metrics.parts_in_qc ?? metrics.awaiting_qc ?? 0 }}</h2>
+                <small class="text-white-50">Inspection Queue</small>
               </div>
-              <div class="d-flex gap-1 mt-2 pt-2 border-top border-white-50 small flex-wrap">
-                <span class="badge bg-success" title="Approved"><i class="fas fa-check me-1"></i>{{ metrics.qc_approved || 0 }} Approved</span>
-                <span class="badge bg-warning text-dark" title="Rework"><i class="fas fa-tools me-1"></i>{{ metrics.qc_rework || 0 }} Rework</span>
-                <span class="badge bg-danger" title="Rejected"><i class="fas fa-times me-1"></i>{{ metrics.qc_rejected || 0 }} Rejected</span>
+              <i class="fas fa-clipboard-check fa-2x text-white-50"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- 8. Parts in Rework -->
+        <div class="col-12 col-sm-6 col-lg-4 col-xl">
+          <div class="card border-0 shadow-sm bg-danger text-white h-100">
+            <div class="card-body p-3 d-flex justify-content-between align-items-center">
+              <div>
+                <div class="text-white-50 text-uppercase fw-bold small">Parts in Rework</div>
+                <h2 class="fw-bold mb-0">{{ metrics.parts_in_rework || 0 }}</h2>
+                <small class="text-white-50">Active Rework</small>
+              </div>
+              <i class="fas fa-tools fa-2x text-white-50"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- 9. Parts in Paint -->
+        <div class="col-12 col-sm-6 col-lg-4 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #7c3aed;">
+            <div class="card-body p-3 d-flex justify-content-between align-items-center">
+              <div>
+                <div class="text-white-50 text-uppercase fw-bold small">Parts in Paint</div>
+                <h2 class="fw-bold mb-0">{{ metrics.parts_in_paint || 0 }}</h2>
+                <small class="text-white-50">Shop Queue</small>
+              </div>
+              <i class="fas fa-paint-roller fa-2x text-white-50"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- 10. Parts in Assembly -->
+        <div class="col-12 col-sm-6 col-lg-4 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #db2777;">
+            <div class="card-body p-3 d-flex justify-content-between align-items-center">
+              <div>
+                <div class="text-white-50 text-uppercase fw-bold small">Parts in Assembly</div>
+                <h2 class="fw-bold mb-0">{{ metrics.parts_in_assembly || 0 }}</h2>
+                <small class="text-white-50">Assembly Queue</small>
+              </div>
+              <i class="fas fa-cogs fa-2x text-white-50"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ALL ACTIVE PROJECTS MANAGEMENT VISUALS (Top Projects Near Completion & Overall Health Distribution) -->
+      <div v-if="!filters.project_id" class="row g-3 mb-4">
+        <!-- Top Projects Near Completion Bar Chart -->
+        <div class="col-12 col-xl-7">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="card-title fw-bold mb-0 text-dark">
+                  <i class="fas fa-trophy text-warning me-2"></i>Top Projects Near Completion
+                </h5>
+                <small class="text-muted">Ranked by completion percentage (Active Projects)</small>
+              </div>
+              <span class="badge bg-primary px-2 py-1">{{ topProjectsData.total_active_incomplete || topProjectsData.labels?.length || 0 }} Active Incomplete</span>
+            </div>
+            <div class="card-body">
+              <div v-if="topProjectsData.labels?.length" style="height: 280px; position: relative;">
+                <canvas ref="topProjectsChartCanvas"></canvas>
+              </div>
+              <div v-else class="text-center py-5 text-muted">
+                <i class="fas fa-check-circle fa-2x mb-2 text-success"></i>
+                <div>All active projects have reached 100% completion or no project data available.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Overall Project Health Distribution Visual -->
+        <div class="col-12 col-xl-5">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
+                  <i class="fas fa-heartbeat text-danger me-2"></i>Project Health Distribution
+                  <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;"
+                     title="Executive Portfolio Health Classification:&#10;• Near Completion: ≥85% complete&#10;• On Track: Active progress in last 7 days&#10;• At Risk: No activity for 7-14 days&#10;• Delayed: No activity >14 days &amp; &lt;80% complete"></i>
+                </h5>
+                <small class="text-muted">Executive Portfolio Risk &amp; Velocity Status</small>
+              </div>
+              <span class="badge bg-dark px-2 py-1">{{ healthDistribution.total_active || 0 }} Total Active</span>
+            </div>
+            <div class="card-body d-flex flex-column justify-content-between">
+              <div class="row g-2 mb-3">
+                <div class="col-6">
+                  <div class="p-2 rounded border bg-success-subtle text-success-emphasis d-flex justify-content-between align-items-center">
+                    <div>
+                      <div class="small fw-bold">Near Completion</div>
+                      <div class="fs-5 fw-bold">{{ healthDistribution.counts?.near_completion || 0 }}</div>
+                    </div>
+                    <span class="badge bg-success">{{ healthDistribution.percentages?.near_completion || 0 }}%</span>
+                  </div>
+                </div>
+                <div class="col-6">
+                  <div class="p-2 rounded border bg-primary-subtle text-primary-emphasis d-flex justify-content-between align-items-center">
+                    <div>
+                      <div class="small fw-bold">On Track</div>
+                      <div class="fs-5 fw-bold">{{ healthDistribution.counts?.on_track || 0 }}</div>
+                    </div>
+                    <span class="badge bg-primary">{{ healthDistribution.percentages?.on_track || 0 }}%</span>
+                  </div>
+                </div>
+                <div class="col-6">
+                  <div class="p-2 rounded border bg-warning-subtle text-warning-emphasis d-flex justify-content-between align-items-center">
+                    <div>
+                      <div class="small fw-bold">At Risk</div>
+                      <div class="fs-5 fw-bold">{{ healthDistribution.counts?.at_risk || 0 }}</div>
+                    </div>
+                    <span class="badge bg-warning text-dark">{{ healthDistribution.percentages?.at_risk || 0 }}%</span>
+                  </div>
+                </div>
+                <div class="col-6">
+                  <div class="p-2 rounded border bg-danger-subtle text-danger-emphasis d-flex justify-content-between align-items-center">
+                    <div>
+                      <div class="small fw-bold">Delayed</div>
+                      <div class="fs-5 fw-bold">{{ healthDistribution.counts?.delayed || 0 }}</div>
+                    </div>
+                    <span class="badge bg-danger">{{ healthDistribution.percentages?.delayed || 0 }}%</span>
+                  </div>
+                </div>
+              </div>
+              <div style="height: 170px; position: relative;">
+                <canvas ref="healthChartCanvas"></canvas>
               </div>
             </div>
           </div>
@@ -223,8 +340,8 @@
 
         <div class="card-body p-3">
           <div class="row g-3">
-            <!-- Left 7 Cols: Priority Heatmap Table -->
-            <div class="col-12 col-xl-7">
+            <!-- Priority Heatmap Table (12 Cols or 7 Cols when single project filtered) -->
+            <div :class="(priorityProjectFilter || filters.project_id) ? 'col-12 col-xl-7' : 'col-12'">
               <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
                 <table class="table table-hover align-middle mb-0 small border">
                   <thead class="sticky-top" style="background: #0f172a; color: #fff; z-index: 1;">
@@ -325,8 +442,8 @@
               </div>
             </div>
 
-            <!-- Right 5 Cols: Top Near-Complete Units Bar Chart -->
-            <div class="col-12 col-xl-5 border-start">
+            <!-- Right 5 Cols: Top Near-Complete Units Bar Chart (When specific project selected) -->
+            <div v-if="priorityProjectFilter || filters.project_id" class="col-12 col-xl-5 border-start">
               <h6 class="fw-bold text-dark mb-2">
                 <i class="fas fa-chart-line me-1 text-primary"></i>
                 Top Units Closest to Completion (% Ready)
@@ -895,9 +1012,16 @@ const filteredPriorityUnits = computed(() => {
 // Chart canvas refs & instances
 const priorityChartCanvas = ref(null);
 const velocityChartCanvas = ref(null);
+const topProjectsChartCanvas = ref(null);
+const healthChartCanvas = ref(null);
+
+const topProjectsData = ref({ labels: [], names: [], percentages: [], required: [], received: [], pending: [], projects: [], total_active_incomplete: 0 });
+const healthDistribution = ref({ counts: { near_completion: 0, on_track: 0, at_risk: 0, delayed: 0 }, percentages: { near_completion: 0, on_track: 0, at_risk: 0, delayed: 0 }, total_active: 0, details: {} });
 
 let priorityChart = null;
 let velocityChart = null;
+let topProjectsChart = null;
+let healthChart = null;
 
 const resetFilters = () => {
   filters.value = {
@@ -1037,6 +1161,8 @@ const fetchData = async () => {
     metrics.value = sumRes.data.summary || {};
     statusDistribution.value = sumRes.data.status_distribution || {};
     projectsProgress.value = sumRes.data.projects_progress || [];
+    topProjectsData.value = sumRes.data.top_projects || { labels: [], names: [], percentages: [], required: [], received: [], pending: [], projects: [], total_active_incomplete: 0 };
+    healthDistribution.value = sumRes.data.health_distribution || { counts: { near_completion: 0, on_track: 0, at_risk: 0, delayed: 0 }, percentages: { near_completion: 0, on_track: 0, at_risk: 0, delayed: 0 }, total_active: 0, details: {} };
 
     await fetchDailyMovement();
 
@@ -1053,10 +1179,133 @@ const fetchData = async () => {
 
     await nextTick();
     renderAnalyticsCharts();
+    renderTopProjectsChart();
+    renderHealthChart();
   } catch (err) {
     console.error('Failed to load dashboard data:', err);
   } finally {
     loading.value = false;
+  }
+};
+
+const renderTopProjectsChart = () => {
+  try {
+    if (topProjectsChart) {
+      topProjectsChart.destroy();
+      topProjectsChart = null;
+    }
+    if (topProjectsChartCanvas.value && topProjectsData.value.labels?.length) {
+      const colors = (topProjectsData.value.percentages || []).map(pct => {
+        if (pct >= 85) return '#10b981'; // Green
+        if (pct >= 60) return '#3b82f4'; // Blue
+        if (pct >= 30) return '#f59e0b'; // Amber
+        return '#ef4444'; // Red
+      });
+
+      topProjectsChart = new Chart(topProjectsChartCanvas.value, {
+        type: 'bar',
+        data: {
+          labels: topProjectsData.value.labels,
+          datasets: [{
+            label: 'Completion %',
+            data: topProjectsData.value.percentages,
+            backgroundColor: colors,
+            borderRadius: 4,
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title: (items) => {
+                  const idx = items[0]?.dataIndex;
+                  return topProjectsData.value.names?.[idx] || items[0]?.label || '';
+                },
+                label: (ctx) => {
+                  const idx = ctx.dataIndex;
+                  const req = topProjectsData.value.required?.[idx] ?? 0;
+                  const rec = topProjectsData.value.received?.[idx] ?? 0;
+                  const pend = topProjectsData.value.pending?.[idx] ?? 0;
+                  return [
+                    ` Completion: ${ctx.raw}%`,
+                    ` Required: ${req} pcs`,
+                    ` Received: ${rec} pcs`,
+                    ` Pending: ${pend} pcs`
+                  ];
+                }
+              }
+            }
+          },
+          scales: {
+            x: { min: 0, max: 100, title: { display: true, text: 'Completion Percentage (%)' } }
+          }
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('Error rendering top projects chart:', e);
+  }
+};
+
+const renderHealthChart = () => {
+  try {
+    if (healthChart) {
+      healthChart.destroy();
+      healthChart = null;
+    }
+    if (healthChartCanvas.value) {
+      const counts = healthDistribution.value.counts || {};
+      const dataValues = [
+        counts.near_completion || 0,
+        counts.on_track || 0,
+        counts.at_risk || 0,
+        counts.delayed || 0,
+      ];
+      const hasData = dataValues.some(v => v > 0);
+
+      healthChart = new Chart(healthChartCanvas.value, {
+        type: 'doughnut',
+        data: {
+          labels: ['Near Completion (≥85%)', 'On Track (Active)', 'At Risk (7-14d)', 'Delayed (>14d)'],
+          datasets: [{
+            data: hasData ? dataValues : [1],
+            backgroundColor: hasData 
+              ? ['#10b981', '#3b82f4', '#f59e0b', '#ef4444'] 
+              : ['#e2e8f0'],
+            borderWidth: 2,
+            borderColor: '#ffffff',
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '65%',
+          plugins: {
+            legend: {
+              position: 'right',
+              labels: { boxWidth: 12, font: { size: 11 } }
+            },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  if (!hasData) return ' No active projects';
+                  const total = healthDistribution.value.total_active || 1;
+                  const val = ctx.raw;
+                  const pct = Math.round((val / total) * 100);
+                  return ` ${ctx.label}: ${val} projects (${pct}%)`;
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('Error rendering health distribution chart:', e);
   }
 };
 
