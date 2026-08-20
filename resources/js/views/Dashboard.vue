@@ -100,26 +100,26 @@
 
       <!-- ROW 2: Parts and Operational Workflow Status Overview (8 Compact Cards) -->
       <div class="row g-2 mb-4">
-        <!-- 1. Parts Required -->
+        <!-- 1. Total Parts -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
           <div class="card border-0 shadow-sm text-white h-100" style="background-color: #4f46e5;">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Parts Required</div>
-                <h3 class="fw-bold mb-0 fs-4">{{ metrics.total_required || 0 }}</h3>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Total Parts</div>
+                <h3 class="fw-bold mb-0 fs-4">{{ metrics.total_parts ?? metrics.total_required ?? 0 }}</h3>
               </div>
               <i class="fas fa-cubes text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
 
-        <!-- 2. Parts Received -->
+        <!-- 2. Total Parts Received -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
           <div class="card border-0 shadow-sm bg-success text-white h-100">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Parts Received</div>
-                <h3 class="fw-bold mb-0 fs-4">{{ metrics.total_received || 0 }}</h3>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Total Parts Received</div>
+                <h3 class="fw-bold mb-0 fs-4">{{ metrics.total_parts_received ?? metrics.total_received ?? 0 }}</h3>
               </div>
               <i class="fas fa-boxes text-white-50 fs-5"></i>
             </div>
@@ -132,7 +132,7 @@
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Parts Pending</div>
-                <h3 class="fw-bold mb-0 fs-4">{{ metrics.total_pending ?? metrics.pending_store ?? 0 }}</h3>
+                <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_pending ?? metrics.total_pending ?? metrics.pending_store ?? 0 }}</h3>
               </div>
               <i class="fas fa-truck-loading text-white-50 fs-5"></i>
             </div>
@@ -152,12 +152,17 @@
           </div>
         </div>
 
-        <!-- 5. QC -->
+        <!-- 5. QC (with separate Rejected secondary badge) -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
           <div class="card border-0 shadow-sm text-white h-100" style="background-color: #0284c7;">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">QC</div>
+                <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
+                  <span>QC</span>
+                  <span class="badge rounded-pill bg-light text-dark ms-1 px-1 py-0" style="font-size: 0.65rem; font-weight: 600;" title="Rejected in QC">
+                    Rejected: {{ metrics.qc_rejected || 0 }}
+                  </span>
+                </div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_qc ?? metrics.awaiting_qc ?? 0 }}</h3>
               </div>
               <i class="fas fa-clipboard-check text-white-50 fs-5"></i>

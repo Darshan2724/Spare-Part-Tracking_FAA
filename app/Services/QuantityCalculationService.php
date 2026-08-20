@@ -178,30 +178,34 @@ class QuantityCalculationService
                 $excessQty = max(0, $rawRecQty - $reqQty);
                 $pendingQty = max(0, $reqQty - $effectiveRecQty);
 
-                // Location Resident Quantities
-                $storeResident = (int) $recForSide->whereIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
-                $qcResident = (int) $recForSide->whereIn('status', ['sent_to_qc', 'qc_received'])->sum('received_quantity');
-
-                // QC Stats
-                $qcApp = (int) $qcForSide->sum('approved_quantity');
+                // QC Inspection stats for this side
+                $qcAppPaint = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && ($q->destination === 'PAINT' || empty($q->destination)))->sum('approved_quantity');
+                $qcAppDirectAssembly = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && $q->destination === 'ASSEMBLY')->sum('approved_quantity');
+                $qcApp = $qcAppPaint + $qcAppDirectAssembly;
                 $qcRej = (int) $qcForSide->sum('rejected_quantity');
                 $qcRew = (int) $qcForSide->sum('rework_quantity');
 
-                // Rework Stats
-                $rewPending = (int) $reworkForSide->where('status', 'pending')->sum('quantity');
-                $rewProg = (int) $reworkForSide->where('status', 'in_progress')->sum('quantity');
+                // Rework stats for this side
                 $rewComp = (int) $reworkForSide->where('status', 'completed')->sum('quantity');
-                $reworkResident = $rewPending + $rewProg;
+                $rewActive = max(0, $qcRew - $rewComp);
 
-                // Paint Stats
-                $qcAppPaint = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && ($q->destination === 'PAINT' || empty($q->destination)))->sum('approved_quantity');
-                $qcAppDirectAssembly = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && $q->destination === 'ASSEMBLY')->sum('approved_quantity');
+                // Paint stats for this side
                 $paintComp = (int) $paintForSide->where('status', 'completed')->sum('quantity');
-                $paintReady = max(0, $qcAppPaint - $paintComp);
+                $paintActive = max(0, $qcAppPaint - $paintComp);
 
-                // Assembly Stats
+                // Assembly stats for this side (Section 8: all parts reaching assembly remain represented on dashboard)
                 $asmComp = (int) $asmForSide->where('status', 'completed')->sum('quantity');
-                $asmReady = max(0, ($paintComp + $qcAppDirectAssembly) - $asmComp);
+                $asmReached = $paintComp + $qcAppDirectAssembly;
+                $asmReady = max(0, $asmReached - $asmComp);
+
+                // Dispatched to QC (valid quantity that left store for QC)
+                $qcDispatchedFromReceipts = (int) $recForSide->whereNotIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
+                $qcTotalAccounted = $qcApp + $qcRej + $qcRew;
+                $sentToQc = min($effectiveRecQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
+
+                // State Transition Ledger (Section 12: Zero-sum conservation)
+                $storeResident = max(0, $effectiveRecQty - $sentToQc);
+                $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
 
                 // Accumulate strictly into project canonical metrics
                 $metrics['total_required'] += $reqQty;
@@ -210,22 +214,22 @@ class QuantityCalculationService
                 $metrics['excess_received'] += $excessQty;
                 $metrics['total_pending'] += $pendingQty;
 
-                // Location Resident Quantities
+                // Location Resident Quantities (Section 11 reconciliation)
                 $metrics['parts_in_store'] += $storeResident;
                 $metrics['parts_in_qc'] += $qcResident;
-                $metrics['parts_in_rework'] += $reworkResident;
-                $metrics['parts_in_paint'] += $paintReady;
-                $metrics['parts_in_assembly'] += $asmReady;
+                $metrics['parts_in_rework'] += $rewActive;
+                $metrics['parts_in_paint'] += $paintActive;
+                $metrics['parts_in_assembly'] += $asmReached;
 
                 // QC & Operational Stats
                 $metrics['awaiting_qc'] += $qcResident;
                 $metrics['qc_approved'] += $qcApp;
                 $metrics['qc_rejected'] += $qcRej;
                 $metrics['qc_rework'] += $qcRew;
-                $metrics['rework_pending'] += $rewPending;
-                $metrics['rework_in_progress'] += $rewProg;
+                $metrics['rework_pending'] += $rewActive;
+                $metrics['rework_in_progress'] += (int) $reworkForSide->where('status', 'in_progress')->sum('quantity');
                 $metrics['rework_completed'] += $rewComp;
-                $metrics['paint_ready'] += $paintReady;
+                $metrics['paint_ready'] += $paintActive;
                 $metrics['paint_completed'] += $paintComp;
                 $metrics['assembly_ready'] += $asmReady;
                 $metrics['assembly_completed'] += $asmComp;
@@ -259,14 +263,28 @@ class QuantityCalculationService
         }
 
         $projects = $projectsQuery->get();
+        $isSingleProject = ($projectId !== null);
 
-        $totalActiveProjects = Project::where('status', 'active')->count();
-        $completedProjects = Project::where('status', 'completed')->count();
-        
-        $delayedProjects = Project::where('status', 'active')
-            ->where('created_at', '<', now()->subDays(14))
-            ->whereDoesntHave('bomItems.receiptItems', fn($q) => $q->where('updated_at', '>=', now()->subDays(14)))
-            ->count();
+        if ($isSingleProject) {
+            $singleProj = $projects->first();
+            $totalActiveProjects = ($singleProj && $singleProj->status === 'active') ? 1 : 0;
+            $completedProjects = ($singleProj && $singleProj->status === 'completed') ? 1 : 0;
+            $delayedProjects = 0;
+            if ($singleProj && $singleProj->status === 'active') {
+                $isDelayed = Project::where('id', $singleProj->id)
+                    ->where('created_at', '<', now()->subDays(14))
+                    ->whereDoesntHave('bomItems.receiptItems', fn($q) => $q->where('updated_at', '>=', now()->subDays(14)))
+                    ->exists();
+                $delayedProjects = $isDelayed ? 1 : 0;
+            }
+        } else {
+            $totalActiveProjects = Project::where('status', 'active')->count();
+            $completedProjects = Project::where('status', 'completed')->count();
+            $delayedProjects = Project::where('status', 'active')
+                ->where('created_at', '<', now()->subDays(14))
+                ->whereDoesntHave('bomItems.receiptItems', fn($q) => $q->where('updated_at', '>=', now()->subDays(14)))
+                ->count();
+        }
 
         $pqQuery = PurchaseQueueItem::query();
         if ($projectId) {
@@ -288,6 +306,9 @@ class QuantityCalculationService
             'active_projects' => $totalActiveProjects,
             'completed_projects' => $completedProjects,
             'delayed_projects' => $delayedProjects,
+            'total_parts' => 0,
+            'total_parts_received' => 0,
+            'parts_pending' => 0,
             'total_required' => 0,
             'total_received' => 0,
             'raw_received' => 0,
@@ -315,9 +336,12 @@ class QuantityCalculationService
             $pMetrics = $this->calculateProjectMetrics($proj, $side, $filters);
             $grandSummary['total_required'] += $pMetrics['required_qty'];
             $grandSummary['total_received'] += $pMetrics['received_qty'];
+            $grandSummary['total_parts'] += $pMetrics['required_qty'];
+            $grandSummary['total_parts_received'] += $pMetrics['received_qty'];
             $grandSummary['raw_received'] += $pMetrics['raw_received'];
             $grandSummary['excess_received'] += $pMetrics['excess_received'];
             $grandSummary['total_pending'] += $pMetrics['pending_qty'];
+            $grandSummary['parts_pending'] += $pMetrics['pending_qty'];
             $grandSummary['pending_store'] += $pMetrics['pending_qty'];
             $grandSummary['parts_in_store'] += $pMetrics['parts_in_store'];
             $grandSummary['parts_in_qc'] += $pMetrics['parts_in_qc'];
@@ -504,6 +528,8 @@ class QuantityCalculationService
         $rec = $m['total_received'] ?? $m['received_qty'] ?? 0;
         $pending = $m['total_pending'] ?? $m['pending_qty'] ?? max(0, $req - $rec);
         $completion = $m['completion_pct'] ?? ($req > 0 ? min(100, round(($rec / $req) * 100, 1)) : 0);
+        $asmComp = $m['assembly_completed'] ?? $m['assembly_qty'] ?? 0;
+        $isComplete = ($req > 0 && $asmComp >= $req);
 
         return [
             'id' => $proj->id,
@@ -512,6 +538,9 @@ class QuantityCalculationService
             'description' => $proj->description,
             'status' => $proj->status,
             'total_items' => $m['total_items'] ?? 0,
+            'total_parts' => $req,
+            'total_parts_received' => $rec,
+            'parts_pending' => $pending,
             'total_required' => $req,
             'total_received' => $rec,
             'required_qty' => $req,
@@ -533,10 +562,10 @@ class QuantityCalculationService
             'paint_ready' => $m['paint_ready'] ?? 0,
             'paint_qty' => $m['paint_completed'] ?? $m['paint_qty'] ?? 0,
             'assembly_ready' => $m['assembly_ready'] ?? 0,
-            'assembly_qty' => $m['assembly_completed'] ?? $m['assembly_qty'] ?? 0,
+            'assembly_qty' => $asmComp,
             'progress_percent' => $completion,
             'completion_pct' => $completion,
-            'is_complete' => ($completion >= 100 && $req > 0),
+            'is_complete' => $isComplete,
         ];
     }
 }

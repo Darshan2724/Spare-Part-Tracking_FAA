@@ -597,6 +597,7 @@ class QuantityCalculationHierarchyTest extends TestCase
         ]);
 
         // Total received: 30 + 20 + 10 + 20 + 10 + 10 = 100
+        // Total received: 30 (Store) + 20 (QC) + 10 (Rework) + 20 (Paint) + 20 (Assembly) = 100
         $metrics = $this->quantityService->calculateProjectMetrics($project);
 
         $this->assertEquals(100, $metrics['required_qty']);
@@ -606,22 +607,213 @@ class QuantityCalculationHierarchyTest extends TestCase
         $this->assertEquals(20, $metrics['parts_in_qc']);
         $this->assertEquals(10, $metrics['parts_in_rework']);
         $this->assertEquals(20, $metrics['parts_in_paint']);
-        $this->assertEquals(10, $metrics['parts_in_assembly']);
-        $this->assertEquals(10, $metrics['assembly_qty']);
+        $this->assertEquals(20, $metrics['parts_in_assembly']);
 
-        // Mandatory Reconciliation Invariant
+        // Mandatory Section 11 Received Workflow Reconciliation Invariant:
+        // Total Parts Received = Store + QC Active + Rework + Paint + Assembly + Rejected
         $reconciledSum = $metrics['parts_in_store'] +
                          $metrics['parts_in_qc'] +
                          $metrics['parts_in_rework'] +
                          $metrics['parts_in_paint'] +
                          $metrics['parts_in_assembly'] +
-                         $metrics['assembly_qty'];
+                         $metrics['rejected_qty'];
 
         $this->assertEquals($metrics['received_qty'], $reconciledSum);
     }
 
     /**
-     * Test Dashboard API returns all 10 Primary Cards, Top Projects, and Health Distribution.
+     * Test Section 28 Example 2: Moving parts QC -> Rework decreases QC and increases Rework without changing Total Parts Received.
+     */
+    public function test_section_28_example_2_qc_to_rework_movement_preserves_total_received(): void
+    {
+        $admin = $this->getAdminUser();
+        $this->actingAs($admin, 'sanctum');
+
+        $project = Project::create([
+            'name' => 'QC-Rework-Test-' . uniqid(),
+            'project_code' => 'QRT-' . rand(1000, 9999),
+            'status' => 'active',
+            'created_by' => $admin->id,
+        ]);
+        $supplier = Supplier::firstOrCreate(['name' => 'Test Supplier QC Rew'], ['code' => 'TSQ-' . rand(100, 999), 'is_active' => true]);
+
+        $item = BomItem::create([
+            'project_id' => $project->id,
+            'supplier_id' => $supplier->id,
+            'standard_part_no' => 'PART-QC-REW-' . uniqid(),
+        ]);
+        BomRequirement::create([
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'required_quantity' => 100,
+        ]);
+
+        $receipt = Receipt::create(['project_id' => $project->id, 'received_by' => $admin->id]);
+        ReceiptItem::create([
+            'receipt_id' => $receipt->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'received_quantity' => 80,
+            'status' => 'sent_to_qc',
+        ]);
+
+        // Initial QC state: 25 in QC, 5 Rejected, 50 in other states
+        \App\Models\QcInspection::create([
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'inspected_quantity' => 5,
+            'rejected_quantity' => 5,
+            'result' => 'rejected',
+            'inspection_date' => now(),
+            'inspected_by' => $admin->id,
+        ]);
+
+        $metricsBefore = $this->quantityService->calculateProjectMetrics($project);
+        $this->assertEquals(80, $metricsBefore['received_qty']);
+        $this->assertEquals(75, $metricsBefore['parts_in_qc']); // 80 sent to qc minus 5 rejected = 75 active in QC
+        $this->assertEquals(5, $metricsBefore['rejected_qty']);
+
+        // Move 4 to Rework via QC inspection
+        $qcRew = \App\Models\QcInspection::create([
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'inspected_quantity' => 4,
+            'rework_quantity' => 4,
+            'result' => 'rework',
+            'inspection_date' => now(),
+            'inspected_by' => $admin->id,
+        ]);
+
+        \App\Models\ReworkRecord::create([
+            'qc_inspection_id' => $qcRew->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'quantity' => 4,
+            'status' => 'in_progress',
+        ]);
+
+        $metricsAfter = $this->quantityService->calculateProjectMetrics($project);
+        $this->assertEquals(80, $metricsAfter['received_qty']); // Total Parts Received unchanged
+        $this->assertEquals(71, $metricsAfter['parts_in_qc']); // QC active decreases from 75 to 71
+        $this->assertEquals(4, $metricsAfter['parts_in_rework']); // Rework increases by 4
+        $this->assertEquals(5, $metricsAfter['rejected_qty']); // Rejected remains 5
+        $this->assertEquals(80, $metricsAfter['parts_in_qc'] + $metricsAfter['parts_in_rework'] + $metricsAfter['rejected_qty']);
+    }
+
+    /**
+     * Test Section 28 Example 3: Partial store receipt (Required 6, Received 4 -> Pending 2).
+     */
+    public function test_section_28_example_3_partial_quantity_store_receipt(): void
+    {
+        $admin = $this->getAdminUser();
+        $this->actingAs($admin, 'sanctum');
+
+        $project = Project::create([
+            'name' => 'Partial-Receipt-Test-' . uniqid(),
+            'project_code' => 'PRT-' . rand(1000, 9999),
+            'status' => 'active',
+            'created_by' => $admin->id,
+        ]);
+        $supplier = Supplier::firstOrCreate(['name' => 'Test Supplier Partial'], ['code' => 'TSP-' . rand(100, 999), 'is_active' => true]);
+
+        $item = BomItem::create([
+            'project_id' => $project->id,
+            'supplier_id' => $supplier->id,
+            'standard_part_no' => 'PART-PARTIAL-' . uniqid(),
+        ]);
+        BomRequirement::create([
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'required_quantity' => 6,
+        ]);
+
+        $receipt = Receipt::create(['project_id' => $project->id, 'received_by' => $admin->id]);
+        ReceiptItem::create([
+            'receipt_id' => $receipt->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'received_quantity' => 4,
+            'status' => 'received',
+        ]);
+
+        $metrics = $this->quantityService->calculateProjectMetrics($project);
+        $this->assertEquals(6, $metrics['total_required']);
+        $this->assertEquals(4, $metrics['total_received']);
+        $this->assertEquals(2, $metrics['total_pending']);
+        $this->assertEquals(4, $metrics['parts_in_store']);
+        $this->assertFalse($metrics['is_complete']);
+    }
+
+    /**
+     * Test Section 28 Examples 4 & 5: Project completion is achieved ONLY when final Assembly completed covers required quantity.
+     */
+    public function test_section_28_example_4_and_5_project_completion_requires_assembly(): void
+    {
+        $admin = $this->getAdminUser();
+        $this->actingAs($admin, 'sanctum');
+
+        $project = Project::create([
+            'name' => 'Completion-Assembly-Test-' . uniqid(),
+            'project_code' => 'CAT-' . rand(1000, 9999),
+            'status' => 'active',
+            'created_by' => $admin->id,
+        ]);
+        $supplier = Supplier::firstOrCreate(['name' => 'Test Supplier Compl'], ['code' => 'TSC2-' . rand(100, 999), 'is_active' => true]);
+
+        $item = BomItem::create([
+            'project_id' => $project->id,
+            'supplier_id' => $supplier->id,
+            'standard_part_no' => 'PART-COMPL-' . uniqid(),
+        ]);
+        BomRequirement::create([
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'required_quantity' => 100,
+        ]);
+
+        $receipt = Receipt::create(['project_id' => $project->id, 'received_by' => $admin->id]);
+        ReceiptItem::create([
+            'receipt_id' => $receipt->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'received_quantity' => 100,
+            'status' => 'assembly_completed',
+        ]);
+
+        $asmQc = \App\Models\QcInspection::create([
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'inspected_quantity' => 100,
+            'approved_quantity' => 100,
+            'destination' => 'ASSEMBLY',
+            'result' => 'approved',
+            'inspection_date' => now(),
+            'inspected_by' => $admin->id,
+        ]);
+
+        // Example 4: 99 assembled -> is_complete = false
+        $asmRecord = \App\Models\AssemblyRecord::create([
+            'qc_inspection_id' => $asmQc->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'quantity' => 99,
+            'status' => 'completed',
+        ]);
+
+        $metrics99 = $this->quantityService->calculateProjectMetrics($project);
+        $this->assertEquals(99, $metrics99['assembly_qty']);
+        $this->assertFalse($metrics99['is_complete']);
+
+        // Example 5: 100 assembled -> is_complete = true
+        $asmRecord->update(['quantity' => 100]);
+
+        $metrics100 = $this->quantityService->calculateProjectMetrics($project);
+        $this->assertEquals(100, $metrics100['assembly_qty']);
+        $this->assertTrue($metrics100['is_complete']);
+    }
+
+    /**
+     * Test Dashboard API returns all Primary Cards, Top Projects, and Health Distribution.
      */
     public function test_dashboard_api_returns_all_primary_cards_top_projects_and_health_distribution(): void
     {
@@ -631,16 +823,18 @@ class QuantityCalculationHierarchyTest extends TestCase
         $response = $this->getJson('/api/v1/dashboard/summary');
         $response->assertStatus(200);
 
-        // Assert all 10 primary card metrics are present
+        // Assert all primary card metrics are present
         $response->assertJsonStructure([
             'summary' => [
-                'total_projects',
+                'active_projects',
                 'completed_projects',
-                'total_required',
-                'total_received',
-                'total_pending',
+                'delayed_projects',
+                'total_parts',
+                'total_parts_received',
+                'parts_pending',
                 'parts_in_store',
                 'parts_in_qc',
+                'qc_rejected',
                 'parts_in_rework',
                 'parts_in_paint',
                 'parts_in_assembly',
