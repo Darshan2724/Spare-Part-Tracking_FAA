@@ -201,15 +201,15 @@ class QuantityCalculationService
                 // Dispatched to QC (valid quantity that left store for QC)
                 $qcDispatchedFromReceipts = (int) $recForSide->whereNotIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
                 $qcTotalAccounted = $qcApp + $qcRej + $qcRew;
-                $sentToQc = min($effectiveRecQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
+                $sentToQc = min($rawRecQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
 
                 // State Transition Ledger (Section 12: Zero-sum conservation)
                 $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
-                $storeResident = max(0, $effectiveRecQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReached));
+                $storeResident = max(0, $rawRecQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReached));
 
                 // Accumulate strictly into project canonical metrics
                 $metrics['total_required'] += $reqQty;
-                $metrics['total_received'] += $effectiveRecQty;
+                $metrics['total_received'] += $rawRecQty;
                 $metrics['raw_received'] += $rawRecQty;
                 $metrics['excess_received'] += $excessQty;
                 $metrics['total_pending'] += $pendingQty;
