@@ -449,4 +449,222 @@ class QuantityCalculationHierarchyTest extends TestCase
         $this->assertEquals(30, $metrics['pending_qty']);
         $this->assertEquals(40.0, $metrics['completion_pct']);
     }
+
+    /**
+     * Test workflow location resident quantities reconciliation invariant:
+     * Store + QC + Rework + Paint + Assembly + Assembly_Completed == Total Received.
+     */
+    public function test_parts_in_location_reconciles_with_total_received(): void
+    {
+        $admin = $this->getAdminUser();
+        $this->actingAs($admin, 'sanctum');
+
+        $project = Project::create([
+            'name' => 'Location-Invariant-Test-' . uniqid(),
+            'project_code' => 'LIT-' . rand(1000, 9999),
+            'status' => 'active',
+            'created_by' => $admin->id,
+        ]);
+
+        $item = BomItem::create([
+            'project_id' => $project->id,
+            'standard_part_no' => 'LOCATION-PART-' . uniqid(),
+        ]);
+
+        BomRequirement::create([
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'required_quantity' => 100,
+        ]);
+
+        $receipt = Receipt::create([
+            'project_id' => $project->id,
+            'received_by' => $admin->id,
+        ]);
+
+        // 1. 30 units in Store (status: received)
+        ReceiptItem::create([
+            'receipt_id' => $receipt->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'received_quantity' => 30,
+            'status' => 'received',
+        ]);
+
+        // 2. 20 units in QC (status: sent_to_qc)
+        ReceiptItem::create([
+            'receipt_id' => $receipt->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'received_quantity' => 20,
+            'status' => 'sent_to_qc',
+        ]);
+
+        // 3. 10 units in Rework
+        $reworkReceipt = ReceiptItem::create([
+            'receipt_id' => $receipt->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'received_quantity' => 10,
+            'status' => 'qc_rework',
+        ]);
+        $reworkQc = \App\Models\QcInspection::create([
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'inspected_quantity' => 10,
+            'rework_quantity' => 10,
+            'result' => 'rework',
+            'inspection_date' => now(),
+            'inspected_by' => $admin->id,
+        ]);
+        \App\Models\ReworkRecord::create([
+            'qc_inspection_id' => $reworkQc->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'quantity' => 10,
+            'status' => 'in_progress',
+        ]);
+
+        // 4. 20 units in Paint (QC Approved for Paint)
+        ReceiptItem::create([
+            'receipt_id' => $receipt->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'received_quantity' => 20,
+            'status' => 'qc_approved',
+        ]);
+        \App\Models\QcInspection::create([
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'inspected_quantity' => 20,
+            'approved_quantity' => 20,
+            'destination' => 'PAINT',
+            'result' => 'approved',
+            'inspection_date' => now(),
+            'inspected_by' => $admin->id,
+        ]);
+
+        // 5. 10 units in Assembly (Paint completed, ready for assembly)
+        ReceiptItem::create([
+            'receipt_id' => $receipt->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'received_quantity' => 10,
+            'status' => 'paint_completed',
+        ]);
+        $paintQc = \App\Models\QcInspection::create([
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'inspected_quantity' => 10,
+            'approved_quantity' => 10,
+            'destination' => 'PAINT',
+            'result' => 'approved',
+            'inspection_date' => now(),
+            'inspected_by' => $admin->id,
+        ]);
+        \App\Models\PaintRecord::create([
+            'qc_inspection_id' => $paintQc->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'quantity' => 10,
+            'status' => 'completed',
+        ]);
+
+        // 6. 10 units Assembled
+        ReceiptItem::create([
+            'receipt_id' => $receipt->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'received_quantity' => 10,
+            'status' => 'assembly_completed',
+        ]);
+        $asmQc = \App\Models\QcInspection::create([
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'inspected_quantity' => 10,
+            'approved_quantity' => 10,
+            'destination' => 'ASSEMBLY',
+            'result' => 'approved',
+            'inspection_date' => now(),
+            'inspected_by' => $admin->id,
+        ]);
+        \App\Models\AssemblyRecord::create([
+            'qc_inspection_id' => $asmQc->id,
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'quantity' => 10,
+            'status' => 'completed',
+        ]);
+
+        // Total received: 30 + 20 + 10 + 20 + 10 + 10 = 100
+        $metrics = $this->quantityService->calculateProjectMetrics($project);
+
+        $this->assertEquals(100, $metrics['required_qty']);
+        $this->assertEquals(100, $metrics['received_qty']);
+        $this->assertEquals(0, $metrics['pending_qty']);
+        $this->assertEquals(30, $metrics['parts_in_store']);
+        $this->assertEquals(20, $metrics['parts_in_qc']);
+        $this->assertEquals(10, $metrics['parts_in_rework']);
+        $this->assertEquals(20, $metrics['parts_in_paint']);
+        $this->assertEquals(10, $metrics['parts_in_assembly']);
+        $this->assertEquals(10, $metrics['assembly_qty']);
+
+        // Mandatory Reconciliation Invariant
+        $reconciledSum = $metrics['parts_in_store'] +
+                         $metrics['parts_in_qc'] +
+                         $metrics['parts_in_rework'] +
+                         $metrics['parts_in_paint'] +
+                         $metrics['parts_in_assembly'] +
+                         $metrics['assembly_qty'];
+
+        $this->assertEquals($metrics['received_qty'], $reconciledSum);
+    }
+
+    /**
+     * Test Dashboard API returns all 10 Primary Cards, Top Projects, and Health Distribution.
+     */
+    public function test_dashboard_api_returns_all_primary_cards_top_projects_and_health_distribution(): void
+    {
+        $admin = $this->getAdminUser();
+        $this->actingAs($admin, 'sanctum');
+
+        $response = $this->getJson('/api/v1/dashboard/summary');
+        $response->assertStatus(200);
+
+        // Assert all 10 primary card metrics are present
+        $response->assertJsonStructure([
+            'summary' => [
+                'total_projects',
+                'completed_projects',
+                'total_required',
+                'total_received',
+                'total_pending',
+                'parts_in_store',
+                'parts_in_qc',
+                'parts_in_rework',
+                'parts_in_paint',
+                'parts_in_assembly',
+                'completion_pct',
+            ],
+            'top_projects' => [
+                'labels',
+                'names',
+                'percentages',
+                'required',
+                'received',
+                'pending',
+            ],
+            'health_distribution' => [
+                'counts' => [
+                    'near_completion',
+                    'on_track',
+                    'at_risk',
+                    'delayed',
+                ],
+                'percentages',
+                'total_active',
+            ]
+        ]);
+    }
 }
+

@@ -72,6 +72,11 @@ class QuantityCalculationService
                 'excess_received' => 0,
                 'total_pending' => 0,
                 'completion_pct' => 0,
+                'parts_in_store' => 0,
+                'parts_in_qc' => 0,
+                'parts_in_rework' => 0,
+                'parts_in_paint' => 0,
+                'parts_in_assembly' => 0,
                 'awaiting_qc' => 0,
                 'qc_approved' => 0,
                 'qc_rejected' => 0,
@@ -127,6 +132,11 @@ class QuantityCalculationService
             'raw_received' => 0,        // Total physical receipts sum
             'excess_received' => 0,     // Total over-receipt sum (raw_received - total_received)
             'total_pending' => 0,       // Canonical: max(0, required - total_received)
+            'parts_in_store' => 0,      // Currently residing in Store (status: received, returned_to_store)
+            'parts_in_qc' => 0,         // Currently residing in QC (status: sent_to_qc, qc_received)
+            'parts_in_rework' => 0,     // Currently residing in Rework (rework pending/in_progress)
+            'parts_in_paint' => 0,      // Currently residing in Paint (qc_approved destined for paint minus paint_completed)
+            'parts_in_assembly' => 0,   // Currently residing in Assembly (paint_completed + qc_direct_asm minus asm_completed)
             'awaiting_qc' => 0,
             'qc_approved' => 0,
             'qc_rejected' => 0,
@@ -168,9 +178,11 @@ class QuantityCalculationService
                 $excessQty = max(0, $rawRecQty - $reqQty);
                 $pendingQty = max(0, $reqQty - $effectiveRecQty);
 
+                // Location Resident Quantities
+                $storeResident = (int) $recForSide->whereIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
+                $qcResident = (int) $recForSide->whereIn('status', ['sent_to_qc', 'qc_received'])->sum('received_quantity');
+
                 // QC Stats
-                $qcPendingArrival = (int) $recForSide->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
-                $qcPendingInsp = (int) $recForSide->where('status', 'qc_received')->sum('received_quantity');
                 $qcApp = (int) $qcForSide->sum('approved_quantity');
                 $qcRej = (int) $qcForSide->sum('rejected_quantity');
                 $qcRew = (int) $qcForSide->sum('rework_quantity');
@@ -179,6 +191,7 @@ class QuantityCalculationService
                 $rewPending = (int) $reworkForSide->where('status', 'pending')->sum('quantity');
                 $rewProg = (int) $reworkForSide->where('status', 'in_progress')->sum('quantity');
                 $rewComp = (int) $reworkForSide->where('status', 'completed')->sum('quantity');
+                $reworkResident = $rewPending + $rewProg;
 
                 // Paint Stats
                 $qcAppPaint = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && ($q->destination === 'PAINT' || empty($q->destination)))->sum('approved_quantity');
@@ -196,7 +209,16 @@ class QuantityCalculationService
                 $metrics['raw_received'] += $rawRecQty;
                 $metrics['excess_received'] += $excessQty;
                 $metrics['total_pending'] += $pendingQty;
-                $metrics['awaiting_qc'] += ($qcPendingArrival + $qcPendingInsp);
+
+                // Location Resident Quantities
+                $metrics['parts_in_store'] += $storeResident;
+                $metrics['parts_in_qc'] += $qcResident;
+                $metrics['parts_in_rework'] += $reworkResident;
+                $metrics['parts_in_paint'] += $paintReady;
+                $metrics['parts_in_assembly'] += $asmReady;
+
+                // QC & Operational Stats
+                $metrics['awaiting_qc'] += $qcResident;
                 $metrics['qc_approved'] += $qcApp;
                 $metrics['qc_rejected'] += $qcRej;
                 $metrics['qc_rework'] += $qcRew;
@@ -232,11 +254,13 @@ class QuantityCalculationService
         $projectsQuery = Project::query();
         if ($projectId) {
             $projectsQuery->where('id', $projectId);
+        } else {
+            $projectsQuery->where('status', 'active');
         }
 
         $projects = $projectsQuery->get();
 
-        $totalProjects = Project::where('status', 'active')->count();
+        $totalActiveProjects = Project::where('status', 'active')->count();
         $completedProjects = Project::where('status', 'completed')->count();
         
         $delayedProjects = Project::where('status', 'active')
@@ -260,14 +284,21 @@ class QuantityCalculationService
         $pendingPurchase = (int) $pqQuery->where('status', 'pending_purchase')->count();
 
         $grandSummary = [
-            'total_projects' => $totalProjects,
+            'total_projects' => $totalActiveProjects,
+            'active_projects' => $totalActiveProjects,
             'completed_projects' => $completedProjects,
             'delayed_projects' => $delayedProjects,
             'total_required' => 0,
             'total_received' => 0,
             'raw_received' => 0,
             'excess_received' => 0,
+            'total_pending' => 0,
             'pending_store' => 0,
+            'parts_in_store' => 0,
+            'parts_in_qc' => 0,
+            'parts_in_rework' => 0,
+            'parts_in_paint' => 0,
+            'parts_in_assembly' => 0,
             'awaiting_qc' => 0,
             'qc_approved' => 0,
             'qc_rework' => 0,
@@ -286,7 +317,13 @@ class QuantityCalculationService
             $grandSummary['total_received'] += $pMetrics['received_qty'];
             $grandSummary['raw_received'] += $pMetrics['raw_received'];
             $grandSummary['excess_received'] += $pMetrics['excess_received'];
+            $grandSummary['total_pending'] += $pMetrics['pending_qty'];
             $grandSummary['pending_store'] += $pMetrics['pending_qty'];
+            $grandSummary['parts_in_store'] += $pMetrics['parts_in_store'];
+            $grandSummary['parts_in_qc'] += $pMetrics['parts_in_qc'];
+            $grandSummary['parts_in_rework'] += $pMetrics['parts_in_rework'];
+            $grandSummary['parts_in_paint'] += $pMetrics['parts_in_paint'];
+            $grandSummary['parts_in_assembly'] += $pMetrics['parts_in_assembly'];
             $grandSummary['awaiting_qc'] += $pMetrics['awaiting_qc'];
             $grandSummary['qc_approved'] += $pMetrics['approved_qty'];
             $grandSummary['qc_rework'] += $pMetrics['qc_rework'];
@@ -312,7 +349,10 @@ class QuantityCalculationService
      */
     public function calculateProjectsProgress(array $filters = []): Collection
     {
-        $projects = Project::withCount('bomItems')->get();
+        $projects = Project::where('status', 'active')
+            ->withCount('bomItems')
+            ->orderBy('name')
+            ->get();
         $side = $filters['side'] ?? null;
 
         return $projects->map(function ($proj) use ($side, $filters) {
@@ -328,15 +368,131 @@ class QuantityCalculationService
                 'raw_received' => $pMetrics['raw_received'],
                 'excess_received' => $pMetrics['excess_received'],
                 'pending_qty' => $pMetrics['pending_qty'],
+                'parts_in_store' => $pMetrics['parts_in_store'],
+                'parts_in_qc' => $pMetrics['parts_in_qc'],
+                'parts_in_rework' => $pMetrics['parts_in_rework'],
+                'parts_in_paint' => $pMetrics['parts_in_paint'],
+                'parts_in_assembly' => $pMetrics['parts_in_assembly'],
                 'approved_qty' => $pMetrics['approved_qty'],
                 'rework_qty' => $pMetrics['rework_qty'],
                 'rejected_qty' => $pMetrics['rejected_qty'],
                 'paint_qty' => $pMetrics['paint_qty'],
                 'assembly_qty' => $pMetrics['assembly_qty'],
                 'progress_percent' => $pMetrics['progress_percent'],
+                'completion_pct' => $pMetrics['completion_pct'],
                 'is_complete' => $pMetrics['is_complete'],
             ];
         });
+    }
+
+    /**
+     * Calculate Top Projects Near Completion for Dashboard.
+     * Ranks active projects by completion percentage descending.
+     *
+     * @param array $filters
+     * @param int $limit
+     * @return array
+     */
+    public function getTopProjectsNearCompletion(array $filters = [], int $limit = 10): array
+    {
+        $progress = $this->calculateProjectsProgress($filters);
+
+        // Filter active incomplete projects with required > 0
+        $activeIncomplete = $progress->filter(function ($p) {
+            return !$p['is_complete'] && $p['required_qty'] > 0;
+        })->sortByDesc('progress_percent')->values();
+
+        $topSubset = $activeIncomplete->take($limit);
+
+        return [
+            'labels' => $topSubset->pluck('project_code')->toArray(),
+            'names' => $topSubset->map(fn($p) => ($p['project_code'] ?: $p['name']) . ' - ' . $p['name'])->toArray(),
+            'percentages' => $topSubset->pluck('progress_percent')->toArray(),
+            'required' => $topSubset->pluck('required_qty')->toArray(),
+            'received' => $topSubset->pluck('received_qty')->toArray(),
+            'pending' => $topSubset->pluck('pending_qty')->toArray(),
+            'projects' => $topSubset->toArray(),
+            'total_active_incomplete' => $activeIncomplete->count(),
+        ];
+    }
+
+    /**
+     * Calculate Overall Project Health Distribution for Upper Management.
+     * Segments active projects into: Near Completion, On Track, At Risk, Delayed.
+     *
+     * @param array $filters
+     * @return array
+     */
+    public function calculateProjectHealthDistribution(array $filters = []): array
+    {
+        $projects = Project::where('status', 'active')
+            ->with(['bomItems.receiptItems', 'bomItems.qcInspections'])
+            ->get();
+
+        $counts = [
+            'near_completion' => 0,
+            'on_track' => 0,
+            'at_risk' => 0,
+            'delayed' => 0,
+        ];
+
+        $projectsByHealth = [
+            'near_completion' => [],
+            'on_track' => [],
+            'at_risk' => [],
+            'delayed' => [],
+        ];
+
+        foreach ($projects as $proj) {
+            $pMetrics = $this->calculateProjectMetrics($proj, $filters['side'] ?? null, $filters);
+            $completion = $pMetrics['completion_pct'];
+            $req = $pMetrics['required_qty'];
+
+            if ($req === 0) {
+                continue;
+            }
+
+            // Check latest activity timestamp across receipts and QC
+            $latestReceipt = $proj->bomItems->flatMap->receiptItems->max('updated_at');
+            $latestQc = $proj->bomItems->flatMap->qcInspections->max('updated_at');
+            $latestActivity = max($latestReceipt, $latestQc, $proj->created_at);
+
+            $daysSinceActivity = $latestActivity ? now()->diffInDays($latestActivity) : 999;
+
+            if ($completion >= 85.0) {
+                $category = 'near_completion';
+            } elseif ($daysSinceActivity > 14 && $completion < 85.0) {
+                $category = 'delayed';
+            } elseif ($daysSinceActivity > 7 && $completion < 85.0) {
+                $category = 'at_risk';
+            } else {
+                $category = 'on_track';
+            }
+
+            $counts[$category]++;
+            $projectsByHealth[$category][] = [
+                'id' => $proj->id,
+                'project_code' => $proj->project_code,
+                'name' => $proj->name,
+                'completion_pct' => $completion,
+                'days_inactive' => $daysSinceActivity,
+                'category' => $category,
+            ];
+        }
+
+        $totalActive = array_sum($counts);
+
+        return [
+            'counts' => $counts,
+            'percentages' => [
+                'near_completion' => $totalActive > 0 ? round(($counts['near_completion'] / $totalActive) * 100, 1) : 0,
+                'on_track' => $totalActive > 0 ? round(($counts['on_track'] / $totalActive) * 100, 1) : 0,
+                'at_risk' => $totalActive > 0 ? round(($counts['at_risk'] / $totalActive) * 100, 1) : 0,
+                'delayed' => $totalActive > 0 ? round(($counts['delayed'] / $totalActive) * 100, 1) : 0,
+            ],
+            'total_active' => $totalActive,
+            'details' => $projectsByHealth,
+        ];
     }
 
     /**
@@ -363,6 +519,12 @@ class QuantityCalculationService
             'raw_received' => $m['raw_received'] ?? $rec,
             'excess_received' => $m['excess_received'] ?? 0,
             'pending_qty' => $pending,
+            'total_pending' => $pending,
+            'parts_in_store' => $m['parts_in_store'] ?? 0,
+            'parts_in_qc' => $m['parts_in_qc'] ?? $m['awaiting_qc'] ?? 0,
+            'parts_in_rework' => $m['parts_in_rework'] ?? $m['rework_pending'] ?? 0,
+            'parts_in_paint' => $m['parts_in_paint'] ?? $m['paint_ready'] ?? 0,
+            'parts_in_assembly' => $m['parts_in_assembly'] ?? $m['assembly_ready'] ?? 0,
             'awaiting_qc' => $m['awaiting_qc'] ?? 0,
             'approved_qty' => $m['qc_approved'] ?? $m['approved_qty'] ?? 0,
             'rejected_qty' => $m['qc_rejected'] ?? $m['rejected_qty'] ?? 0,

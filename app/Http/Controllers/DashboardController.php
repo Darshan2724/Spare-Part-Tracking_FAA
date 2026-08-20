@@ -44,6 +44,8 @@ class DashboardController extends Controller
         // Authoritative canonical calculations
         $canonicalSummary = $this->quantityService->calculateDashboardSummary($filters);
         $canonicalProjectsProgress = $this->quantityService->calculateProjectsProgress($filters);
+        $topProjectsNearCompletion = $this->quantityService->getTopProjectsNearCompletion($filters);
+        $healthDistribution = $this->quantityService->calculateProjectHealthDistribution($filters);
 
         // Query builders for contextual widgets
         $recQuery = ReceiptItem::query()->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES);
@@ -211,6 +213,8 @@ class DashboardController extends Controller
             'quality_trend' => $qualityTrend,
             'recent_events' => $recentEvents,
             'projects_progress' => $canonicalProjectsProgress,
+            'top_projects' => $topProjectsNearCompletion,
+            'health_distribution' => $healthDistribution,
             'supplier_performance' => $supplierPerformance,
             'today_throughput' => $todayThroughput,
             'stagnant_parts' => $stagnantParts,
