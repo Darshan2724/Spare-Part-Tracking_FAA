@@ -204,8 +204,8 @@ class QuantityCalculationService
                 $sentToQc = min($effectiveRecQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
 
                 // State Transition Ledger (Section 12: Zero-sum conservation)
-                $storeResident = max(0, $effectiveRecQty - $sentToQc);
                 $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
+                $storeResident = max(0, $effectiveRecQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReached));
 
                 // Accumulate strictly into project canonical metrics
                 $metrics['total_required'] += $reqQty;

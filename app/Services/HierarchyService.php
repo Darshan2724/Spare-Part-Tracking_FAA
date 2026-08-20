@@ -198,8 +198,8 @@ class HierarchyService
                 $sentToQc = min($recQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
 
                 // State Transition Ledger (Section 12: Zero-sum conservation)
-                $storeResident = max(0, $recQty - $sentToQc);
                 $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
+                $storeResident = max(0, $recQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReached));
                 $qcPendingArrival = (int) $recForSide->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
                 $qcPendingInspection = max(0, (int) $recForSide->where('status', 'qc_received')->sum('received_quantity') + $rewComp - ($qcApp + $qcRej + $qcRew));
 
