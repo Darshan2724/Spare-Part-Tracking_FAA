@@ -15,7 +15,12 @@ class ReceiptItem extends Model
         'side',
         'received_quantity',
         'status',
+        'qc_received_at',
         'remarks',
+    ];
+
+    protected $casts = [
+        'qc_received_at' => 'datetime',
     ];
 
     public function receipt()
