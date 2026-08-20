@@ -835,7 +835,6 @@
           </div>
         </div>
       </div>
-      </div>
       <!-- END OF OPTION A (All Active Projects Portfolio View) -->
 
       <!-- ========================================================================= -->

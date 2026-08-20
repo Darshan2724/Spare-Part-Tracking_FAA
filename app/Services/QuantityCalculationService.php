@@ -174,8 +174,8 @@ class QuantityCalculationService
                 $asmForSide = $itemAsm->where('side', $side);
 
                 $rawRecQty = (int) $recForSide->sum('received_quantity');
-                $effectiveRecQty = min($rawRecQty, $reqQty);
-                $excessQty = max(0, $rawRecQty - $reqQty);
+                $effectiveRecQty = min($rawRecQty, $reqQty); // Capped at BOM requirement
+                $excessQty = max(0, $rawRecQty - $reqQty);   // Physical over-delivery
                 $pendingQty = max(0, $reqQty - $effectiveRecQty);
 
                 // QC Inspection stats for this side
@@ -198,19 +198,20 @@ class QuantityCalculationService
                 $asmReached = $paintComp + $qcAppDirectAssembly;
                 $asmReady = max(0, $asmReached - $asmComp);
 
-                // Dispatched to QC (valid quantity that left store for QC)
+                // Dispatched to QC: use rawRecQty so physical parts tracked correctly through workflow
                 $qcDispatchedFromReceipts = (int) $recForSide->whereNotIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
                 $qcTotalAccounted = $qcApp + $qcRej + $qcRew;
                 $sentToQc = min($rawRecQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
 
                 // State Transition Ledger (Section 12: Zero-sum conservation)
+                // Location tracking uses rawRecQty so all physical parts appear in a location
                 $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
                 $storeResident = max(0, $rawRecQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReached));
 
-                // Accumulate strictly into project canonical metrics
+                // Canonical BOM balance counters (effectiveRecQty so: required = received + pending)
                 $metrics['total_required'] += $reqQty;
-                $metrics['total_received'] += $rawRecQty;
-                $metrics['raw_received'] += $rawRecQty;
+                $metrics['total_received'] += $effectiveRecQty;  // Capped: guarantees required = received + pending
+                $metrics['raw_received'] += $rawRecQty;          // Physical gate intake (includes over-delivery)
                 $metrics['excess_received'] += $excessQty;
                 $metrics['total_pending'] += $pendingQty;
 
