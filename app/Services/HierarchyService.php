@@ -183,11 +183,11 @@ class HierarchyService
                 $rewComp = (int) $reworkForSide->where('status', 'completed')->sum('quantity');
                 $rewActive = max(0, $qcRew - $rewComp);
 
-                // Paint Stats
-                $paintComp = (int) $paintForSide->where('status', 'completed')->sum('quantity');
+                // Paint Stats - Include all painted records (completed or assembled) so paint never re-acquires assembled parts
+                $paintComp = (int) $paintForSide->whereIn('status', ['completed', 'assembled'])->sum('quantity');
                 $paintActive = max(0, $qcAppPaint - $paintComp);
 
-                // Assembly Stats (Section 8: all parts reaching assembly remain represented on dashboard)
+                // Assembly Stats
                 $asmComp = (int) $assemblyForSide->where('status', 'completed')->sum('quantity');
                 $asmReached = $paintComp + $qcAppDirectAssembly;
                 $asmReady = max(0, $asmReached - $asmComp);
@@ -199,7 +199,7 @@ class HierarchyService
 
                 // State Transition Ledger (Section 12: Zero-sum conservation)
                 $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
-                $storeResident = max(0, $recQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReached));
+                $storeResident = max(0, $recQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReady + $asmComp));
                 $qcPendingArrival = (int) $recForSide->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
                 $qcPendingInspection = max(0, (int) $recForSide->where('status', 'qc_received')->sum('received_quantity') + $rewComp - ($qcApp + $qcRej + $qcRew));
 
@@ -249,7 +249,7 @@ class HierarchyService
                     'parts_in_paint' => $paintActive,
                     'paint_ready' => $paintActive,
                     'paint_completed' => $paintComp,
-                    'parts_in_assembly' => $asmReached,
+                    'parts_in_assembly' => $asmReady,
                     'assembly_ready' => $asmReady,
                     'assembly_completed' => $asmComp,
                     'receipt_items' => $recForSide->values(),
@@ -281,7 +281,7 @@ class HierarchyService
                     $itemMetrics['parts_in_paint'] += $paintActive;
                     $itemMetrics['paint_ready'] += $paintActive;
                     $itemMetrics['paint_completed'] += $paintComp;
-                    $itemMetrics['parts_in_assembly'] += $asmReached;
+                    $itemMetrics['parts_in_assembly'] += $asmReady;
                     $itemMetrics['assembly_ready'] += $asmReady;
                     $itemMetrics['assembly_completed'] += $asmComp;
                 }

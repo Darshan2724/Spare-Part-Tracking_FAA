@@ -189,11 +189,11 @@ class QuantityCalculationService
                 $rewComp = (int) $reworkForSide->where('status', 'completed')->sum('quantity');
                 $rewActive = max(0, $qcRew - $rewComp);
 
-                // Paint stats for this side
-                $paintComp = (int) $paintForSide->where('status', 'completed')->sum('quantity');
+                // Paint stats for this side - include both completed and assembled so Paint never re-acquires assembled parts
+                $paintComp = (int) $paintForSide->whereIn('status', ['completed', 'assembled'])->sum('quantity');
                 $paintActive = max(0, $qcAppPaint - $paintComp);
 
-                // Assembly stats for this side (Section 8: all parts reaching assembly remain represented on dashboard)
+                // Assembly stats for this side (Active assembly vs Assembly completed)
                 $asmComp = (int) $asmForSide->where('status', 'completed')->sum('quantity');
                 $asmReached = $paintComp + $qcAppDirectAssembly;
                 $asmReady = max(0, $asmReached - $asmComp);
@@ -206,7 +206,7 @@ class QuantityCalculationService
                 // State Transition Ledger (Section 12: Zero-sum conservation)
                 // Strict zero-sum conservation: location sum == total_received
                 $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
-                $storeResident = max(0, $effectiveRecQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReached));
+                $storeResident = max(0, $effectiveRecQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReady + $asmComp));
 
                 // Canonical BOM balance counters (effectiveRecQty so: required = received + pending)
                 $metrics['total_required'] += $reqQty;
@@ -220,7 +220,7 @@ class QuantityCalculationService
                 $metrics['parts_in_qc'] += $qcResident;
                 $metrics['parts_in_rework'] += $rewActive;
                 $metrics['parts_in_paint'] += $paintActive;
-                $metrics['parts_in_assembly'] += $asmReached;
+                $metrics['parts_in_assembly'] += $asmReady; // Active Assembly only
 
                 // QC & Operational Stats
                 $metrics['awaiting_qc'] += $qcResident;

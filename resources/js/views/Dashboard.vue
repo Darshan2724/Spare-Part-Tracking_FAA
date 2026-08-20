@@ -241,13 +241,18 @@
           </div>
         </div>
 
-        <!-- 8. Assembly -->
+        <!-- 8. Assembly (with separate Completed secondary badge) -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
           <div class="card border-0 shadow-sm text-white h-100" style="background-color: #db2777;">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Assembly</div>
-                <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_assembly || 0 }}</h3>
+                <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
+                  <span>Assembly</span>
+                  <span class="badge rounded-pill bg-light text-dark ms-1 px-1 py-0" style="font-size: 0.65rem; font-weight: 600;" title="Completed in Assembly">
+                    Completed: {{ metrics.assembly_completed || 0 }}
+                  </span>
+                </div>
+                <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_assembly || metrics.assembly_ready || 0 }}</h3>
               </div>
               <i class="fas fa-cogs text-white-50 fs-5"></i>
             </div>
@@ -293,7 +298,7 @@
                 <h5 class="card-title fw-bold mb-0 text-dark d-flex align-items-center">
                   <i class="fas fa-heartbeat text-danger me-2"></i>Project Health Distribution
                   <i class="fas fa-info-circle text-muted ms-2 fs-7" style="cursor: pointer;"
-                     title="Executive Portfolio Health Classification:&#10;• Near Completion: ≥85% complete&#10;• On Track: Active progress in last 7 days&#10;• At Risk: No activity for 7-14 days&#10;• Delayed: No activity >14 days &amp; &lt;80% complete"></i>
+                     title="Executive Portfolio Health Classification:&#10;• Near Completion: ≥85% complete&#10;• On Track: Active progress in last 7 days&#10;• At Risk: No activity for 7-14 days&#10;• Delayed: No activity over 14 days and under 80% complete"></i>
                 </h5>
                 <small class="text-muted">Executive Portfolio Risk &amp; Velocity Status</small>
               </div>
@@ -369,7 +374,7 @@
               <option value="CRITICAL">Critical (≥70%)</option>
               <option value="HIGH">High (≥40%)</option>
               <option value="MEDIUM">Medium (≥20%)</option>
-              <option value="LOW">Low (&lt;20%)</option>
+              <option value="LOW">Low (under 20%)</option>
               <option value="COMPLETE">Completed</option>
             </select>
             <select v-model="priorityProjectFilter" class="form-select form-select-sm" style="width: 170px;" @change="fetchPriorityMap">
@@ -834,6 +839,7 @@
             </div>
           </div>
         </div>
+      </div>
       </div>
       <!-- END OF OPTION A (All Active Projects Portfolio View) -->
 
