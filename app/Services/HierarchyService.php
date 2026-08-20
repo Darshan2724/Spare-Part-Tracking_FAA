@@ -169,8 +169,8 @@ class HierarchyService
 
                 $reqQty = (int) $req->required_quantity;
                 $rawRecQty = (int) $recForSide->sum('received_quantity');
-                $recQty = min($rawRecQty, $reqQty);
-                $pendingQty = max(0, $reqQty - $recQty);
+                $recQty = $rawRecQty;
+                $pendingQty = max(0, $reqQty - min($rawRecQty, $reqQty));
 
                 // QC Stats
                 $qcAppPaint = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && ($q->destination === 'PAINT' || empty($q->destination)))->sum('approved_quantity');
@@ -195,11 +195,11 @@ class HierarchyService
                 // Dispatched to QC (valid quantity that left store for QC)
                 $qcDispatchedFromReceipts = (int) $recForSide->whereNotIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
                 $qcTotalAccounted = $qcApp + $qcRej + $qcRew;
-                $sentToQc = min($recQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
+                $sentToQc = min($rawRecQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
 
                 // State Transition Ledger (Section 12: Zero-sum conservation)
                 $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
-                $storeResident = max(0, $recQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReached));
+                $storeResident = max(0, $rawRecQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReached));
                 $qcPendingArrival = (int) $recForSide->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
                 $qcPendingInspection = max(0, (int) $recForSide->where('status', 'qc_received')->sum('received_quantity') + $rewComp - ($qcApp + $qcRej + $qcRew));
 
