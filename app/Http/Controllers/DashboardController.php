@@ -14,14 +14,31 @@ use App\Models\AssemblyRecord;
 use App\Models\WorkflowEvent;
 use App\Models\Supplier;
 use App\Services\QuantityCalculationService;
+use App\Services\HierarchyService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
     public function __construct(
-        protected QuantityCalculationService $quantityService = new QuantityCalculationService()
+        protected QuantityCalculationService $quantityService = new QuantityCalculationService(),
+        protected HierarchyService $hierarchyService = new HierarchyService()
     ) {}
+
+    public function projectHierarchy(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC', 'REWORK', 'PAINT', 'ASSEMBLY', 'PURCHASE']) ?: abort(403);
+
+        $projectId = $request->query('project_id') ? (int) $request->query('project_id') : null;
+        $filters = [
+            'side' => $request->query('side'),
+            'search' => $request->query('search'),
+            'status_filter' => $request->query('status_filter', 'all'),
+        ];
+
+        $hierarchy = $this->hierarchyService->getDepartmentHierarchy('manager', $projectId, $filters);
+        return response()->json($hierarchy);
+    }
 
     public function summary(Request $request)
     {

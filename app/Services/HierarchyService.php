@@ -30,6 +30,8 @@ class HierarchyService
     public function getDepartmentHierarchy(string $department, ?int $projectId = null, array $filters = []): array
     {
         $projects = Project::orderBy('name')->get();
+        $activeProjects = $projects->where('status', 'active')->values();
+        $completedProjects = $projects->where('status', 'completed')->values();
 
         $projectsList = $projects->map(function ($proj) use ($department, $filters) {
             return $this->getProjectOverviewStats($proj, $department, $filters);
@@ -39,6 +41,8 @@ class HierarchyService
             return [
                 'is_hierarchical' => false,
                 'projects' => $projectsList,
+                'active_projects' => $activeProjects,
+                'completed_projects' => $completedProjects,
                 'department' => $department,
                 'message' => 'Select a project to view hierarchical breakdown.',
             ];
@@ -49,6 +53,8 @@ class HierarchyService
             return [
                 'is_hierarchical' => false,
                 'projects' => $projectsList,
+                'active_projects' => $activeProjects,
+                'completed_projects' => $completedProjects,
                 'department' => $department,
                 'message' => 'Project not found.',
             ];
@@ -74,6 +80,9 @@ class HierarchyService
                 'is_hierarchical' => false,
                 'project' => $project,
                 'projects' => $projectsList,
+                'active_projects' => $activeProjects,
+                'completed_projects' => $completedProjects,
+                'canonical_summary' => $this->quantityService->calculateProjectMetrics($project, $filters['side'] ?? null, $filters),
                 'department' => $department,
                 'message' => 'No BOM items found for this project.',
             ];
@@ -115,7 +124,8 @@ class HierarchyService
 
             // Read JIG and Unit directly from the authoritative FA-279 BOM fields
             $jigName = !empty($item->jig_no) ? strtoupper(trim($item->jig_no)) : 'GENERAL';
-            $unitNo = !empty($item->unit_no) ? 'Unit ' . trim($item->unit_no) : 'Unit 00';
+            $rawUnit = !empty($item->unit_no) ? trim($item->unit_no) : '00';
+            $unitNo = str_starts_with(strtoupper($rawUnit), 'UNIT') ? $rawUnit : ('Unit ' . $rawUnit);
 
             $itemReceipts = $receiptItemsGrouped->get($item->id, collect());
             $itemQcInspections = $qcInspectionsGrouped->get($item->id, collect());
@@ -129,16 +139,21 @@ class HierarchyService
                 'total_required' => 0,
                 'total_received' => 0,
                 'total_pending' => 0,
+                'parts_in_store' => 0,
+                'parts_in_qc' => 0,
                 'qc_pending_arrival' => 0,
                 'qc_pending_inspection' => 0,
                 'qc_approved' => 0,
                 'qc_rejected' => 0,
                 'qc_rework' => 0,
+                'parts_in_rework' => 0,
                 'rework_pending' => 0,
                 'rework_in_progress' => 0,
                 'rework_completed' => 0,
+                'parts_in_paint' => 0,
                 'paint_ready' => 0,
                 'paint_completed' => 0,
+                'parts_in_assembly' => 0,
                 'assembly_ready' => 0,
                 'assembly_completed' => 0,
             ];
@@ -153,70 +168,109 @@ class HierarchyService
                 $assemblyForSide = $itemAssemblies->where('side', $side);
 
                 $reqQty = (int) $req->required_quantity;
-                $recQty = (int) $recForSide->sum('received_quantity');
+                $rawRecQty = (int) $recForSide->sum('received_quantity');
+                $recQty = min($rawRecQty, $reqQty);
                 $pendingQty = max(0, $reqQty - $recQty);
 
                 // QC Stats
-                $qcPendingArrival = (int) $recForSide->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
-                $qcPendingInsp = (int) $recForSide->where('status', 'qc_received')->sum('received_quantity');
-                $qcApp = (int) $qcForSide->sum('approved_quantity');
+                $qcAppPaint = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && ($q->destination === 'PAINT' || empty($q->destination)))->sum('approved_quantity');
+                $qcAppDirectAssembly = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && $q->destination === 'ASSEMBLY')->sum('approved_quantity');
+                $qcApp = $qcAppPaint + $qcAppDirectAssembly;
                 $qcRej = (int) $qcForSide->sum('rejected_quantity');
                 $qcRew = (int) $qcForSide->sum('rework_quantity');
 
                 // Rework Stats
-                $rewPending = (int) $reworkForSide->where('status', 'pending')->sum('quantity');
-                $rewProg = (int) $reworkForSide->where('status', 'in_progress')->sum('quantity');
                 $rewComp = (int) $reworkForSide->where('status', 'completed')->sum('quantity');
+                $rewActive = max(0, $qcRew - $rewComp);
 
-                // Paint Stats (Only QC approvals explicitly routed to PAINT)
-                $qcAppPaint = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && ($q->destination === 'PAINT' || empty($q->destination)))->sum('approved_quantity');
-                $qcAppDirectAssembly = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && $q->destination === 'ASSEMBLY')->sum('approved_quantity');
-
+                // Paint Stats
                 $paintComp = (int) $paintForSide->where('status', 'completed')->sum('quantity');
-                $paintReady = max(0, $qcAppPaint - $paintComp);
+                $paintActive = max(0, $qcAppPaint - $paintComp);
 
-                // Assembly Stats (Completed paint parts + Direct QC approved parts routed to ASSEMBLY)
+                // Assembly Stats (Section 8: all parts reaching assembly remain represented on dashboard)
                 $asmComp = (int) $assemblyForSide->where('status', 'completed')->sum('quantity');
-                $asmReady = max(0, ($paintComp + $qcAppDirectAssembly) - $asmComp);
+                $asmReached = $paintComp + $qcAppDirectAssembly;
+                $asmReady = max(0, $asmReached - $asmComp);
+
+                // Dispatched to QC (valid quantity that left store for QC)
+                $qcDispatchedFromReceipts = (int) $recForSide->whereNotIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
+                $qcTotalAccounted = $qcApp + $qcRej + $qcRew;
+                $sentToQc = min($recQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
+
+                // State Transition Ledger (Section 12: Zero-sum conservation)
+                $storeResident = max(0, $recQty - $sentToQc);
+                $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
+
+                // Determine Part Status Badge
+                if ($reqQty > 0 && $asmComp >= $reqQty) {
+                    $statusBadge = 'Done';
+                    $statusColor = 'success';
+                } elseif ($asmReady > 0) {
+                    $statusBadge = 'Assembly';
+                    $statusColor = 'pink';
+                } elseif ($paintActive > 0) {
+                    $statusBadge = 'Paint';
+                    $statusColor = 'purple';
+                } elseif ($rewActive > 0) {
+                    $statusBadge = 'Rework';
+                    $statusColor = 'danger';
+                } elseif ($qcResident > 0) {
+                    $statusBadge = 'QC';
+                    $statusColor = 'info';
+                } elseif ($qcRej > 0 && $storeResident === 0) {
+                    $statusBadge = 'QC (Rejected)';
+                    $statusColor = 'danger';
+                } elseif ($storeResident > 0) {
+                    $statusBadge = 'Store';
+                    $statusColor = 'warning';
+                } else {
+                    $statusBadge = 'Pending';
+                    $statusColor = 'secondary';
+                }
 
                 $sideStats[$side] = [
+                    'side' => $side,
                     'required' => $reqQty,
                     'received' => $recQty,
                     'pending' => $pendingQty,
-                    'qc_pending_arrival' => $qcPendingArrival,
-                    'qc_pending_inspection' => $qcPendingInsp,
+                    'parts_in_store' => $storeResident,
+                    'parts_in_qc' => $qcResident,
                     'qc_approved' => $qcApp,
                     'qc_rejected' => $qcRej,
                     'qc_rework' => $qcRew,
-                    'rework_pending' => $rewPending,
-                    'rework_in_progress' => $rewProg,
+                    'parts_in_rework' => $rewActive,
+                    'rework_pending' => $rewActive,
+                    'rework_in_progress' => (int) $reworkForSide->where('status', 'in_progress')->sum('quantity'),
                     'rework_completed' => $rewComp,
-                    'paint_ready' => $paintReady,
+                    'parts_in_paint' => $paintActive,
+                    'paint_ready' => $paintActive,
                     'paint_completed' => $paintComp,
+                    'parts_in_assembly' => $asmReached,
                     'assembly_ready' => $asmReady,
                     'assembly_completed' => $asmComp,
-                    'receipt_items' => $recForSide->values(),
-                    'qc_inspections' => $qcForSide->values(),
-                    'rework_records' => $reworkForSide->values(),
-                    'paint_records' => $paintForSide->values(),
-                    'assembly_records' => $assemblyForSide->values(),
+                    'status_badge' => $statusBadge,
+                    'status_color' => $statusColor,
+                    'is_done' => ($reqQty > 0 && $asmComp >= $reqQty),
                 ];
 
-                // Accumulate into item metrics (only include in top-level metric if matches filter when filter is active)
+                // Accumulate into item metrics
                 if (empty($filters['side']) || $filters['side'] === $side || $side === 'COMMON') {
                     $itemMetrics['total_required'] += $reqQty;
-                    $itemMetrics['total_received'] += min($recQty, $reqQty);
+                    $itemMetrics['total_received'] += $recQty;
                     $itemMetrics['total_pending'] += $pendingQty;
-                    $itemMetrics['qc_pending_arrival'] += $qcPendingArrival;
-                    $itemMetrics['qc_pending_inspection'] += $qcPendingInsp;
+                    $itemMetrics['parts_in_store'] += $storeResident;
+                    $itemMetrics['parts_in_qc'] += $qcResident;
                     $itemMetrics['qc_approved'] += $qcApp;
                     $itemMetrics['qc_rejected'] += $qcRej;
                     $itemMetrics['qc_rework'] += $qcRew;
-                    $itemMetrics['rework_pending'] += $rewPending;
-                    $itemMetrics['rework_in_progress'] += $rewProg;
+                    $itemMetrics['parts_in_rework'] += $rewActive;
+                    $itemMetrics['rework_pending'] += $rewActive;
+                    $itemMetrics['rework_in_progress'] += (int) $reworkForSide->where('status', 'in_progress')->sum('quantity');
                     $itemMetrics['rework_completed'] += $rewComp;
-                    $itemMetrics['paint_ready'] += $paintReady;
+                    $itemMetrics['parts_in_paint'] += $paintActive;
+                    $itemMetrics['paint_ready'] += $paintActive;
                     $itemMetrics['paint_completed'] += $paintComp;
+                    $itemMetrics['parts_in_assembly'] += $asmReached;
                     $itemMetrics['assembly_ready'] += $asmReady;
                     $itemMetrics['assembly_completed'] += $asmComp;
                 }
@@ -227,41 +281,9 @@ class HierarchyService
                 continue;
             }
 
-            // Check department eligibility for downstream workstations
-            $isEligible = match ($department) {
-                'store' => true,
-                'qc' => (($itemMetrics['qc_pending_arrival'] + $itemMetrics['qc_pending_inspection']) > 0),
-                'rework' => (($itemMetrics['rework_pending'] + $itemMetrics['rework_in_progress']) > 0),
-                'paint' => ($itemMetrics['paint_ready'] > 0),
-                'assembly' => ($itemMetrics['assembly_ready'] > 0),
-                default => true,
-            };
-
-            if (!$isEligible) {
-                continue;
-            }
-
             $item->side_stats = $sideStats;
             $item->metrics = $itemMetrics;
-            
-            // Attach raw operational item IDs for direct action buttons
-            $item->receipt_items = $itemReceipts->values();
-            $item->qc_inspections = $itemQcInspections->values();
-            $item->rework_records = $itemReworks->values();
-            $latestRework = $itemReworks->sortByDesc('created_at')->first();
-            $item->rework_remark = $latestRework?->completion_notes ?: ($latestRework?->rework_description ?: null);
-            $item->paint_records = $itemPaints->values();
-            $item->assembly_records = $itemAssemblies->values();
-
-            // Department-specific completion flag
-            $item->is_complete = match ($department) {
-                'store' => ($itemMetrics['total_required'] > 0 && $itemMetrics['total_pending'] === 0),
-                'qc' => ($itemMetrics['total_received'] > 0 && ($itemMetrics['qc_pending_arrival'] + $itemMetrics['qc_pending_inspection']) === 0),
-                'rework' => ($itemMetrics['qc_rework'] > 0 && $itemMetrics['rework_pending'] === 0 && $itemMetrics['rework_in_progress'] === 0),
-                'paint' => ($itemMetrics['qc_approved'] > 0 && $itemMetrics['paint_ready'] === 0),
-                'assembly' => ($itemMetrics['total_required'] > 0 && $itemMetrics['assembly_completed'] >= $itemMetrics['total_required']),
-                default => ($itemMetrics['total_required'] > 0 && $itemMetrics['assembly_completed'] >= $itemMetrics['total_required']),
-            };
+            $item->is_done = ($itemMetrics['total_required'] > 0 && $itemMetrics['assembly_completed'] >= $itemMetrics['total_required']);
 
             // Group into JIG and Unit structure
             if (!isset($jigsTree[$jigName])) {
@@ -269,6 +291,7 @@ class HierarchyService
                     'jig_name' => $jigName,
                     'total_required' => 0,
                     'total_received' => 0,
+                    'total_pending' => 0,
                     'total_parts' => 0,
                     'complete_units' => 0,
                     'total_units' => 0,
@@ -285,6 +308,7 @@ class HierarchyService
                     'jig_name' => $jigName,
                     'total_required' => 0,
                     'total_received' => 0,
+                    'total_pending' => 0,
                     'total_parts' => 0,
                     'is_complete' => false,
                     'completion_pct' => 0,
@@ -297,11 +321,13 @@ class HierarchyService
             $jigsTree[$jigName]['units'][$unitNo]['total_parts']++;
             $jigsTree[$jigName]['units'][$unitNo]['total_required'] += $itemMetrics['total_required'];
             $jigsTree[$jigName]['units'][$unitNo]['total_received'] += $itemMetrics['total_received'];
+            $jigsTree[$jigName]['units'][$unitNo]['total_pending'] += $itemMetrics['total_pending'];
             $this->accumulateMetrics($jigsTree[$jigName]['units'][$unitNo]['metrics'], $itemMetrics);
 
             $jigsTree[$jigName]['total_parts']++;
             $jigsTree[$jigName]['total_required'] += $itemMetrics['total_required'];
             $jigsTree[$jigName]['total_received'] += $itemMetrics['total_received'];
+            $jigsTree[$jigName]['total_pending'] += $itemMetrics['total_pending'];
             $this->accumulateMetrics($jigsTree[$jigName]['metrics'], $itemMetrics);
         }
 
@@ -313,12 +339,9 @@ class HierarchyService
             $completeUnitsCount = 0;
 
             foreach ($jigData['units'] as $unitNo => $unitData) {
-                // Skip units that are completely empty (no parts at all)
                 if (empty($unitData['parts'])) {
                     continue;
                 }
-                // Always include units that have parts — the mobile UI shows
-                // appropriate "no active work" state per department context.
 
                 $req = $unitData['total_required'];
                 $rec = $unitData['total_received'];
@@ -329,27 +352,53 @@ class HierarchyService
                 $rhParts = [];
                 $lhMetrics = $this->initZeroMetrics();
                 $rhMetrics = $this->initZeroMetrics();
-                $lhRequired = 0; $lhReceived = 0; $lhPending = 0;
-                $rhRequired = 0; $rhReceived = 0; $rhPending = 0;
+                $lhRequired = 0; $lhReceived = 0; $lhPending = 0; $lhAsmComp = 0;
+                $rhRequired = 0; $rhReceived = 0; $rhPending = 0; $rhAsmComp = 0;
 
                 foreach ($unitData['parts'] as $part) {
                     $hasLh = isset($part->side_stats['LH']) || isset($part->side_stats['COMMON']);
                     $hasRh = isset($part->side_stats['RH']) || isset($part->side_stats['COMMON']);
 
                     if ($hasLh) {
-                        $lhParts[] = $part;
                         $st = $part->side_stats['LH'] ?? $part->side_stats['COMMON'];
+                        $lhParts[] = [
+                            'id' => $part->id,
+                            'standard_part_no' => $part->standard_part_no,
+                            'item_no' => $part->item_no ?? '—',
+                            'supplier' => $part->supplier?->name ?? ($part->supplier_name_raw ?? '—'),
+                            'side' => isset($part->side_stats['LH']) ? 'LH' : 'COMMON',
+                            'required_qty' => $st['required'] ?? 0,
+                            'received_qty' => $st['received'] ?? 0,
+                            'pending_qty' => $st['pending'] ?? 0,
+                            'status_badge' => $st['status_badge'] ?? 'Pending',
+                            'status_color' => $st['status_color'] ?? 'secondary',
+                            'is_done' => $st['is_done'] ?? false,
+                        ];
                         $lhRequired += $st['required'] ?? 0;
                         $lhReceived += $st['received'] ?? 0;
                         $lhPending += $st['pending'] ?? 0;
+                        $lhAsmComp += $st['assembly_completed'] ?? 0;
                         $this->accumulateMetrics($lhMetrics, $st);
                     }
                     if ($hasRh) {
-                        $rhParts[] = $part;
                         $st = $part->side_stats['RH'] ?? $part->side_stats['COMMON'];
+                        $rhParts[] = [
+                            'id' => $part->id,
+                            'standard_part_no' => $part->standard_part_no,
+                            'item_no' => $part->item_no ?? '—',
+                            'supplier' => $part->supplier?->name ?? ($part->supplier_name_raw ?? '—'),
+                            'side' => isset($part->side_stats['RH']) ? 'RH' : 'COMMON',
+                            'required_qty' => $st['required'] ?? 0,
+                            'received_qty' => $st['received'] ?? 0,
+                            'pending_qty' => $st['pending'] ?? 0,
+                            'status_badge' => $st['status_badge'] ?? 'Pending',
+                            'status_color' => $st['status_color'] ?? 'secondary',
+                            'is_done' => $st['is_done'] ?? false,
+                        ];
                         $rhRequired += $st['required'] ?? 0;
                         $rhReceived += $st['received'] ?? 0;
                         $rhPending += $st['pending'] ?? 0;
+                        $rhAsmComp += $st['assembly_completed'] ?? 0;
                         $this->accumulateMetrics($rhMetrics, $st);
                     }
                 }
@@ -359,8 +408,7 @@ class HierarchyService
                     'qc' => ($lhRequired > 0 ? min(100, round(($lhMetrics['qc_approved'] / $lhRequired) * 100, 1)) : 100),
                     'rework' => ($lhMetrics['qc_rework'] > 0 ? min(100, round(($lhMetrics['rework_completed'] / $lhMetrics['qc_rework']) * 100, 1)) : 100),
                     'paint' => ($lhRequired > 0 ? min(100, round(($lhMetrics['paint_completed'] / $lhRequired) * 100, 1)) : 100),
-                    'assembly' => ($lhRequired > 0 ? min(100, round(($lhMetrics['assembly_completed'] / $lhRequired) * 100, 1)) : 100),
-                    default => ($lhRequired > 0 ? min(100, round(($lhMetrics['assembly_completed'] / $lhRequired) * 100, 1)) : 100),
+                    default => ($lhRequired > 0 ? min(100, round(($lhAsmComp / $lhRequired) * 100, 1)) : 100),
                 };
 
                 $rhCompletionPct = match ($department) {
@@ -368,45 +416,21 @@ class HierarchyService
                     'qc' => ($rhRequired > 0 ? min(100, round(($rhMetrics['qc_approved'] / $rhRequired) * 100, 1)) : 100),
                     'rework' => ($rhMetrics['qc_rework'] > 0 ? min(100, round(($rhMetrics['rework_completed'] / $rhMetrics['qc_rework']) * 100, 1)) : 100),
                     'paint' => ($rhRequired > 0 ? min(100, round(($rhMetrics['paint_completed'] / $rhRequired) * 100, 1)) : 100),
-                    'assembly' => ($rhRequired > 0 ? min(100, round(($rhMetrics['assembly_completed'] / $rhRequired) * 100, 1)) : 100),
-                    default => ($rhRequired > 0 ? min(100, round(($rhMetrics['assembly_completed'] / $rhRequired) * 100, 1)) : 100),
+                    default => ($rhRequired > 0 ? min(100, round(($rhAsmComp / $rhRequired) * 100, 1)) : 100),
                 };
 
-                $lhHasEligible = match ($department) {
-                    'store' => count($lhParts) > 0,
-                    'qc' => (($lhMetrics['qc_pending_arrival'] + $lhMetrics['qc_pending_inspection']) > 0),
-                    'rework' => (($lhMetrics['rework_pending'] + $lhMetrics['rework_in_progress']) > 0),
-                    'paint' => ($lhMetrics['paint_ready'] > 0 || $lhMetrics['paint_completed'] > 0),
-                    'assembly' => ($lhMetrics['assembly_ready'] > 0 || $lhMetrics['assembly_completed'] > 0),
-                    default => count($lhParts) > 0,
-                };
+                $lhIsComplete = ($lhRequired > 0 && $lhAsmComp >= $lhRequired);
+                $rhIsComplete = ($rhRequired > 0 && $rhAsmComp >= $rhRequired);
 
-                $rhHasEligible = match ($department) {
-                    'store' => count($rhParts) > 0,
-                    'qc' => (($rhMetrics['qc_pending_arrival'] + $rhMetrics['qc_pending_inspection']) > 0),
-                    'rework' => (($rhMetrics['rework_pending'] + $rhMetrics['rework_in_progress']) > 0),
-                    'paint' => ($rhMetrics['paint_ready'] > 0 || $rhMetrics['paint_completed'] > 0),
-                    'assembly' => ($rhMetrics['assembly_ready'] > 0 || $rhMetrics['assembly_completed'] > 0),
-                    default => count($rhParts) > 0,
-                };
-
-                $lhEligibleCount = match ($department) {
-                    'store' => $lhPending,
-                    'qc' => ($lhMetrics['qc_pending_arrival'] + $lhMetrics['qc_pending_inspection']),
-                    'rework' => ($lhMetrics['rework_pending'] + $lhMetrics['rework_in_progress']),
-                    'paint' => $lhMetrics['paint_ready'],
-                    'assembly' => $lhMetrics['assembly_ready'],
-                    default => count($lhParts),
-                };
-
-                $rhEligibleCount = match ($department) {
-                    'store' => $rhPending,
-                    'qc' => ($rhMetrics['qc_pending_arrival'] + $rhMetrics['qc_pending_inspection']),
-                    'rework' => ($rhMetrics['rework_pending'] + $rhMetrics['rework_in_progress']),
-                    'paint' => $rhMetrics['paint_ready'],
-                    'assembly' => $rhMetrics['assembly_ready'],
-                    default => count($rhParts),
-                };
+                // Section 10: Unit is complete only when both required sides are complete!
+                $unitIsComplete = false;
+                if ($lhRequired > 0 && $rhRequired > 0) {
+                    $unitIsComplete = ($lhIsComplete && $rhIsComplete);
+                } elseif ($lhRequired > 0) {
+                    $unitIsComplete = $lhIsComplete;
+                } elseif ($rhRequired > 0) {
+                    $unitIsComplete = $rhIsComplete;
+                }
 
                 $unitData['sides'] = [
                     'LH' => [
@@ -415,10 +439,10 @@ class HierarchyService
                         'total_required' => $lhRequired,
                         'total_received' => $lhReceived,
                         'pending_quantity' => $lhPending,
-                        'eligible_count' => $lhEligibleCount,
+                        'assembly_completed' => $lhAsmComp,
                         'completion_pct' => $lhCompletionPct,
-                        'is_complete' => ($lhCompletionPct >= 100),
-                        'has_eligible' => $lhHasEligible,
+                        'is_complete' => $lhIsComplete,
+                        'parts' => $lhParts,
                         'metrics' => $lhMetrics,
                     ],
                     'RH' => [
@@ -427,10 +451,10 @@ class HierarchyService
                         'total_required' => $rhRequired,
                         'total_received' => $rhReceived,
                         'pending_quantity' => $rhPending,
-                        'eligible_count' => $rhEligibleCount,
+                        'assembly_completed' => $rhAsmComp,
                         'completion_pct' => $rhCompletionPct,
-                        'is_complete' => ($rhCompletionPct >= 100),
-                        'has_eligible' => $rhHasEligible,
+                        'is_complete' => $rhIsComplete,
+                        'parts' => $rhParts,
                         'metrics' => $rhMetrics,
                     ],
                 ];
@@ -440,11 +464,10 @@ class HierarchyService
                     'qc' => ($req > 0 ? min(100, round(($unitData['metrics']['qc_approved'] / $req) * 100, 1)) : 100),
                     'rework' => ($unitData['metrics']['qc_rework'] > 0 ? min(100, round(($unitData['metrics']['rework_completed'] / $unitData['metrics']['qc_rework']) * 100, 1)) : 100),
                     'paint' => ($req > 0 ? min(100, round(($unitData['metrics']['paint_completed'] / $req) * 100, 1)) : 100),
-                    'assembly' => ($req > 0 ? min(100, round(($unitData['metrics']['assembly_completed'] / $req) * 100, 1)) : 100),
                     default => ($req > 0 ? min(100, round(($unitData['metrics']['assembly_completed'] / $req) * 100, 1)) : 100),
                 };
+                $unitData['is_complete'] = $unitIsComplete;
 
-                $unitData['is_complete'] = ($unitData['completion_pct'] >= 100);
                 if ($unitData['is_complete']) {
                     $completeUnitsCount++;
                 }
@@ -452,20 +475,7 @@ class HierarchyService
                 $formattedUnits[] = $unitData;
             }
 
-            // Skip JIGs that have no eligible units for downstream departments
             if (empty($formattedUnits)) {
-                continue;
-            }
-
-            $hasEligibleJigUnits = match ($department) {
-                'qc' => (($jigData['metrics']['qc_pending_arrival'] + $jigData['metrics']['qc_pending_inspection']) > 0 || $jigData['metrics']['qc_approved'] > 0),
-                'rework' => (($jigData['metrics']['rework_pending'] + $jigData['metrics']['rework_in_progress']) > 0),
-                'paint' => ($jigData['metrics']['paint_ready'] > 0 || $jigData['metrics']['paint_completed'] > 0),
-                'assembly' => ($jigData['metrics']['assembly_ready'] > 0 || $jigData['metrics']['assembly_completed'] > 0),
-                default => true,
-            };
-
-            if (!$hasEligibleJigUnits) {
                 continue;
             }
 
@@ -474,6 +484,7 @@ class HierarchyService
             $totalUnitsCount = count($formattedUnits);
             $jigData['complete_units'] = $completeUnitsCount;
             $jigData['total_units'] = $totalUnitsCount;
+            // Section 10: Jig turns green only when ALL units in it are complete
             $jigData['is_complete'] = ($totalUnitsCount > 0 && $completeUnitsCount === $totalUnitsCount);
 
             $jigReq = $jigData['total_required'];
@@ -484,7 +495,6 @@ class HierarchyService
                 'qc' => ($jigReq > 0 ? min(100, round(($jigData['metrics']['qc_approved'] / $jigReq) * 100, 1)) : 100),
                 'rework' => ($jigData['metrics']['qc_rework'] > 0 ? min(100, round(($jigData['metrics']['rework_completed'] / $jigData['metrics']['qc_rework']) * 100, 1)) : 100),
                 'paint' => ($jigReq > 0 ? min(100, round(($jigData['metrics']['paint_completed'] / $jigReq) * 100, 1)) : 100),
-                'assembly' => ($jigReq > 0 ? min(100, round(($jigData['metrics']['assembly_completed'] / $jigReq) * 100, 1)) : 100),
                 default => ($jigReq > 0 ? min(100, round(($jigData['metrics']['assembly_completed'] / $jigReq) * 100, 1)) : 100),
             };
 
@@ -492,24 +502,29 @@ class HierarchyService
             $formattedJigs[] = $jigData;
         }
 
-        usort($formattedJigs, fn($a, $b) => strcmp($a['jig_name'], $b['jig_name']));
+        // Section 3: Ordering Jigs - Incomplete Jigs first, Completed Jigs at bottom
+        usort($formattedJigs, function ($a, $b) {
+            if ($a['is_complete'] !== $b['is_complete']) {
+                return $a['is_complete'] ? 1 : -1;
+            }
+            return strcmp($a['jig_name'], $b['jig_name']);
+        });
 
-        // Retain all projects with active/completed categorization so completed projects remain accessible
-        $statusFilter = $filters['status_filter'] ?? 'all';
-        $projectsFiltered = $projectsList->values();
-        if ($statusFilter === 'active') {
-            $projectsFiltered = $projectsList->filter(fn($p) => $p['eligible_qty'] > 0 || !$p['is_complete'])->values();
-        } elseif ($statusFilter === 'completed') {
-            $projectsFiltered = $projectsList->filter(fn($p) => $p['is_complete'])->values();
-        }
+        $allProjects = Project::orderBy('name')->get();
+        $activeProjects = $allProjects->where('status', 'active')->values();
+        $completedProjects = $allProjects->where('status', 'completed')->values();
 
         return [
             'is_hierarchical' => count($formattedJigs) > 0,
             'department' => $department,
             'project' => $project,
+            'canonical_summary' => $project ? $this->quantityService->calculateProjectMetrics($project, $filters['side'] ?? null, $filters) : null,
             'jigs' => $formattedJigs,
-            'projects' => $projectsFiltered,
-            'message' => count($formattedJigs) === 0 ? "No parts currently eligible or queued for {$department} in this project." : null,
+            'active_projects' => $activeProjects,
+            'completed_projects' => $completedProjects,
+            'total_jigs' => count($formattedJigs),
+            'completed_jigs' => count(array_filter($formattedJigs, fn($j) => $j['is_complete'])),
+            'message' => count($formattedJigs) === 0 ? "No BOM hierarchy found for this project." : null,
         ];
     }
 

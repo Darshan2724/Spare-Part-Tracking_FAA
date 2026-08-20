@@ -142,7 +142,7 @@ class DatabaseSeeder extends Seeder
         ];
 
         foreach ($users as $uData) {
-            $user = User::firstOrCreate(
+            $user = User::updateOrCreate(
                 ['email' => $uData['email']],
                 [
                     'name' => $uData['name'],

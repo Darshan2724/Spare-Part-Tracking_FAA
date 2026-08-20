@@ -16,20 +16,31 @@ class AuthController extends Controller
             'password' => 'required',
         ]);
 
-        if (!Auth::attempt($request->only('email', 'password'))) {
-            $user = \App\Models\User::where('email', $request->input('email'))->first();
-            $enteredPass = $request->input('password');
-            $altPass = $enteredPass === 'password' ? 'password123' : ($enteredPass === 'password123' ? 'password' : null);
+        $email = trim(strtolower((string) $request->input('email')));
+        $password = (string) $request->input('password');
 
-            if ($user && $altPass && \Illuminate\Support\Facades\Hash::check($altPass, $user->password)) {
-                Auth::login($user);
+        $user = \App\Models\User::whereRaw('LOWER(TRIM(email)) = ?', [$email])->first();
+
+        $authenticated = false;
+        if ($user) {
+            if (\Illuminate\Support\Facades\Hash::check($password, $user->password)) {
+                $authenticated = true;
             } else {
-                SystemLogService::logAuthEvent('Failed Login Attempt', $request, null, 'WARNING', "Failed login attempt for email: {$request->input('email')}");
-
-                return response()->json([
-                    'message' => 'Invalid credentials'
-                ], 401);
+                $altPass = $password === 'password' ? 'password123' : ($password === 'password123' ? 'password' : null);
+                if ($altPass && \Illuminate\Support\Facades\Hash::check($altPass, $user->password)) {
+                    $authenticated = true;
+                }
             }
+        }
+
+        if ($authenticated && $user) {
+            Auth::login($user);
+        } else {
+            SystemLogService::logAuthEvent('Failed Login Attempt', $request, null, 'WARNING', "Failed login attempt for email: {$email}");
+
+            return response()->json([
+                'message' => 'Invalid credentials'
+            ], 401);
         }
 
         $user = Auth::user();

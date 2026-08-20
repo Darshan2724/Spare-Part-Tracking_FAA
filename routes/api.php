@@ -36,7 +36,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
     Route::get('/health', [HealthController::class, 'check']);
 
     // Public Authentication Routes
-    Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
+    Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:60,1');
 
     // Authenticated API Routes (Sanctum)
     Route::middleware('auth:sanctum')->group(function () {
@@ -57,6 +57,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
 
         // Dashboard Summary Metrics
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
+        Route::get('/dashboard/project-hierarchy', [DashboardController::class, 'projectHierarchy']);
         Route::get('/dashboard/bottleneck', [DashboardController::class, 'bottleneck']);
         Route::get('/dashboard/daily-movement', [DashboardController::class, 'dailyMovement']);
         Route::get('/dashboard/pipeline-status', [DashboardController::class, 'pipelineStatus']);
