@@ -227,14 +227,30 @@ class StoreController extends Controller
                     ->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES)
                     ->sum('received_quantity');
                 $requiredQty = $req ? (int) $req->required_quantity : 0;
-                $newTotal = $existingRec + (int) $item['received_quantity'];
-                $excessNotice = ($newTotal > $requiredQty) ? " [Over-receipt: total {$newTotal}/{$requiredQty} req]" : "";
+
+                // === BACKEND OVER-RECEIPT GUARD ===
+                // Cap the quantity so total received never exceeds BOM requirement.
+                // This prevents duplicate mobile submits, network retries, and any other
+                // source from creating excess receipt records in the database.
+                $requestedQty = (int) $item['received_quantity'];
+                $availableCapacity = max(0, $requiredQty - $existingRec);
+                $actualQty = min($requestedQty, $availableCapacity);
+
+                if ($actualQty <= 0) {
+                    // Part is already fully received — skip silently (idempotent)
+                    continue;
+                }
+
+                $newTotal = $existingRec + $actualQty;
+                $excessNotice = ($requestedQty > $actualQty)
+                    ? " [Capped: requested {$requestedQty}, allowed {$actualQty}, total {$newTotal}/{$requiredQty}]"
+                    : "";
 
                 $receiptItem = ReceiptItem::create([
                     'receipt_id' => $receipt->id,
                     'bom_item_id' => $item['bom_item_id'],
                     'side' => $item['side'],
-                    'received_quantity' => $item['received_quantity'],
+                    'received_quantity' => $actualQty,
                     'status' => 'received',
                     'remarks' => ($item['remarks'] ?? null) . $excessNotice,
                 ]);
@@ -245,10 +261,10 @@ class StoreController extends Controller
                     'user_id' => $request->user()->id,
                     'event_type' => 'store_received',
                     'side' => $item['side'],
-                    'quantity' => $item['received_quantity'],
+                    'quantity' => $actualQty,
                     'previous_state' => 'pending',
                     'new_state' => 'received',
-                    'remarks' => "Received {$item['received_quantity']} units in store. DN: " . ($request->input('delivery_note_number') ?? 'N/A') . $excessNotice,
+                    'remarks' => "Received {$actualQty} units in store. DN: " . ($request->input('delivery_note_number') ?? 'N/A') . $excessNotice,
                 ]);
 
                 try {

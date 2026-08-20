@@ -239,6 +239,7 @@ function App() {
   const [receiveSide, setReceiveSide] = useState('RH');
   const [receiveQty, setReceiveQty] = useState('1');
   const [deliveryNote, setDeliveryNote] = useState('');
+  const [isSubmittingReceive, setIsSubmittingReceive] = useState(false); // Idempotency: prevent duplicate receipt submissions
 
   // Rework Completion Modal state
   const [showReworkModal, setShowReworkModal] = useState(false);
@@ -595,12 +596,14 @@ function App() {
 
   const submitStoreReceive = async () => {
     if (!selectedItemForReceive) return;
+    if (isSubmittingReceive) return;  // Idempotency guard: prevent double-tap
     const qty = parseInt(receiveQty, 10);
     if (isNaN(qty) || qty <= 0) {
       Alert.alert('Invalid Quantity', 'Please enter a valid quantity greater than 0.');
       return;
     }
 
+    setIsSubmittingReceive(true);
     try {
       await apiClient.post('/store/receipts', {
         project_id: selectedItemForReceive.project_id,
@@ -649,6 +652,8 @@ function App() {
       loadData('store', false);
     } catch (err) {
       Alert.alert('Receive Failed', err.response?.data?.message || 'Could not record store receipt.');
+    } finally {
+      setIsSubmittingReceive(false);  // Always release the lock
     }
   };
 
@@ -2476,8 +2481,12 @@ function App() {
               <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]} onPress={() => setShowReceiveModal(false)}>
                 <Text style={styles.buttonText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.button, { flex: 1 }]} onPress={submitStoreReceive}>
-                <Text style={styles.buttonText}>Confirm Receipt</Text>
+              <TouchableOpacity
+                style={[styles.button, { flex: 1, opacity: isSubmittingReceive ? 0.5 : 1 }]}
+                onPress={submitStoreReceive}
+                disabled={isSubmittingReceive}
+              >
+                <Text style={styles.buttonText}>{isSubmittingReceive ? 'Saving...' : 'Confirm Receipt'}</Text>
               </TouchableOpacity>
             </View>
           </View>

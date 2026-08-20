@@ -169,8 +169,8 @@ class HierarchyService
 
                 $reqQty = (int) $req->required_quantity;
                 $rawRecQty = (int) $recForSide->sum('received_quantity');
-                $recQty = $rawRecQty;
-                $pendingQty = max(0, $reqQty - min($rawRecQty, $reqQty));
+                $recQty = min($rawRecQty, $reqQty); // Canonical: capped so required = received + pending
+                $pendingQty = max(0, $reqQty - $recQty);
 
                 // QC Stats
                 $qcAppPaint = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && ($q->destination === 'PAINT' || empty($q->destination)))->sum('approved_quantity');
