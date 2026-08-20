@@ -938,51 +938,6 @@ function App() {
     }
   };
 
-  // --- BULK ACTION HANDLERS (Issue 5) ---
-  const handleBulkStoreReceive = async (targetItems) => {
-    if (!targetItems.length) return;
-    const payloadItems = targetItems.map(item => {
-      const st = item.side_stats?.[unitSideTab] || item.side_stats?.COMMON || {};
-      return {
-        bom_item_id: item.id,
-        side: unitSideTab,
-        received_quantity: st.pending > 0 ? st.pending : (st.required || 1),
-      };
-    });
-
-    try {
-      const projId = selectedProject || hierarchyProject?.id || targetItems[0]?.project_id;
-      const res = await apiClient.post('/store/bulk-receive', {
-        project_id: projId,
-        delivery_note_number: bulkDeliveryNote || `DN-BULK-${new Date().toISOString().slice(0, 10)}`,
-        items: payloadItems,
-      });
-      showToast(res.data.message || `Received ${payloadItems.length} items`);
-      clearSelection();
-      setShowBulkStoreReceiveModal(false);
-      loadData('store', false);
-    } catch (err) {
-      Alert.alert('Bulk Receive Failed', err.response?.data?.message || 'Could not record bulk receipt.');
-    }
-  };
-
-  const handleBulkProcessReturned = async (targetItems, action) => {
-    if (!targetItems.length) return;
-    let count = 0;
-    for (const item of targetItems) {
-      try {
-        await apiClient.post(`/store/items/${item.id}/process-returned`, {
-          action,
-          remarks: `Bulk processed via Mobile Store App as ${action}`,
-        });
-        count++;
-      } catch (e) {}
-    }
-    showToast(`Bulk processed ${count} returned items as ${action}`);
-    clearSelection();
-    loadData('store', false);
-  };
-
   // --- BULK ACTION HANDLERS (Issue 5 & Phase 4) ---
   const [isSubmittingBulk, setIsSubmittingBulk] = useState(false);
 
