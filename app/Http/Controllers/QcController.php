@@ -103,24 +103,57 @@ class QcController extends Controller
         $request->user()?->hasAnyRole(['ADMIN', 'QC']) ?: abort(403, 'Unauthorized. QC operational permission required.');
 
         $request->validate([
-            'receipt_item_ids' => ['required', 'array', 'min:1'],
-            'receipt_item_ids.*' => ['integer', 'exists:receipt_items,id'],
+            'receipt_item_ids' => ['nullable', 'array'],
+            'receipt_item_ids.*' => ['integer'],
+            'bom_item_ids' => ['nullable', 'array'],
+            'bom_item_ids.*' => ['integer'],
+            'side' => ['nullable', 'in:RH,LH,COMMON'],
         ]);
 
         return DB::transaction(function () use ($request) {
-            $ids = $request->input('receipt_item_ids');
-            $items = ReceiptItem::whereIn('id', $ids)
-                ->whereIn('status', ['received', 'sent_to_qc'])
-                ->lockForUpdate()
-                ->with('bomItem.project')
-                ->get();
+            $ids = $request->input('receipt_item_ids', []);
+            $bomIds = $request->input('bom_item_ids', []);
+            $side = $request->input('side');
 
-            if ($items->isEmpty()) {
+            $query = ReceiptItem::query()->lockForUpdate()->with('bomItem.project');
+
+            if (!empty($ids) && !empty($bomIds)) {
+                $query->where(function ($q) use ($ids, $bomIds) {
+                    $q->whereIn('id', $ids)->orWhereIn('bom_item_id', $bomIds);
+                });
+            } elseif (!empty($ids)) {
+                $query->whereIn('id', $ids);
+            } elseif (!empty($bomIds)) {
+                $query->whereIn('bom_item_id', $bomIds);
+            } else {
+                return response()->json(['success' => false, 'message' => 'No items provided for physical arrival.'], 422);
+            }
+
+            if ($side) {
+                $query->where(function ($q) use ($side) {
+                    $q->where('side', $side)->orWhere('side', 'COMMON');
+                });
+            }
+
+            $allItems = $query->get();
+            $eligibleItems = $allItems->filter(fn($item) => in_array($item->status, ['received', 'sent_to_qc', 'store_resident']));
+
+            if ($eligibleItems->isEmpty()) {
+                // If all were already qc_received or downstream, return friendly notice
+                $alreadyReceived = $allItems->where('status', 'qc_received')->count();
+                if ($alreadyReceived > 0) {
+                    return response()->json([
+                        'success' => true,
+                        'processed_count' => 0,
+                        'already_processed' => $alreadyReceived,
+                        'message' => "Selected items ({$alreadyReceived}) are already received in QC."
+                    ]);
+                }
                 return response()->json(['success' => false, 'message' => 'No eligible items found awaiting physical QC receipt.'], 422);
             }
 
             $processedCount = 0;
-            foreach ($items as $item) {
+            foreach ($eligibleItems as $item) {
                 $item->update([
                     'status' => 'qc_received',
                     'qc_received_at' => now(),
@@ -133,7 +166,7 @@ class QcController extends Controller
                     'event_type' => 'qc_received',
                     'side' => $item->side,
                     'quantity' => $item->received_quantity,
-                    'previous_state' => 'sent_to_qc',
+                    'previous_state' => $item->status,
                     'new_state' => 'qc_received',
                     'remarks' => 'Bulk physical arrival confirmed in QC department.',
                 ]);
@@ -392,8 +425,10 @@ class QcController extends Controller
         $request->user()?->hasAnyRole(['ADMIN', 'QC']) ?: abort(403, 'Unauthorized. QC operational permission required.');
 
         $request->validate([
-            'receipt_item_ids' => ['required', 'array', 'min:1'],
-            'receipt_item_ids.*' => ['integer', 'exists:receipt_items,id'],
+            'receipt_item_ids' => ['nullable', 'array'],
+            'receipt_item_ids.*' => ['integer'],
+            'bom_item_ids' => ['nullable', 'array'],
+            'bom_item_ids.*' => ['integer'],
             'side' => ['nullable', 'in:RH,LH,COMMON'],
             'result' => ['required', 'in:approved,rejected,rework'],
             'destination' => ['required_if:result,approved', 'nullable', 'in:PAINT,ASSEMBLY'],
@@ -403,12 +438,26 @@ class QcController extends Controller
         ]);
 
         return DB::transaction(function () use ($request) {
-            $ids = $request->input('receipt_item_ids');
+            $ids = $request->input('receipt_item_ids', []);
+            $bomIds = $request->input('bom_item_ids', []);
             $side = $request->input('side');
             $result = $request->input('result');
             $destination = $result === 'approved' ? $request->input('destination') : null;
 
-            $query = ReceiptItem::whereIn('id', $ids)->where('status', 'qc_received');
+            $query = ReceiptItem::query()->where('status', 'qc_received');
+
+            if (!empty($ids) && !empty($bomIds)) {
+                $query->where(function ($q) use ($ids, $bomIds) {
+                    $q->whereIn('id', $ids)->orWhereIn('bom_item_id', $bomIds);
+                });
+            } elseif (!empty($ids)) {
+                $query->whereIn('id', $ids);
+            } elseif (!empty($bomIds)) {
+                $query->whereIn('bom_item_id', $bomIds);
+            } else {
+                return response()->json(['success' => false, 'message' => 'No items provided for QC inspection.'], 422);
+            }
+
             if ($side) {
                 $query->where(function ($q) use ($side) {
                     $q->where('side', $side)->orWhere('side', 'COMMON');

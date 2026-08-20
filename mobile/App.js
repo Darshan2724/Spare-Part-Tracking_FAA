@@ -582,6 +582,36 @@ function App() {
         ]
       });
 
+      // Optimistic update for partial receipts in current unit view
+      if (selectedUnit && selectedUnit.parts) {
+        setSelectedUnit(prevUnit => {
+          if (!prevUnit) return prevUnit;
+          const updatedParts = (prevUnit.parts || []).map(p => {
+            if (p.id !== selectedItemForReceive.id) return p;
+            const updatedSideStats = { ...(p.side_stats || {}) };
+            if (updatedSideStats[receiveSide]) {
+              const currentPending = updatedSideStats[receiveSide].pending ?? 0;
+              const newPending = Math.max(0, currentPending - qty);
+              const currentReceived = updatedSideStats[receiveSide].received ?? 0;
+              updatedSideStats[receiveSide] = {
+                ...updatedSideStats[receiveSide],
+                received: currentReceived + qty,
+                pending: newPending,
+                status: newPending === 0 ? 'received' : 'partially_received',
+              };
+            }
+            return {
+              ...p,
+              side_stats: updatedSideStats,
+            };
+          });
+          return {
+            ...prevUnit,
+            parts: updatedParts,
+          };
+        });
+      }
+
       setShowReceiveModal(false);
       showToast(`Received ${qty} pcs (${receiveSide}) for ${selectedItemForReceive.standard_part_no}`);
       loadData('store', false);
@@ -921,23 +951,103 @@ function App() {
     loadData('store', false);
   };
 
-  const handleBulkQcArrivalAccept = async (targetItems) => {
-    const receiptIds = targetItems
-      .map(item => (item.receipt_items || []).find(r => ['received', 'sent_to_qc'].includes(r.status) && (r.side === unitSideTab || r.side === 'COMMON'))?.id)
-      .filter(Boolean);
+  // --- BULK ACTION HANDLERS (Issue 5 & Phase 4) ---
+  const [isSubmittingBulk, setIsSubmittingBulk] = useState(false);
 
-    if (!receiptIds.length) {
+  const handleBulkStoreReceive = async (targetItems) => {
+    if (isSubmittingBulk) return;
+    const itemsPayload = targetItems.map(item => ({
+      bom_item_id: item.id,
+      side: unitSideTab,
+      received_quantity: item.side_stats?.[unitSideTab]?.pending ?? 1,
+    }));
+
+    if (!itemsPayload.length) {
+      Alert.alert('No Items', 'No items selected for bulk receipt.');
+      return;
+    }
+
+    setIsSubmittingBulk(true);
+    try {
+      const res = await apiClient.post('/store/bulk-receive', {
+        project_id: selectedProject || targetItems[0]?.project_id,
+        delivery_note_number: bulkDeliveryNote || `DN-BULK-${new Date().toISOString().slice(0, 10)}`,
+        items: itemsPayload,
+      });
+
+      showToast(res.data.message || `Bulk received ${itemsPayload.length} items`);
+      clearSelection();
+      setShowBulkStoreReceiveModal(false);
+      loadData('store', false);
+    } catch (err) {
+      Alert.alert('Bulk Receive Failed', err.response?.data?.message || 'Could not record bulk receipt.');
+    } finally {
+      setIsSubmittingBulk(false);
+    }
+  };
+
+  const handleBulkProcessReturned = async (targetItems, action) => {
+    if (isSubmittingBulk) return;
+    setIsSubmittingBulk(true);
+    let count = 0;
+    try {
+      for (const item of targetItems) {
+        try {
+          await apiClient.post(`/store/items/${item.id}/process-returned`, {
+            action,
+            remarks: `Bulk processed via Mobile Store App as ${action}`,
+          });
+          count++;
+        } catch (e) {}
+      }
+      showToast(`Bulk processed ${count} returned items as ${action}`);
+      clearSelection();
+      loadData('store', false);
+    } finally {
+      setIsSubmittingBulk(false);
+    }
+  };
+
+  const handleBulkQcArrivalAccept = async (targetItems) => {
+    if (isSubmittingBulk) return;
+    const receiptIds = [];
+    const bomIds = [];
+
+    for (const item of targetItems) {
+      if (item.receipt_item_id) {
+        receiptIds.push(item.receipt_item_id);
+      } else if (item.receipt_items && item.receipt_items.length > 0) {
+        const matches = item.receipt_items.filter(r => ['received', 'sent_to_qc', 'store_resident'].includes(r.status) && (r.side === unitSideTab || r.side === 'COMMON'));
+        if (matches.length > 0) {
+          matches.forEach(m => receiptIds.push(m.id));
+        } else {
+          bomIds.push(item.id);
+        }
+      } else if (item.id) {
+        bomIds.push(item.id);
+      }
+    }
+
+    if (!receiptIds.length && !bomIds.length) {
       Alert.alert('No Eligible Items', 'No pending physical arrivals found for the selected items.');
       return;
     }
 
+    setIsSubmittingBulk(true);
     try {
-      const res = await apiClient.post('/qc/bulk-receive', { receipt_item_ids: receiptIds });
-      showToast(res.data.message || `Accepted ${receiptIds.length} items`);
+      const res = await apiClient.post('/qc/bulk-receive', {
+        receipt_item_ids: receiptIds.length ? receiptIds : undefined,
+        bom_item_ids: bomIds.length ? bomIds : undefined,
+        side: unitSideTab,
+      });
+      const count = res.data.processed_count ?? (receiptIds.length + bomIds.length);
+      showToast(res.data.message || `Accepted ${count} items in QC`);
       clearSelection();
       loadData('qc', false);
     } catch (err) {
       Alert.alert('Bulk Action Failed', err.response?.data?.message || 'Could not process bulk arrival acceptance.');
+    } finally {
+      setIsSubmittingBulk(false);
     }
   };
 
@@ -951,19 +1061,25 @@ function App() {
           text: 'Reject & Return Store',
           style: 'destructive',
           onPress: async () => {
+            if (isSubmittingBulk) return;
+            setIsSubmittingBulk(true);
             let count = 0;
-            for (const item of targetItems) {
-              const rec = (item.receipt_items || []).find(r => ['received', 'sent_to_qc'].includes(r.status) && (r.side === unitSideTab || r.side === 'COMMON'));
-              if (rec) {
-                try {
-                  await apiClient.post('/qc/reject-arrival', { receipt_item_id: rec.id });
-                  count++;
-                } catch (e) {}
+            try {
+              for (const item of targetItems) {
+                const rec = (item.receipt_items || []).find(r => ['received', 'sent_to_qc'].includes(r.status) && (r.side === unitSideTab || r.side === 'COMMON'));
+                if (rec) {
+                  try {
+                    await apiClient.post('/qc/reject-arrival', { receipt_item_id: rec.id });
+                    count++;
+                  } catch (e) {}
+                }
               }
+              showToast(`Rejected ${count} items returned to Store`, 'error');
+              clearSelection();
+              loadData('qc', false);
+            } finally {
+              setIsSubmittingBulk(false);
             }
-            showToast(`Rejected ${count} items returned to Store`, 'error');
-            clearSelection();
-            loadData('qc', false);
           }
         }
       ]
@@ -971,22 +1087,31 @@ function App() {
   };
 
   const handleBulkQcInspect = async (targetItems, result, destination = null) => {
-    const receiptIds = targetItems
-      .map(item => {
-        const sideStat = item.side_stats?.[unitSideTab];
-        const sideReceipts = sideStat?.receipt_items || (item.receipt_items || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
-        return sideReceipts.find(r => r.status === 'qc_received')?.id;
-      })
-      .filter(Boolean);
+    if (isSubmittingBulk) return;
+    const receiptIds = [];
+    const bomIds = [];
 
-    if (!receiptIds.length) {
+    for (const item of targetItems) {
+      const sideStat = item.side_stats?.[unitSideTab];
+      const sideReceipts = sideStat?.receipt_items || (item.receipt_items || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
+      const rec = sideReceipts.find(r => r.status === 'qc_received');
+      if (rec) {
+        receiptIds.push(rec.id);
+      } else if (item.id) {
+        bomIds.push(item.id);
+      }
+    }
+
+    if (!receiptIds.length && !bomIds.length) {
       Alert.alert('No Eligible Items', `No pending inspection items found for selected parts on ${unitSideTab} side.`);
       return;
     }
 
+    setIsSubmittingBulk(true);
     try {
       const res = await apiClient.post('/qc/bulk-inspect', {
-        receipt_item_ids: receiptIds,
+        receipt_item_ids: receiptIds.length ? receiptIds : undefined,
+        bom_item_ids: bomIds.length ? bomIds : undefined,
         side: unitSideTab,
         result,
         destination: result === 'approved' ? destination : null,
@@ -994,16 +1119,20 @@ function App() {
         rework_reason: result === 'rework' ? 'Bulk rework required' : null,
         remarks: `Bulk QC inspection marked as ${result.toUpperCase()} (${unitSideTab})`,
       });
-      showToast(res.data.message || `Processed ${receiptIds.length} items as ${result.toUpperCase()}`);
+      const count = res.data.processed_count ?? (receiptIds.length + bomIds.length);
+      showToast(res.data.message || `Processed ${count} items as ${result.toUpperCase()}`);
       clearSelection();
       setShowBulkQcDestinationModal(false);
       loadData('qc', false);
     } catch (err) {
       Alert.alert('Bulk Inspection Failed', err.response?.data?.message || 'Could not process bulk QC inspection.');
+    } finally {
+      setIsSubmittingBulk(false);
     }
   };
 
   const handleBulkReworkAction = async (targetItems, action) => {
+    if (isSubmittingBulk) return;
     const reworkIds = targetItems
       .map(item => (item.rework_records || []).find(r => (action === 'start' ? r.status === 'pending' : (r.status === 'pending' || r.status === 'in_progress')) && (r.side === unitSideTab || r.side === 'COMMON'))?.id)
       .filter(Boolean);
@@ -1013,6 +1142,7 @@ function App() {
       return;
     }
 
+    setIsSubmittingBulk(true);
     try {
       const res = await apiClient.post('/rework/bulk-action', {
         rework_record_ids: reworkIds,
@@ -1025,10 +1155,13 @@ function App() {
       loadData('rework', false);
     } catch (err) {
       Alert.alert('Bulk Rework Failed', err.response?.data?.message || 'Could not process bulk rework.');
+    } finally {
+      setIsSubmittingBulk(false);
     }
   };
 
   const handleBulkPaintComplete = async (targetItems) => {
+    if (isSubmittingBulk) return;
     const inspIds = targetItems
       .map(item => (item.qc_inspections || []).find(q => q.approved_quantity > 0 && (q.destination === 'PAINT' || !q.destination) && (q.side === unitSideTab || q.side === 'COMMON'))?.id)
       .filter(Boolean);
@@ -1038,6 +1171,7 @@ function App() {
       return;
     }
 
+    setIsSubmittingBulk(true);
     try {
       const res = await apiClient.post('/paint/bulk-complete', {
         qc_inspection_ids: inspIds,
@@ -1050,10 +1184,13 @@ function App() {
       loadData('paint', false);
     } catch (err) {
       Alert.alert('Bulk Paint Failed', err.response?.data?.message || 'Could not process bulk paint completion.');
+    } finally {
+      setIsSubmittingBulk(false);
     }
   };
 
   const handleBulkAssemblyComplete = async (targetItems) => {
+    if (isSubmittingBulk) return;
     const assemblyPayload = targetItems.map(item => {
       const paintRec = (item.paint_records || []).find(p => p.status === 'completed' && (p.side === unitSideTab || p.side === 'COMMON'));
       const directQcInsp = (item.qc_inspections || []).find(q => q.destination === 'ASSEMBLY' && q.approved_quantity > 0 && (q.side === unitSideTab || q.side === 'COMMON'));
@@ -1072,6 +1209,7 @@ function App() {
       return;
     }
 
+    setIsSubmittingBulk(true);
     try {
       const res = await apiClient.post('/assembly/bulk-complete', {
         items: assemblyPayload,
@@ -1082,6 +1220,8 @@ function App() {
       loadData('assembly', false);
     } catch (err) {
       Alert.alert('Bulk Assembly Failed', err.response?.data?.message || 'Could not process bulk assembly completion.');
+    } finally {
+      setIsSubmittingBulk(false);
     }
   };
 

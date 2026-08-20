@@ -51,7 +51,7 @@ class Phase2ProjectDrilldownTest extends TestCase
 
         $project = Project::create([
             'name' => 'Project Alpha Drilldown',
-            'project_code' => 'PA-001',
+            'project_code' => 'PA-001-' . uniqid(),
             'status' => 'active',
         ]);
 
@@ -143,7 +143,7 @@ class Phase2ProjectDrilldownTest extends TestCase
 
         $project = Project::create([
             'name' => 'Project Propagation Test',
-            'project_code' => 'PP-100',
+            'project_code' => 'PP-100-' . uniqid(),
             'status' => 'active',
         ]);
 
@@ -227,7 +227,7 @@ class Phase2ProjectDrilldownTest extends TestCase
     {
         $admin = $this->getAdminUser();
 
-        $project = Project::create(['name' => 'Sort Project', 'project_code' => 'SP-1', 'status' => 'active']);
+        $project = Project::create(['name' => 'Sort Project', 'project_code' => 'SP-1-' . uniqid(), 'status' => 'active']);
 
         $receipt = Receipt::create([
             'project_id' => $project->id,
@@ -289,8 +289,8 @@ class Phase2ProjectDrilldownTest extends TestCase
     {
         $admin = $this->getAdminUser();
 
-        $activeProject = Project::create(['name' => 'Active Project 1', 'project_code' => 'AP-1', 'status' => 'active']);
-        $completedProject = Project::create(['name' => 'Completed Project 2', 'project_code' => 'CP-2', 'status' => 'completed']);
+        $activeProject = Project::create(['name' => 'Active Project 1', 'project_code' => 'AP-1-' . uniqid(), 'status' => 'active']);
+        $completedProject = Project::create(['name' => 'Completed Project 2', 'project_code' => 'CP-2-' . uniqid(), 'status' => 'completed']);
 
         $response = $this->actingAs($admin, 'sanctum')
             ->getJson('/api/v1/dashboard/project-hierarchy');
