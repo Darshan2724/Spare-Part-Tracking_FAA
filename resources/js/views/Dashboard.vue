@@ -55,17 +55,16 @@
         </div>
       </div>
 
-      <!-- PRIMARY MANAGEMENT KPI CARDS (2 Rows × 5 Cards = 10 Total Cards) -->
-      <!-- ROW 1: Project & Total Parts Overview -->
+      <!-- PRIMARY MANAGEMENT KPI CARDS (Exactly Two Structured Rows) -->
+      <!-- ROW 1: Project-Level Management Overview (3 Prominent Cards) -->
       <div class="row g-3 mb-3">
         <!-- 1. Active Projects -->
-        <div class="col-12 col-sm-6 col-lg-4 col-xl">
+        <div class="col-12 col-md-4">
           <div class="card border-0 shadow-sm bg-primary text-white h-100">
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold small">Active Projects</div>
-                <h2 class="fw-bold mb-0">{{ metrics.active_projects ?? metrics.total_projects ?? 0 }}</h2>
-                <small class="text-white-50">{{ metrics.completed_projects || 0 }} Completed</small>
+                <h2 class="fw-bold mb-0 display-6">{{ metrics.active_projects ?? metrics.total_projects ?? 0 }}</h2>
               </div>
               <i class="fas fa-folder-open fa-2x text-white-50"></i>
             </div>
@@ -73,135 +72,134 @@
         </div>
 
         <!-- 2. Completed Projects -->
-        <div class="col-12 col-sm-6 col-lg-4 col-xl">
+        <div class="col-12 col-md-4">
           <div class="card border-0 shadow-sm text-white h-100" style="background-color: #0d9488;">
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold small">Completed Projects</div>
-                <h2 class="fw-bold mb-0">{{ metrics.completed_projects || 0 }}</h2>
-                <small class="text-white-50">Fully Assembled</small>
+                <h2 class="fw-bold mb-0 display-6">{{ metrics.completed_projects || 0 }}</h2>
               </div>
               <i class="fas fa-check-circle fa-2x text-white-50"></i>
             </div>
           </div>
         </div>
 
-        <!-- 3. Total Parts Required -->
-        <div class="col-12 col-sm-6 col-lg-4 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #4f46e5;">
+        <!-- 3. Delayed Projects -->
+        <div class="col-12 col-md-4">
+          <div class="card border-0 shadow-sm bg-danger text-white h-100">
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Total Parts Required</div>
-                <h2 class="fw-bold mb-0">{{ metrics.total_required || 0 }}</h2>
-                <small class="text-white-50">Across {{ filters.project_id ? 'Selected' : 'All Active' }} Projects</small>
+                <div class="text-white-50 text-uppercase fw-bold small">Delayed Projects</div>
+                <h2 class="fw-bold mb-0 display-6">{{ metrics.delayed_projects || 0 }}</h2>
               </div>
-              <i class="fas fa-cubes fa-2x text-white-50"></i>
-            </div>
-          </div>
-        </div>
-
-        <!-- 4. Total Parts Received -->
-        <div class="col-12 col-sm-6 col-lg-4 col-xl">
-          <div class="card border-0 shadow-sm bg-success text-white h-100">
-            <div class="card-body p-3 d-flex justify-content-between align-items-center">
-              <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Total Parts Received</div>
-                <h2 class="fw-bold mb-0">
-                  {{ metrics.total_received || 0 }}
-                  <span v-if="metrics.excess_received > 0" class="badge bg-warning text-dark fs-6 ms-1" :title="'Excess/Over-receipt: ' + metrics.excess_received + ' units'">
-                    +{{ metrics.excess_received }} Excess
-                  </span>
-                </h2>
-                <small class="text-white-50">{{ metrics.completion_pct || 0 }}% BOM Fulfilled</small>
-              </div>
-              <i class="fas fa-boxes fa-2x text-white-50"></i>
-            </div>
-          </div>
-        </div>
-
-        <!-- 5. Total Parts Pending -->
-        <div class="col-12 col-sm-6 col-lg-4 col-xl">
-          <div class="card border-0 shadow-sm bg-dark text-white h-100">
-            <div class="card-body p-3 d-flex justify-content-between align-items-center">
-              <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Total Parts Pending</div>
-                <h2 class="fw-bold mb-0">{{ metrics.total_pending ?? metrics.pending_store ?? 0 }}</h2>
-                <small class="text-white-50">Awaiting Delivery</small>
-              </div>
-              <i class="fas fa-truck-loading fa-2x text-white-50"></i>
+              <i class="fas fa-exclamation-triangle fa-2x text-white-50"></i>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- ROW 2: Physical Workflow Location Inventory Residency -->
-      <div class="row g-3 mb-4">
-        <!-- 6. Parts in Store -->
-        <div class="col-12 col-sm-6 col-lg-4 col-xl">
+      <!-- ROW 2: Parts and Operational Workflow Status Overview (8 Compact Cards) -->
+      <div class="row g-2 mb-4">
+        <!-- 1. Parts Required -->
+        <div class="col-6 col-sm-4 col-md-3 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #4f46e5;">
+            <div class="card-body p-2 d-flex justify-content-between align-items-center">
+              <div>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Parts Required</div>
+                <h3 class="fw-bold mb-0 fs-4">{{ metrics.total_required || 0 }}</h3>
+              </div>
+              <i class="fas fa-cubes text-white-50 fs-5"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Parts Received -->
+        <div class="col-6 col-sm-4 col-md-3 col-xl">
+          <div class="card border-0 shadow-sm bg-success text-white h-100">
+            <div class="card-body p-2 d-flex justify-content-between align-items-center">
+              <div>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Parts Received</div>
+                <h3 class="fw-bold mb-0 fs-4">{{ metrics.total_received || 0 }}</h3>
+              </div>
+              <i class="fas fa-boxes text-white-50 fs-5"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Parts Pending -->
+        <div class="col-6 col-sm-4 col-md-3 col-xl">
+          <div class="card border-0 shadow-sm bg-dark text-white h-100">
+            <div class="card-body p-2 d-flex justify-content-between align-items-center">
+              <div>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Parts Pending</div>
+                <h3 class="fw-bold mb-0 fs-4">{{ metrics.total_pending ?? metrics.pending_store ?? 0 }}</h3>
+              </div>
+              <i class="fas fa-truck-loading text-white-50 fs-5"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Store -->
+        <div class="col-6 col-sm-4 col-md-3 col-xl">
           <div class="card border-0 shadow-sm text-white h-100" style="background-color: #d97706;">
-            <div class="card-body p-3 d-flex justify-content-between align-items-center">
+            <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Parts in Store</div>
-                <h2 class="fw-bold mb-0">{{ metrics.parts_in_store || 0 }}</h2>
-                <small class="text-white-50">Awaiting QC Dispatch</small>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Store</div>
+                <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_store || 0 }}</h3>
               </div>
-              <i class="fas fa-warehouse fa-2x text-white-50"></i>
+              <i class="fas fa-warehouse text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
 
-        <!-- 7. Parts in QC -->
-        <div class="col-12 col-sm-6 col-lg-4 col-xl">
+        <!-- 5. QC -->
+        <div class="col-6 col-sm-4 col-md-3 col-xl">
           <div class="card border-0 shadow-sm text-white h-100" style="background-color: #0284c7;">
-            <div class="card-body p-3 d-flex justify-content-between align-items-center">
+            <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Parts in QC</div>
-                <h2 class="fw-bold mb-0">{{ metrics.parts_in_qc ?? metrics.awaiting_qc ?? 0 }}</h2>
-                <small class="text-white-50">Inspection Queue</small>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">QC</div>
+                <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_qc ?? metrics.awaiting_qc ?? 0 }}</h3>
               </div>
-              <i class="fas fa-clipboard-check fa-2x text-white-50"></i>
+              <i class="fas fa-clipboard-check text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
 
-        <!-- 8. Parts in Rework -->
-        <div class="col-12 col-sm-6 col-lg-4 col-xl">
-          <div class="card border-0 shadow-sm bg-danger text-white h-100">
-            <div class="card-body p-3 d-flex justify-content-between align-items-center">
+        <!-- 6. Rework -->
+        <div class="col-6 col-sm-4 col-md-3 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #ea580c;">
+            <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Parts in Rework</div>
-                <h2 class="fw-bold mb-0">{{ metrics.parts_in_rework || 0 }}</h2>
-                <small class="text-white-50">Active Rework</small>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Rework</div>
+                <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_rework || 0 }}</h3>
               </div>
-              <i class="fas fa-tools fa-2x text-white-50"></i>
+              <i class="fas fa-tools text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
 
-        <!-- 9. Parts in Paint -->
-        <div class="col-12 col-sm-6 col-lg-4 col-xl">
+        <!-- 7. Paint -->
+        <div class="col-6 col-sm-4 col-md-3 col-xl">
           <div class="card border-0 shadow-sm text-white h-100" style="background-color: #7c3aed;">
-            <div class="card-body p-3 d-flex justify-content-between align-items-center">
+            <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Parts in Paint</div>
-                <h2 class="fw-bold mb-0">{{ metrics.parts_in_paint || 0 }}</h2>
-                <small class="text-white-50">Shop Queue</small>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Paint</div>
+                <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_paint || 0 }}</h3>
               </div>
-              <i class="fas fa-paint-roller fa-2x text-white-50"></i>
+              <i class="fas fa-paint-roller text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
 
-        <!-- 10. Parts in Assembly -->
-        <div class="col-12 col-sm-6 col-lg-4 col-xl">
+        <!-- 8. Assembly -->
+        <div class="col-6 col-sm-4 col-md-3 col-xl">
           <div class="card border-0 shadow-sm text-white h-100" style="background-color: #db2777;">
-            <div class="card-body p-3 d-flex justify-content-between align-items-center">
+            <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Parts in Assembly</div>
-                <h2 class="fw-bold mb-0">{{ metrics.parts_in_assembly || 0 }}</h2>
-                <small class="text-white-50">Assembly Queue</small>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Assembly</div>
+                <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_assembly || 0 }}</h3>
               </div>
-              <i class="fas fa-cogs fa-2x text-white-50"></i>
+              <i class="fas fa-cogs text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
