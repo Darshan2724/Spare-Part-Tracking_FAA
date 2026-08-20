@@ -198,15 +198,15 @@ class QuantityCalculationService
                 $asmReached = $paintComp + $qcAppDirectAssembly;
                 $asmReady = max(0, $asmReached - $asmComp);
 
-                // Dispatched to QC: use rawRecQty so physical parts tracked correctly through workflow
+                // Dispatched to QC (valid quantity that left store for QC)
                 $qcDispatchedFromReceipts = (int) $recForSide->whereNotIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
                 $qcTotalAccounted = $qcApp + $qcRej + $qcRew;
-                $sentToQc = min($rawRecQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
+                $sentToQc = min($effectiveRecQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
 
                 // State Transition Ledger (Section 12: Zero-sum conservation)
-                // Location tracking uses rawRecQty so all physical parts appear in a location
+                // Strict zero-sum conservation: location sum == total_received
                 $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
-                $storeResident = max(0, $rawRecQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReached));
+                $storeResident = max(0, $effectiveRecQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReached));
 
                 // Canonical BOM balance counters (effectiveRecQty so: required = received + pending)
                 $metrics['total_required'] += $reqQty;
