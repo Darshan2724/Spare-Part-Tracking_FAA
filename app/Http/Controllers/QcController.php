@@ -59,15 +59,29 @@ class QcController extends Controller
     {
         $request->user()?->hasAnyRole(['ADMIN', 'QC']) ?: abort(403, 'Unauthorized. QC operational permission required.');
 
-        $request->validate([
-            'receipt_item_id' => ['required', 'exists:receipt_items,id'],
-        ]);
-
         return DB::transaction(function () use ($request) {
-            $item = ReceiptItem::where('id', $request->input('receipt_item_id'))
-                ->lockForUpdate()
-                ->with('bomItem.project')
-                ->firstOrFail();
+            $item = null;
+            if ($request->filled('receipt_item_id')) {
+                $item = ReceiptItem::where('id', $request->input('receipt_item_id'))
+                    ->lockForUpdate()
+                    ->with('bomItem.project')
+                    ->first();
+            }
+
+            if (!$item && $request->filled('bom_item_id')) {
+                $q = ReceiptItem::where('bom_item_id', $request->input('bom_item_id'))
+                    ->whereIn('status', ['received', 'sent_to_qc'])
+                    ->lockForUpdate()
+                    ->with('bomItem.project');
+                if ($request->filled('side')) {
+                    $q->where('side', $request->input('side'));
+                }
+                $item = $q->first();
+            }
+
+            if (!$item) {
+                return response()->json(['success' => false, 'message' => 'Item is not awaiting physical QC receipt or has already been received.'], 422);
+            }
 
             if (!in_array($item->status, ['received', 'sent_to_qc'])) {
                 return response()->json(['success' => false, 'message' => 'Item is not awaiting physical QC receipt or has already been received.'], 422);

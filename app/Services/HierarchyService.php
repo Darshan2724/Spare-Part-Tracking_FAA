@@ -200,6 +200,8 @@ class HierarchyService
                 // State Transition Ledger (Section 12: Zero-sum conservation)
                 $storeResident = max(0, $recQty - $sentToQc);
                 $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
+                $qcPendingArrival = (int) $recForSide->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
+                $qcPendingInspection = max(0, (int) $recForSide->where('status', 'qc_received')->sum('received_quantity') + $rewComp - ($qcApp + $qcRej + $qcRew));
 
                 // Determine Part Status Badge
                 if ($reqQty > 0 && $asmComp >= $reqQty) {
@@ -235,6 +237,8 @@ class HierarchyService
                     'pending' => $pendingQty,
                     'parts_in_store' => $storeResident,
                     'parts_in_qc' => $qcResident,
+                    'qc_pending_arrival' => $qcPendingArrival,
+                    'qc_pending_inspection' => $qcPendingInspection,
                     'qc_approved' => $qcApp,
                     'qc_rejected' => $qcRej,
                     'qc_rework' => $qcRew,
@@ -248,6 +252,11 @@ class HierarchyService
                     'parts_in_assembly' => $asmReached,
                     'assembly_ready' => $asmReady,
                     'assembly_completed' => $asmComp,
+                    'receipt_items' => $recForSide->values(),
+                    'qc_inspections' => $qcForSide->values(),
+                    'rework_records' => $reworkForSide->values(),
+                    'paint_records' => $paintForSide->values(),
+                    'assembly_records' => $assemblyForSide->values(),
                     'status_badge' => $statusBadge,
                     'status_color' => $statusColor,
                     'is_done' => ($reqQty > 0 && $asmComp >= $reqQty),
@@ -260,6 +269,8 @@ class HierarchyService
                     $itemMetrics['total_pending'] += $pendingQty;
                     $itemMetrics['parts_in_store'] += $storeResident;
                     $itemMetrics['parts_in_qc'] += $qcResident;
+                    $itemMetrics['qc_pending_arrival'] += $qcPendingArrival;
+                    $itemMetrics['qc_pending_inspection'] += $qcPendingInspection;
                     $itemMetrics['qc_approved'] += $qcApp;
                     $itemMetrics['qc_rejected'] += $qcRej;
                     $itemMetrics['qc_rework'] += $qcRew;
@@ -283,6 +294,11 @@ class HierarchyService
 
             $item->side_stats = $sideStats;
             $item->metrics = $itemMetrics;
+            $item->receipt_items = $itemReceipts->values();
+            $item->qc_inspections = $itemQcInspections->values();
+            $item->paint_records = $itemPaints->values();
+            $item->rework_records = $itemReworks->values();
+            $item->assembly_records = $itemAssemblies->values();
             $item->is_done = ($itemMetrics['total_required'] > 0 && $itemMetrics['assembly_completed'] >= $itemMetrics['total_required']);
 
             // Group into JIG and Unit structure
