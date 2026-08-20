@@ -1,0 +1,203 @@
+{
+  "node_modules/@fortawesome/fontawesome-free/webfonts/fa-brands-400.ttf": {
+    "file": "assets/fa-brands-400-D1LuMI3I.ttf",
+    "src": "node_modules/@fortawesome/fontawesome-free/webfonts/fa-brands-400.ttf"
+  },
+  "node_modules/@fortawesome/fontawesome-free/webfonts/fa-brands-400.woff2": {
+    "file": "assets/fa-brands-400-D_cYUPeE.woff2",
+    "src": "node_modules/@fortawesome/fontawesome-free/webfonts/fa-brands-400.woff2"
+  },
+  "node_modules/@fortawesome/fontawesome-free/webfonts/fa-regular-400.ttf": {
+    "file": "assets/fa-regular-400-DZaxPHgR.ttf",
+    "src": "node_modules/@fortawesome/fontawesome-free/webfonts/fa-regular-400.ttf"
+  },
+  "node_modules/@fortawesome/fontawesome-free/webfonts/fa-regular-400.woff2": {
+    "file": "assets/fa-regular-400-BjRzuEpd.woff2",
+    "src": "node_modules/@fortawesome/fontawesome-free/webfonts/fa-regular-400.woff2"
+  },
+  "node_modules/@fortawesome/fontawesome-free/webfonts/fa-solid-900.ttf": {
+    "file": "assets/fa-solid-900-D0aA9rwL.ttf",
+    "src": "node_modules/@fortawesome/fontawesome-free/webfonts/fa-solid-900.ttf"
+  },
+  "node_modules/@fortawesome/fontawesome-free/webfonts/fa-solid-900.woff2": {
+    "file": "assets/fa-solid-900-CTAAxXor.woff2",
+    "src": "node_modules/@fortawesome/fontawesome-free/webfonts/fa-solid-900.woff2"
+  },
+  "node_modules/@fortawesome/fontawesome-free/webfonts/fa-v4compatibility.ttf": {
+    "file": "assets/fa-v4compatibility-CCth-dXg.ttf",
+    "src": "node_modules/@fortawesome/fontawesome-free/webfonts/fa-v4compatibility.ttf"
+  },
+  "node_modules/@fortawesome/fontawesome-free/webfonts/fa-v4compatibility.woff2": {
+    "file": "assets/fa-v4compatibility-C9RhG_FT.woff2",
+    "src": "node_modules/@fortawesome/fontawesome-free/webfonts/fa-v4compatibility.woff2"
+  },
+  "resources/js/app.js": {
+    "file": "assets/app-C3F6-u8P.js",
+    "name": "app",
+    "src": "resources/js/app.js",
+    "isEntry": true,
+    "dynamicImports": [
+      "resources/js/views/Login.vue",
+      "resources/js/views/Dashboard.vue",
+      "resources/js/views/BomImport.vue",
+      "resources/js/views/Store.vue",
+      "resources/js/views/Qc.vue",
+      "resources/js/views/Rework.vue",
+      "resources/js/views/PurchaseQueue.vue",
+      "resources/js/views/Paint.vue",
+      "resources/js/views/Assembly.vue",
+      "resources/js/views/Suppliers.vue",
+      "resources/js/views/SystemLogs.vue",
+      "resources/js/views/WorkflowHub.vue"
+    ],
+    "css": [
+      "assets/app-CYq9eLpI.css"
+    ]
+  },
+  "resources/js/views/Assembly.vue": {
+    "file": "assets/Assembly-CyEXACYA.js",
+    "name": "Assembly",
+    "src": "resources/js/views/Assembly.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ],
+    "css": [
+      "assets/Assembly-DGNIg3xK.css"
+    ]
+  },
+  "resources/js/views/BomImport.vue": {
+    "file": "assets/BomImport-W3wYAX0j.js",
+    "name": "BomImport",
+    "src": "resources/js/views/BomImport.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ],
+    "css": [
+      "assets/BomImport-gpE87Rkx.css"
+    ]
+  },
+  "resources/js/views/Dashboard.vue": {
+    "file": "assets/Dashboard-DuAGwAFU.js",
+    "name": "Dashboard",
+    "src": "resources/js/views/Dashboard.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ],
+    "css": [
+      "assets/Dashboard-DRkJFcJ4.css"
+    ]
+  },
+  "resources/js/views/Login.vue": {
+    "file": "assets/Login-zaLGT0MN.js",
+    "name": "Login",
+    "src": "resources/js/views/Login.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ],
+    "css": [
+      "assets/Login-BlKnG47v.css"
+    ]
+  },
+  "resources/js/views/Paint.vue": {
+    "file": "assets/Paint-BR7fOkWO.js",
+    "name": "Paint",
+    "src": "resources/js/views/Paint.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ],
+    "css": [
+      "assets/Paint-CcktpCeS.css"
+    ]
+  },
+  "resources/js/views/PurchaseQueue.vue": {
+    "file": "assets/PurchaseQueue-CB1hfupd.js",
+    "name": "PurchaseQueue",
+    "src": "resources/js/views/PurchaseQueue.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ]
+  },
+  "resources/js/views/Qc.vue": {
+    "file": "assets/Qc-BZF6jGsM.js",
+    "name": "Qc",
+    "src": "resources/js/views/Qc.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ],
+    "css": [
+      "assets/Qc-DeTfkI8D.css"
+    ]
+  },
+  "resources/js/views/Rework.vue": {
+    "file": "assets/Rework-BY6zt03p.js",
+    "name": "Rework",
+    "src": "resources/js/views/Rework.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ],
+    "css": [
+      "assets/Rework-CI5PPVRD.css"
+    ]
+  },
+  "resources/js/views/Store.vue": {
+    "file": "assets/Store-C-v0ST5K.js",
+    "name": "Store",
+    "src": "resources/js/views/Store.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ],
+    "css": [
+      "assets/Store-mUKtydBQ.css"
+    ]
+  },
+  "resources/js/views/Suppliers.vue": {
+    "file": "assets/Suppliers-Cbgbe836.js",
+    "name": "Suppliers",
+    "src": "resources/js/views/Suppliers.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ],
+    "css": [
+      "assets/Suppliers-eV3OBqZn.css"
+    ]
+  },
+  "resources/js/views/SystemLogs.vue": {
+    "file": "assets/SystemLogs-Cb2ZRicW.js",
+    "name": "SystemLogs",
+    "src": "resources/js/views/SystemLogs.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ],
+    "css": [
+      "assets/SystemLogs-cP3fIjo0.css"
+    ]
+  },
+  "resources/js/views/WorkflowHub.vue": {
+    "file": "assets/WorkflowHub-DNbUOPj4.js",
+    "name": "WorkflowHub",
+    "src": "resources/js/views/WorkflowHub.vue",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ],
+    "css": [
+      "assets/WorkflowHub-B7rBC6LM.css"
+    ]
+  },
+  "resources/sass/app.scss": {
+    "file": "assets/app-YCF3vfyV.css",
+    "src": "resources/sass/app.scss",
+    "isEntry": true
+  }
+}
