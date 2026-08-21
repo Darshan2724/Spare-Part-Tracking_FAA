@@ -2066,13 +2066,45 @@ function App() {
                             </View>
 
                             {/* Row 2: Inline Stats & Supplier */}
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2, marginBottom: 2 }}>
-                              <Text style={styles.itemSubText}>
-                                <Text style={{ fontWeight: '700', color: '#1e293b' }}>Req: {req}</Text> • Rec: {rec} • Pen: {pen}
-                              </Text>
-                              <Text style={[styles.itemSubText, { fontSize: 10, color: '#64748b', maxWidth: '45%' }]} numberOfLines={1}>
-                                {item.supplier?.name || item.supplier_name_raw || 'Standard'}
-                              </Text>
+                            <View style={{ marginTop: 2, marginBottom: 4 }}>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Text style={styles.itemSubText}>
+                                  <Text style={{ fontWeight: '700', color: '#1e293b' }}>Req: {req}</Text> • Rec: {rec} • Pen: {pen}
+                                </Text>
+                                <Text style={[styles.itemSubText, { fontSize: 10, color: '#64748b', maxWidth: '45%' }]} numberOfLines={1}>
+                                  {item.supplier?.name || item.supplier_name_raw || 'Standard'}
+                                </Text>
+                              </View>
+                              {/* Department Location Breakdown */}
+                              {(() => {
+                                const sStat = item.side_stats?.[unitSideTab] || {};
+                                if (activeTab === 'qc') {
+                                  const arr = sStat.qc_pending_arrival || 0;
+                                  const insp = sStat.qc_pending_inspection || 0;
+                                  const app = sStat.qc_approved || 0;
+                                  const rew = sStat.parts_in_rework || 0;
+                                  const rej = sStat.qc_rejected || 0;
+                                  return (
+                                    <Text style={{ fontSize: 10.5, color: '#0369a1', marginTop: 1.5, fontWeight: '600' }}>
+                                      📍 {qcSubTab === 'arrival' ? `Awaiting Arrival: ${arr} pcs` : `In QC Inspection: ${insp} pcs`}
+                                      {app > 0 ? ` • ${app} Approved` : ''}
+                                      {rew > 0 ? ` • ${rew} in Rework` : ''}
+                                      {rej > 0 ? ` • ${rej} Rejected` : ''}
+                                    </Text>
+                                  );
+                                }
+                                if (activeTab === 'rework') {
+                                  const rew = sStat.parts_in_rework || 0;
+                                  const comp = sStat.rework_completed || 0;
+                                  return (
+                                    <Text style={{ fontSize: 10.5, color: '#b45309', marginTop: 1.5, fontWeight: '600' }}>
+                                      📍 Active Rework: <Text style={{ fontWeight: '800' }}>{rew} pcs</Text>
+                                      {comp > 0 ? ` • ${comp} Returned to QC` : ''}
+                                    </Text>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </View>
 
                             {/* Store Level 4 Single Action */}
@@ -2116,7 +2148,7 @@ function App() {
                                             };
                                             openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'approved');
                                           }}>
-                                          <Text style={styles.actionBtnText}>APPROVE</Text>
+                                          <Text style={styles.actionBtnText}>APPROVE ({pendingInsp})</Text>
                                         </TouchableOpacity>
 
                                         <TouchableOpacity
@@ -2131,7 +2163,7 @@ function App() {
                                             };
                                             openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'rework');
                                           }}>
-                                          <Text style={styles.actionBtnText}>REWORK</Text>
+                                          <Text style={styles.actionBtnText}>REWORK ({pendingInsp})</Text>
                                         </TouchableOpacity>
 
                                         <TouchableOpacity
@@ -2146,7 +2178,7 @@ function App() {
                                             };
                                             openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'rejected');
                                           }}>
-                                          <Text style={styles.actionBtnText}>REJECT</Text>
+                                          <Text style={styles.actionBtnText}>REJECT ({pendingInsp})</Text>
                                         </TouchableOpacity>
                                       </View>
                                     </View>
@@ -2711,6 +2743,18 @@ function App() {
                       <Text style={styles.qtySummaryText}>
                         Available in QC Inspection: <Text style={{ fontWeight: '800', color: '#0284c7' }}>{avail} pcs</Text> ({selectedQcItem?.side || 'COMMON'})
                       </Text>
+                      {(() => {
+                        const totalReq = selectedQcItem?.bom_item?.requirements?.find(r => r.side === (selectedQcItem?.side || unitSideTab))?.required_quantity;
+                        const processedElse = Math.max(0, (totalReq || avail) - avail);
+                        if (processedElse > 0) {
+                          return (
+                            <Text style={{ fontSize: 10.5, color: '#64748b', marginTop: 2 }}>
+                              ℹ️ Total Requirement: {totalReq} pcs ({processedElse} pcs already processed/routed)
+                            </Text>
+                          );
+                        }
+                        return null;
+                      })()}
                     </View>
 
                     {/* APPROVAL QUANTITY & SPLIT ROUTING */}
