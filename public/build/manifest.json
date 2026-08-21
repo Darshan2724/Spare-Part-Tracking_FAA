@@ -32,7 +32,7 @@
     "src": "node_modules/@fortawesome/fontawesome-free/webfonts/fa-v4compatibility.woff2"
   },
   "resources/js/app.js": {
-    "file": "assets/app-DHKAUGN6.js",
+    "file": "assets/app-FvQkqq9w.js",
     "name": "app",
     "src": "resources/js/app.js",
     "isEntry": true,
@@ -55,7 +55,7 @@
     ]
   },
   "resources/js/views/Assembly.vue": {
-    "file": "assets/Assembly-Dm59Az5l.js",
+    "file": "assets/Assembly-r0BvBczi.js",
     "name": "Assembly",
     "src": "resources/js/views/Assembly.vue",
     "isDynamicEntry": true,
@@ -67,7 +67,7 @@
     ]
   },
   "resources/js/views/BomImport.vue": {
-    "file": "assets/BomImport-CPrn7mvp.js",
+    "file": "assets/BomImport-97RRxvbL.js",
     "name": "BomImport",
     "src": "resources/js/views/BomImport.vue",
     "isDynamicEntry": true,
@@ -79,7 +79,7 @@
     ]
   },
   "resources/js/views/Dashboard.vue": {
-    "file": "assets/Dashboard-DAeGJRsU.js",
+    "file": "assets/Dashboard-Bppp6bPS.js",
     "name": "Dashboard",
     "src": "resources/js/views/Dashboard.vue",
     "isDynamicEntry": true,
@@ -87,11 +87,11 @@
       "resources/js/app.js"
     ],
     "css": [
-      "assets/Dashboard-Dt1WbsBJ.css"
+      "assets/Dashboard-DlgI_TqB.css"
     ]
   },
   "resources/js/views/Login.vue": {
-    "file": "assets/Login-BC0MFiGO.js",
+    "file": "assets/Login-BU3gY-wV.js",
     "name": "Login",
     "src": "resources/js/views/Login.vue",
     "isDynamicEntry": true,
@@ -103,7 +103,7 @@
     ]
   },
   "resources/js/views/Paint.vue": {
-    "file": "assets/Paint-CDW6QRH6.js",
+    "file": "assets/Paint-C_D9lcAZ.js",
     "name": "Paint",
     "src": "resources/js/views/Paint.vue",
     "isDynamicEntry": true,
@@ -115,7 +115,7 @@
     ]
   },
   "resources/js/views/PurchaseQueue.vue": {
-    "file": "assets/PurchaseQueue-BI9bXTH_.js",
+    "file": "assets/PurchaseQueue-CFxbMBK6.js",
     "name": "PurchaseQueue",
     "src": "resources/js/views/PurchaseQueue.vue",
     "isDynamicEntry": true,
@@ -124,7 +124,7 @@
     ]
   },
   "resources/js/views/Qc.vue": {
-    "file": "assets/Qc-4yFX30J6.js",
+    "file": "assets/Qc-wkTNgM7N.js",
     "name": "Qc",
     "src": "resources/js/views/Qc.vue",
     "isDynamicEntry": true,
@@ -136,7 +136,7 @@
     ]
   },
   "resources/js/views/Rework.vue": {
-    "file": "assets/Rework-Db4c8Rv8.js",
+    "file": "assets/Rework-fpELSJ7U.js",
     "name": "Rework",
     "src": "resources/js/views/Rework.vue",
     "isDynamicEntry": true,
@@ -148,7 +148,7 @@
     ]
   },
   "resources/js/views/Store.vue": {
-    "file": "assets/Store-C6_j4SdM.js",
+    "file": "assets/Store-5MOEwypf.js",
     "name": "Store",
     "src": "resources/js/views/Store.vue",
     "isDynamicEntry": true,
@@ -160,7 +160,7 @@
     ]
   },
   "resources/js/views/Suppliers.vue": {
-    "file": "assets/Suppliers-OxHeUis2.js",
+    "file": "assets/Suppliers-D1eyPCvJ.js",
     "name": "Suppliers",
     "src": "resources/js/views/Suppliers.vue",
     "isDynamicEntry": true,
@@ -172,7 +172,7 @@
     ]
   },
   "resources/js/views/SystemLogs.vue": {
-    "file": "assets/SystemLogs-0hpk9cF5.js",
+    "file": "assets/SystemLogs-DLXa_Oa3.js",
     "name": "SystemLogs",
     "src": "resources/js/views/SystemLogs.vue",
     "isDynamicEntry": true,
@@ -184,7 +184,7 @@
     ]
   },
   "resources/js/views/WorkflowHub.vue": {
-    "file": "assets/WorkflowHub-BkJDf4Og.js",
+    "file": "assets/WorkflowHub-Dgx9Mo7Q.js",
     "name": "WorkflowHub",
     "src": "resources/js/views/WorkflowHub.vue",
     "isDynamicEntry": true,

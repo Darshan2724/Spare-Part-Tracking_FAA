@@ -55,9 +55,12 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::patch('/logs/{id}/status', [SystemLogController::class, 'updateStatus']);
         });
 
-        // Dashboard Summary Metrics
+        // Dashboard Summary Metrics & KPI Drill-Down
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
         Route::get('/dashboard/project-hierarchy', [DashboardController::class, 'projectHierarchy']);
+        Route::get('/dashboard/kpi-drilldown', [DashboardController::class, 'kpiDrilldown']);
+        Route::get('/dashboard/kpi-drilldown/export', [ExportController::class, 'exportKpiDrilldown']);
+        Route::post('/dashboard/kpi-drilldown/export', [ExportController::class, 'exportKpiDrilldown']);
         Route::get('/dashboard/bottleneck', [DashboardController::class, 'bottleneck']);
         Route::get('/dashboard/daily-movement', [DashboardController::class, 'dailyMovement']);
         Route::get('/dashboard/pipeline-status', [DashboardController::class, 'pipelineStatus']);

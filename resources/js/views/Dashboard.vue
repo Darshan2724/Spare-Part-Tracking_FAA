@@ -67,10 +67,13 @@
       <div v-if="!filters.project_id" class="row g-3 mb-3">
         <!-- 1. Active Projects -->
         <div class="col-12 col-md-4">
-          <div class="card border-0 shadow-sm bg-primary text-white h-100">
+          <div class="card border-0 shadow-sm bg-primary text-white h-100 kpi-card-interactive" @click="openKpiDrilldown('active_projects', 'Active Projects Portfolio')">
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Active Projects</div>
+                <div class="text-white-50 text-uppercase fw-bold small d-flex align-items-center gap-1.5">
+                  <span>Active Projects</span>
+                  <i class="fas fa-search-plus extra-small opacity-75"></i>
+                </div>
                 <h2 class="fw-bold mb-0 display-6">{{ metrics.active_projects ?? metrics.total_projects ?? 0 }}</h2>
               </div>
               <i class="fas fa-folder-open fa-2x text-white-50"></i>
@@ -80,10 +83,13 @@
 
         <!-- 2. Completed Projects -->
         <div class="col-12 col-md-4">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #0d9488;">
+          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #0d9488;" @click="openKpiDrilldown('completed_projects', 'Completed Projects')">
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Completed Projects</div>
+                <div class="text-white-50 text-uppercase fw-bold small d-flex align-items-center gap-1.5">
+                  <span>Completed Projects</span>
+                  <i class="fas fa-search-plus extra-small opacity-75"></i>
+                </div>
                 <h2 class="fw-bold mb-0 display-6">{{ metrics.completed_projects || 0 }}</h2>
               </div>
               <i class="fas fa-check-circle fa-2x text-white-50"></i>
@@ -93,10 +99,13 @@
 
         <!-- 3. Delayed Projects -->
         <div class="col-12 col-md-4">
-          <div class="card border-0 shadow-sm bg-danger text-white h-100">
+          <div class="card border-0 shadow-sm bg-danger text-white h-100 kpi-card-interactive" @click="openKpiDrilldown('delayed_projects', 'Delayed Projects (Inactivity > 14 Days)')">
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold small">Delayed Projects</div>
+                <div class="text-white-50 text-uppercase fw-bold small d-flex align-items-center gap-1.5">
+                  <span>Delayed Projects</span>
+                  <i class="fas fa-search-plus extra-small opacity-75"></i>
+                </div>
                 <h2 class="fw-bold mb-0 display-6">{{ metrics.delayed_projects || 0 }}</h2>
               </div>
               <i class="fas fa-exclamation-triangle fa-2x text-white-50"></i>
@@ -147,10 +156,13 @@
       <div class="row g-2 mb-4">
         <!-- 1. Total Parts -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #4f46e5;">
+          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #4f46e5;" @click="openKpiDrilldown('total_parts', 'Total Parts (BOM Requirements)')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Total Parts</div>
+                <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
+                  <span>Total Parts</span>
+                  <i class="fas fa-search-plus extra-small opacity-75"></i>
+                </div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.total_parts ?? metrics.total_required ?? 0 }}</h3>
               </div>
               <i class="fas fa-cubes text-white-50 fs-5"></i>
@@ -160,10 +172,13 @@
 
         <!-- 2. Total Parts Received -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm bg-success text-white h-100">
+          <div class="card border-0 shadow-sm bg-success text-white h-100 kpi-card-interactive" @click="openKpiDrilldown('total_parts_received', 'Total Parts Received (Store Valid Receipts)')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Total Parts Received</div>
+                <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
+                  <span>Total Received</span>
+                  <i class="fas fa-search-plus extra-small opacity-75"></i>
+                </div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.total_parts_received ?? metrics.total_received ?? 0 }}</h3>
               </div>
               <i class="fas fa-boxes text-white-50 fs-5"></i>
@@ -173,10 +188,13 @@
 
         <!-- 3. Parts Pending -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm bg-dark text-white h-100">
+          <div class="card border-0 shadow-sm bg-dark text-white h-100 kpi-card-interactive" @click="openKpiDrilldown('parts_pending', 'Parts Pending Store Receipt')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Parts Pending</div>
+                <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
+                  <span>Parts Pending</span>
+                  <i class="fas fa-search-plus extra-small opacity-75"></i>
+                </div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_pending ?? metrics.total_pending ?? metrics.pending_store ?? 0 }}</h3>
               </div>
               <i class="fas fa-truck-loading text-white-50 fs-5"></i>
@@ -186,10 +204,13 @@
 
         <!-- 4. Store -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #d97706;">
+          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #d97706;" @click="openKpiDrilldown('store', 'Store Bay Inventory (Pending QC Transfer)')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Store</div>
+                <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
+                  <span>Store</span>
+                  <i class="fas fa-search-plus extra-small opacity-75"></i>
+                </div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_store || 0 }}</h3>
               </div>
               <i class="fas fa-warehouse text-white-50 fs-5"></i>
@@ -199,14 +220,15 @@
 
         <!-- 5. QC (with separate Rejected secondary badge) -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #0284c7;">
+          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #0284c7;" @click="openKpiDrilldown('qc', 'QC Bay Parts (Inspection & Rejected)', 'all')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
                   <span>QC</span>
-                  <span class="badge rounded-pill bg-light text-dark ms-1 px-1 py-0" style="font-size: 0.65rem; font-weight: 600;" title="Rejected in QC">
+                  <span class="badge rounded-pill bg-light text-dark ms-1 px-1 py-0" style="font-size: 0.65rem; font-weight: 600;" title="Click to view Rejected parts in QC" @click.stop="openKpiDrilldown('qc', 'QC Rejected Parts', 'rejected')">
                     Rejected: {{ metrics.qc_rejected || 0 }}
                   </span>
+                  <i class="fas fa-search-plus extra-small opacity-75"></i>
                 </div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_qc ?? metrics.awaiting_qc ?? 0 }}</h3>
               </div>
@@ -217,10 +239,13 @@
 
         <!-- 6. Rework -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #ea580c;">
+          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #ea580c;" @click="openKpiDrilldown('rework', 'Active Rework Queue')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Rework</div>
+                <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
+                  <span>Rework</span>
+                  <i class="fas fa-search-plus extra-small opacity-75"></i>
+                </div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_rework || 0 }}</h3>
               </div>
               <i class="fas fa-tools text-white-50 fs-5"></i>
@@ -230,10 +255,13 @@
 
         <!-- 7. Paint -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #7c3aed;">
+          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #7c3aed;" @click="openKpiDrilldown('paint', 'Paint Shop Parts')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Paint</div>
+                <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
+                  <span>Paint</span>
+                  <i class="fas fa-search-plus extra-small opacity-75"></i>
+                </div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_paint || 0 }}</h3>
               </div>
               <i class="fas fa-paint-roller text-white-50 fs-5"></i>
@@ -243,14 +271,15 @@
 
         <!-- 8. Assembly (with separate Completed secondary badge) -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #db2777;">
+          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #db2777;" @click="openKpiDrilldown('assembly', 'Assembly Bay Parts (Queue & Completed)', 'all')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
                   <span>Assembly</span>
-                  <span class="badge rounded-pill bg-light text-dark ms-1 px-1 py-0" style="font-size: 0.65rem; font-weight: 600;" title="Completed in Assembly">
+                  <span class="badge rounded-pill bg-light text-dark ms-1 px-1 py-0" style="font-size: 0.65rem; font-weight: 600;" title="Click to view Completed Assembly parts" @click.stop="openKpiDrilldown('assembly', 'Assembly Completed Parts', 'completed')">
                     Completed: {{ metrics.assembly_completed || 0 }}
                   </span>
+                  <i class="fas fa-search-plus extra-small opacity-75"></i>
                 </div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_assembly || metrics.assembly_ready || 0 }}</h3>
               </div>
@@ -1342,6 +1371,285 @@
         </div>
       </div>
     </div>
+
+    <!-- ========================================================================= -->
+    <!-- KPI DRILL-DOWN DETAILED PARTS MODAL (Excel Export + Canonical PostgreSQL) -->
+    <!-- ========================================================================= -->
+    <div v-if="showKpiDrilldownModal" class="modal fade show d-block" tabindex="-1" style="background: rgba(15, 23, 42, 0.65); z-index: 1060; backdrop-filter: blur(2px);">
+      <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" style="max-width: 95vw; width: 1250px;">
+        <div class="modal-content shadow-lg border-0">
+          <!-- Modal Header -->
+          <div class="modal-header bg-dark text-white py-3 px-4 d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+              <div class="p-2 bg-white bg-opacity-10 rounded-3">
+                <i class="fas fa-layer-group text-primary fs-5"></i>
+              </div>
+              <div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <h5 class="modal-title fw-bold mb-0 text-white">{{ selectedKpiTitle }}</h5>
+                  <span class="badge bg-primary px-2.5 py-1 fs-7">{{ kpiDrilldownResult.project_scope || 'All Active Projects' }}</span>
+                  <span v-if="kpiDrilldownResult.total_quantity !== undefined" class="badge bg-success px-2.5 py-1 fs-7">
+                    Total Quantity: {{ kpiDrilldownResult.total_quantity }} pcs
+                  </span>
+                </div>
+                <small class="text-white-50">
+                  Detailed parts list and exact contributing quantities &bull; Canonical PostgreSQL breakdown
+                </small>
+              </div>
+            </div>
+            <button type="button" class="btn-close btn-close-white" @click="showKpiDrilldownModal = false" aria-label="Close"></button>
+          </div>
+
+          <!-- Modal Sub-Toolbar (Substates, Search, Filters, Excel Export) -->
+          <div class="modal-body p-3 bg-light border-bottom">
+            <div class="row g-2 align-items-center justify-content-between">
+              <!-- Left: Substate Selector Tabs (For QC and Assembly) -->
+              <div class="col-12 col-md-auto d-flex align-items-center gap-1.5 flex-wrap">
+                <!-- QC Substates -->
+                <div v-if="selectedKpiKey === 'qc'" class="btn-group btn-group-sm shadow-xs" role="group">
+                  <button 
+                    type="button" 
+                    class="btn fw-semibold"
+                    :class="kpiDrilldownSubstate === 'all' ? 'btn-primary' : 'btn-outline-secondary bg-white'"
+                    @click="setKpiSubstate('all')">
+                    All QC
+                  </button>
+                  <button 
+                    type="button" 
+                    class="btn fw-semibold"
+                    :class="kpiDrilldownSubstate === 'inspection' ? 'btn-info text-dark' : 'btn-outline-secondary bg-white'"
+                    @click="setKpiSubstate('inspection')">
+                    <i class="fas fa-clipboard-check me-1"></i> Inspection
+                  </button>
+                  <button 
+                    type="button" 
+                    class="btn fw-semibold"
+                    :class="kpiDrilldownSubstate === 'rejected' ? 'btn-danger' : 'btn-outline-secondary bg-white'"
+                    @click="setKpiSubstate('rejected')">
+                    <i class="fas fa-ban me-1"></i> Rejected
+                  </button>
+                </div>
+
+                <!-- Assembly Substates -->
+                <div v-if="selectedKpiKey === 'assembly'" class="btn-group btn-group-sm shadow-xs" role="group">
+                  <button 
+                    type="button" 
+                    class="btn fw-semibold"
+                    :class="kpiDrilldownSubstate === 'all' ? 'btn-primary' : 'btn-outline-secondary bg-white'"
+                    @click="setKpiSubstate('all')">
+                    All Assembly
+                  </button>
+                  <button 
+                    type="button" 
+                    class="btn fw-semibold"
+                    :class="kpiDrilldownSubstate === 'queue' ? 'btn-primary' : 'btn-outline-secondary bg-white'"
+                    @click="setKpiSubstate('queue')">
+                    <i class="fas fa-cogs me-1"></i> Assembly Queue
+                  </button>
+                  <button 
+                    type="button" 
+                    class="btn fw-semibold"
+                    :class="kpiDrilldownSubstate === 'completed' ? 'btn-success' : 'btn-outline-secondary bg-white'"
+                    @click="setKpiSubstate('completed')">
+                    <i class="fas fa-check-double me-1"></i> Completed
+                  </button>
+                </div>
+
+                <!-- Side Filter for Drill-Down -->
+                <div class="d-flex align-items-center gap-1">
+                  <select v-model="kpiDrilldownSide" @change="fetchKpiDrilldown" class="form-select form-select-sm shadow-xs" style="width: 140px;">
+                    <option value="">All Sides</option>
+                    <option value="RH">RH Only</option>
+                    <option value="LH">LH Only</option>
+                    <option value="COMMON">COMMON Only</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Right: Fast Search & Excel Export Button -->
+              <div class="col-12 col-md d-flex align-items-center justify-content-md-end gap-2 flex-wrap">
+                <div class="input-group input-group-sm shadow-xs" style="max-width: 320px;">
+                  <span class="input-group-text bg-white border-end-0 text-muted"><i class="fas fa-search"></i></span>
+                  <input 
+                    type="text" 
+                    v-model="kpiDrilldownSearch" 
+                    @input="onSearchInput" 
+                    class="form-control border-start-0 ps-0" 
+                    placeholder="Search Jig, Unit, Part No, Project..." 
+                  />
+                  <button v-if="kpiDrilldownSearch" class="btn btn-outline-secondary bg-white border-start-0" @click="kpiDrilldownSearch = ''; fetchKpiDrilldown();">
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+
+                <!-- Excel Export Button -->
+                <button 
+                  @click="exportKpiExcel" 
+                  class="btn btn-success btn-sm fw-bold shadow-xs text-nowrap" 
+                  :disabled="kpiExportLoading || kpiDrilldownLoading">
+                  <i class="fas fa-file-excel me-1.5" :class="{ 'fa-spin': kpiExportLoading }"></i>
+                  {{ kpiExportLoading ? 'Exporting...' : 'Export Excel (.xlsx)' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Modal Body Table (Sticky header, high density, server-side pagination) -->
+          <div class="modal-body p-0" style="min-height: 360px; max-height: 60vh; overflow-y: auto;">
+            <div v-if="kpiDrilldownLoading" class="text-center py-5">
+              <div class="spinner-border text-primary mb-2" role="status"></div>
+              <p class="text-muted small mb-0">Loading canonical drill-down records from database...</p>
+            </div>
+
+            <div v-else class="table-responsive">
+              <!-- Part-level Table -->
+              <table v-if="kpiDrilldownResult.kpi_type === 'part'" class="table table-hover align-middle mb-0 small">
+                <thead class="table-dark sticky-top" style="z-index: 1;">
+                  <tr>
+                    <th style="width: 11%;">PROJECT</th>
+                    <th style="width: 10%;">JIG NO</th>
+                    <th style="width: 8%; text-align: center;">UNIT NO</th>
+                    <th style="width: 15%;">PART NO</th>
+                    <th style="width: 7%; text-align: center;">SIDE</th>
+                    <th style="width: 22%;">COMBINED IDENTIFIER</th>
+                    <th style="width: 15%;">STATUS</th>
+                    <th style="width: 12%; text-align: center;">QUANTITY</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in kpiDrilldownResult.data" :key="row.id">
+                    <td>
+                      <span class="badge bg-light text-dark border">{{ row.project_code }}</span>
+                    </td>
+                    <td class="fw-bold text-dark">{{ row.jig_no }}</td>
+                    <td class="text-center"><span class="badge bg-secondary-subtle text-dark">{{ row.unit_no }}</span></td>
+                    <td>
+                      <span class="fw-bold text-primary">{{ row.part_no }}</span>
+                      <small v-if="row.supplier && row.supplier !== 'Standard'" class="text-muted d-block extra-small">{{ row.supplier }}</small>
+                    </td>
+                    <td class="text-center">
+                      <span :class="['badge', row.side === 'RH' ? 'badge-rh' : row.side === 'LH' ? 'badge-lh' : 'badge-common']">
+                        {{ row.side }}
+                      </span>
+                    </td>
+                    <td>
+                      <code class="text-dark bg-light px-1.5 py-0.5 rounded border small">{{ row.combined_identifier }}</code>
+                    </td>
+                    <td>
+                      <span 
+                        class="badge"
+                        :class="{
+                          'bg-primary': row.status === 'BOM Required',
+                          'bg-success': row.status === 'Store Received' || row.status === 'Assembly Completed',
+                          'bg-dark': row.status === 'Pending Store Receipt',
+                          'bg-warning text-dark': row.status === 'In Store Bay' || row.status === 'In Rework Queue',
+                          'bg-info text-dark': row.status === 'QC Inspection Queue',
+                          'bg-danger': row.status === 'QC Rejected',
+                          'bg-purple text-white': row.status === 'In Paint Queue',
+                          'bg-pink text-white': row.status === 'In Assembly Queue',
+                        }"
+                      >
+                        {{ row.status }}
+                      </span>
+                    </td>
+                    <td class="text-center">
+                      <span class="badge bg-dark px-2 py-1 fs-6 fw-bold">{{ row.quantity }}</span>
+                    </td>
+                  </tr>
+                  <tr v-if="!kpiDrilldownResult.data || !kpiDrilldownResult.data.length">
+                    <td colspan="8" class="text-center py-5 text-muted">
+                      <i class="fas fa-inbox fa-3x mb-2 text-secondary opacity-50 d-block"></i>
+                      No parts found contributing to this KPI for the selected filters.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <!-- Project-level Table (for Active, Completed, Delayed Projects) -->
+              <table v-else class="table table-hover align-middle mb-0 small">
+                <thead class="table-dark sticky-top" style="z-index: 1;">
+                  <tr>
+                    <th style="width: 15%;">PROJECT CODE</th>
+                    <th style="width: 25%;">PROJECT NAME</th>
+                    <th style="width: 12%; text-align: center;">TOTAL PARTS</th>
+                    <th style="width: 12%; text-align: center;">TOTAL RECEIVED</th>
+                    <th style="width: 12%; text-align: center;">PARTS PENDING</th>
+                    <th style="width: 12%; text-align: center;">COMPLETION %</th>
+                    <th style="width: 12%; text-align: center;">STATUS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="proj in kpiDrilldownResult.data" :key="proj.id">
+                    <td><span class="badge bg-primary text-white">{{ proj.project_code }}</span></td>
+                    <td class="fw-bold text-dark">{{ proj.project_name }}</td>
+                    <td class="text-center fw-bold">{{ proj.total_parts }}</td>
+                    <td class="text-center text-success fw-bold">{{ proj.total_parts_received }}</td>
+                    <td class="text-center text-danger fw-bold">{{ proj.parts_pending }}</td>
+                    <td class="text-center">
+                      <div class="d-flex align-items-center justify-content-center gap-2">
+                        <div class="progress flex-grow-1" style="height: 6px; max-width: 60px;">
+                          <div class="progress-bar bg-success" :style="{ width: `${proj.completion_pct}%` }"></div>
+                        </div>
+                        <span class="fw-bold extra-small">{{ proj.completion_pct }}%</span>
+                      </div>
+                    </td>
+                    <td class="text-center">
+                      <span class="badge" :class="proj.status.includes('Delayed') ? 'bg-danger' : proj.status === 'Completed' ? 'bg-success' : 'bg-info text-dark'">
+                        {{ proj.status }}
+                      </span>
+                    </td>
+                  </tr>
+                  <tr v-if="!kpiDrilldownResult.data || !kpiDrilldownResult.data.length">
+                    <td colspan="7" class="text-center py-5 text-muted">
+                      No project records found contributing to this KPI.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Modal Footer with Server-Side Pagination & Summary -->
+          <div class="modal-footer bg-light py-2 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div class="small text-muted d-flex align-items-center gap-2">
+              <span>Showing {{ kpiDrilldownResult.total_records > 0 ? (kpiDrilldownResult.page - 1) * kpiDrilldownResult.per_page + 1 : 0 }} to {{ Math.min(kpiDrilldownResult.page * kpiDrilldownResult.per_page, kpiDrilldownResult.total_records) }} of <strong>{{ kpiDrilldownResult.total_records }}</strong> total records</span>
+              <span class="badge bg-secondary-subtle text-dark border">Sum: <strong>{{ kpiDrilldownResult.total_quantity }}</strong> pcs</span>
+            </div>
+
+            <!-- Pagination Buttons -->
+            <div class="d-flex align-items-center gap-2">
+              <select v-model="kpiDrilldownPerPage" @change="kpiDrilldownPage = 1; fetchKpiDrilldown();" class="form-select form-select-sm" style="width: 100px;">
+                <option :value="25">25 / page</option>
+                <option :value="50">50 / page</option>
+                <option :value="100">100 / page</option>
+              </select>
+
+              <div class="btn-group btn-group-sm">
+                <button 
+                  class="btn btn-outline-secondary" 
+                  :disabled="kpiDrilldownPage <= 1 || kpiDrilldownLoading"
+                  @click="kpiDrilldownPage--; fetchKpiDrilldown();">
+                  <i class="fas fa-chevron-left me-1"></i> Prev
+                </button>
+                <span class="btn btn-outline-secondary disabled bg-white text-dark fw-bold">
+                  {{ kpiDrilldownPage }} / {{ kpiDrilldownResult.total_pages || 1 }}
+                </span>
+                <button 
+                  class="btn btn-outline-secondary" 
+                  :disabled="kpiDrilldownPage >= kpiDrilldownResult.total_pages || kpiDrilldownLoading"
+                  @click="kpiDrilldownPage++; fetchKpiDrilldown();">
+                  Next <i class="fas fa-chevron-right ms-1"></i>
+                </button>
+              </div>
+
+              <button type="button" class="btn btn-secondary btn-sm" @click="showKpiDrilldownModal = false">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
     </div>
   </div>
 </template>
@@ -1367,6 +1675,125 @@ const modalDeptFilter = ref('');
 const modalColFilters = ref({ partNo: '', project: '', side: '', qty: '', dept: '', user: '', date: '', time: '' });
 const expandedPriorityKey = ref(null);
 const projectsProgress = ref([]);
+
+// --- KPI DRILL-DOWN MODAL STATE & HANDLERS ---
+const showKpiDrilldownModal = ref(false);
+const kpiDrilldownLoading = ref(false);
+const kpiExportLoading = ref(false);
+const selectedKpiKey = ref('total_parts');
+const selectedKpiTitle = ref('Total Parts');
+const kpiDrilldownSubstate = ref('all');
+const kpiDrilldownSearch = ref('');
+const kpiDrilldownSide = ref('');
+const kpiDrilldownPage = ref(1);
+const kpiDrilldownPerPage = ref(50);
+const kpiDrilldownResult = ref({
+  kpi: '',
+  kpi_type: 'part',
+  project_scope: '',
+  is_single_project: false,
+  selected_project: null,
+  substate: 'all',
+  total_records: 0,
+  total_quantity: 0,
+  page: 1,
+  per_page: 50,
+  total_pages: 1,
+  columns: [],
+  data: [],
+});
+
+let searchDebounceTimer = null;
+const onSearchInput = () => {
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    kpiDrilldownPage.value = 1;
+    fetchKpiDrilldown();
+  }, 300);
+};
+
+const openKpiDrilldown = (kpiKey, title, defaultSubstate = 'all') => {
+  selectedKpiKey.value = kpiKey;
+  selectedKpiTitle.value = title;
+  kpiDrilldownSubstate.value = defaultSubstate;
+  kpiDrilldownSearch.value = '';
+  kpiDrilldownSide.value = filters.value.side || '';
+  kpiDrilldownPage.value = 1;
+  kpiDrilldownPerPage.value = 50;
+  showKpiDrilldownModal.value = true;
+  fetchKpiDrilldown();
+};
+
+const setKpiSubstate = (sub) => {
+  kpiDrilldownSubstate.value = sub;
+  kpiDrilldownPage.value = 1;
+  fetchKpiDrilldown();
+};
+
+const fetchKpiDrilldown = async () => {
+  kpiDrilldownLoading.value = true;
+  try {
+    const params = new URLSearchParams();
+    params.append('kpi', selectedKpiKey.value);
+    if (filters.value.project_id) params.append('project_id', filters.value.project_id);
+    if (kpiDrilldownSide.value) params.append('side', kpiDrilldownSide.value);
+    if (kpiDrilldownSubstate.value && kpiDrilldownSubstate.value !== 'all') {
+      params.append('substate', kpiDrilldownSubstate.value);
+    }
+    if (kpiDrilldownSearch.value) params.append('search', kpiDrilldownSearch.value);
+    if (filters.value.date_from) params.append('date_from', filters.value.date_from);
+    if (filters.value.date_to) params.append('date_to', filters.value.date_to);
+    params.append('page', kpiDrilldownPage.value);
+    params.append('per_page', kpiDrilldownPerPage.value);
+
+    const res = await axios.get(`/api/v1/dashboard/kpi-drilldown?${params.toString()}`);
+    kpiDrilldownResult.value = res.data;
+  } catch (err) {
+    console.error('Failed to load KPI drilldown:', err);
+  } finally {
+    kpiDrilldownLoading.value = false;
+  }
+};
+
+const exportKpiExcel = async () => {
+  kpiExportLoading.value = true;
+  try {
+    const params = new URLSearchParams();
+    params.append('kpi', selectedKpiKey.value);
+    if (filters.value.project_id) params.append('project_id', filters.value.project_id);
+    if (kpiDrilldownSide.value) params.append('side', kpiDrilldownSide.value);
+    if (kpiDrilldownSubstate.value && kpiDrilldownSubstate.value !== 'all') {
+      params.append('substate', kpiDrilldownSubstate.value);
+    }
+    if (kpiDrilldownSearch.value) params.append('search', kpiDrilldownSearch.value);
+    if (filters.value.date_from) params.append('date_from', filters.value.date_from);
+    if (filters.value.date_to) params.append('date_to', filters.value.date_to);
+
+    const response = await axios.get(`/api/v1/dashboard/kpi-drilldown/export?${params.toString()}`, {
+      responseType: 'blob',
+    });
+
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = `SpareTrack_${selectedKpiKey.value}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename="?([^"]+)"?/);
+      if (match && match[1]) filename = match[1];
+    }
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Failed to export KPI Excel:', err);
+    alert('Could not generate Excel export.');
+  } finally {
+    kpiExportLoading.value = false;
+  }
+};
 
 // Rolling Matrix 5-Active-Day Window & History State
 const matrixQuickRange = ref('last_5_active');
@@ -2090,5 +2517,29 @@ onMounted(async () => {
 }
 .transition-all {
   transition: all 0.2s ease-in-out;
+}
+.kpi-card-interactive {
+  cursor: pointer;
+  transition: transform 0.18s ease-in-out, box-shadow 0.18s ease-in-out, filter 0.18s ease-in-out;
+}
+.kpi-card-interactive:hover {
+  transform: translateY(-3px) scale(1.015);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18) !important;
+  filter: brightness(1.06);
+}
+.shadow-xs {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.badge-rh {
+  background-color: #2563eb;
+  color: #ffffff;
+}
+.badge-lh {
+  background-color: #7c3aed;
+  color: #ffffff;
+}
+.badge-common {
+  background-color: #475569;
+  color: #ffffff;
 }
 </style>
