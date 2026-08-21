@@ -310,4 +310,196 @@ class WorkflowIntegrityTest extends TestCase
             DB::rollBack();
         }
     }
+
+    public function test_qc_rejection_does_not_reduce_total_received_or_increase_pending_and_creates_purchase_item()
+    {
+        $user = $this->getAdminUser();
+        $this->actingAs($user, 'sanctum');
+
+        DB::beginTransaction();
+        try {
+            // 1. Create a test project with 100 required parts
+            $project = Project::create([
+                'project_code' => 'TEST-QC-REJ-01',
+                'name' => 'QC Rejection Test Project',
+                'status' => 'active',
+                'created_by' => $user->id,
+            ]);
+
+            $bomItem = BomItem::create([
+                'project_id' => $project->id,
+                'standard_part_no' => 'PART-QC-REJ-001',
+                'jig_no' => 'JIG-01',
+                'unit_no' => '01',
+            ]);
+
+            BomRequirement::create([
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'required_quantity' => 100,
+            ]);
+
+            // Receive 80 parts in Store and dispatch to QC
+            $receipt = Receipt::create([
+                'project_id' => $project->id,
+                'delivery_note_number' => 'DN-REJ-01',
+                'received_by' => $user->id,
+            ]);
+
+            $recItem = ReceiptItem::create([
+                'receipt_id' => $receipt->id,
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'received_quantity' => 80,
+                'status' => 'qc_received',
+            ]);
+
+            $service = app(QuantityCalculationService::class);
+            $before = $service->calculateProjectMetrics($project);
+
+            // Assert Before Rejection state
+            $this->assertEquals(100, $before['total_required']);
+            $this->assertEquals(80, $before['total_received']);
+            $this->assertEquals(20, $before['total_pending']);
+            $this->assertEquals(80, $before['parts_in_qc']);
+            $this->assertEquals(0, $before['qc_rejected']);
+
+            // 2. Perform QC Inspection: 5 parts rejected due to dimensional defect
+            $response = $this->postJson('/api/v1/qc/inspect', [
+                'receipt_item_id' => $recItem->id,
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'inspected_quantity' => 5,
+                'result' => 'rejected',
+                'rejected_quantity' => 5,
+                'rejection_reason' => 'Dimensional Out of Tolerance',
+                'remarks' => 'Surface scratched and undersized',
+            ]);
+            $response->assertStatus(200);
+
+            // 3. Assert After Rejection state
+            $after = $service->calculateProjectMetrics($project);
+
+            // Absolute Rules Validation:
+            // Total Parts must remain UNCHANGED (100)
+            $this->assertEquals(100, $after['total_required']);
+            // Total Parts Received must remain UNCHANGED (80) - rejection does NOT reduce received
+            $this->assertEquals(80, $after['total_received']);
+            // Parts Pending must remain UNCHANGED (20) - rejection does NOT increase pending
+            $this->assertEquals(20, $after['total_pending']);
+            // QC Active must DECREASE by 5 (80 - 5 = 75)
+            $this->assertEquals(75, $after['parts_in_qc']);
+            // QC Rejected must INCREASE by 5
+            $this->assertEquals(5, $after['qc_rejected']);
+
+            // Verify Zero-Sum Conservation:
+            // Store(0) + QC(75) + Rejected(5) + Rework(0) + Paint(0) + Assembly(0) = 80 (Total Received)
+            $locationSum = $after['parts_in_store'] + $after['parts_in_qc'] + $after['qc_rejected'] + 
+                           $after['parts_in_rework'] + $after['parts_in_paint'] + $after['parts_in_assembly'] + 
+                           $after['assembly_completed'];
+            $this->assertEquals($after['total_received'], $locationSum);
+
+            // 4. Verify Purchase Queue Item created for manual reordering
+            $purchaseItem = \App\Models\PurchaseQueueItem::where('project_id', $project->id)
+                ->where('bom_item_id', $bomItem->id)
+                ->first();
+
+            $this->assertNotNull($purchaseItem);
+            $this->assertEquals(5, $purchaseItem->rejected_quantity);
+            $this->assertEquals('RH', $purchaseItem->side);
+            $this->assertEquals('Dimensional Out of Tolerance', $purchaseItem->rejection_reason);
+            $this->assertEquals('pending_purchase', $purchaseItem->status);
+
+        } finally {
+            DB::rollBack();
+        }
+    }
+
+    public function test_qc_rejection_side_isolation_rh_and_lh()
+    {
+        $user = $this->getAdminUser();
+        $this->actingAs($user, 'sanctum');
+
+        DB::beginTransaction();
+        try {
+            $project = Project::create([
+                'project_code' => 'TEST-QC-SIDE-01',
+                'name' => 'QC Side Rejection Test',
+                'status' => 'active',
+                'created_by' => $user->id,
+            ]);
+
+            $bomItem = BomItem::create([
+                'project_id' => $project->id,
+                'standard_part_no' => 'PART-QC-SIDE-001',
+                'jig_no' => 'JIG-01',
+                'unit_no' => '01',
+            ]);
+
+            BomRequirement::create([
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'required_quantity' => 50,
+            ]);
+
+            BomRequirement::create([
+                'bom_item_id' => $bomItem->id,
+                'side' => 'LH',
+                'required_quantity' => 50,
+            ]);
+
+            $receipt = Receipt::create([
+                'project_id' => $project->id,
+                'delivery_note_number' => 'DN-SIDE-01',
+                'received_by' => $user->id,
+            ]);
+
+            $recRH = ReceiptItem::create([
+                'receipt_id' => $receipt->id,
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'received_quantity' => 40,
+                'status' => 'qc_received',
+            ]);
+
+            $recLH = ReceiptItem::create([
+                'receipt_id' => $receipt->id,
+                'bom_item_id' => $bomItem->id,
+                'side' => 'LH',
+                'received_quantity' => 40,
+                'status' => 'qc_received',
+            ]);
+
+            // Reject 4 RH items only
+            $response = $this->postJson('/api/v1/qc/inspect', [
+                'receipt_item_id' => $recRH->id,
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'inspected_quantity' => 4,
+                'result' => 'rejected',
+                'rejected_quantity' => 4,
+                'rejection_reason' => 'Porosity defect on RH flange',
+            ]);
+            $response->assertStatus(200);
+
+            $service = app(QuantityCalculationService::class);
+
+            // Check RH metrics
+            $rh = $service->calculateProjectMetrics($project, 'RH');
+            $this->assertEquals(36, $rh['parts_in_qc']);
+            $this->assertEquals(4, $rh['qc_rejected']);
+            $this->assertEquals(40, $rh['total_received']);
+            $this->assertEquals(10, $rh['total_pending']);
+
+            // Check LH metrics (must be 100% untouched)
+            $lh = $service->calculateProjectMetrics($project, 'LH');
+            $this->assertEquals(40, $lh['parts_in_qc']);
+            $this->assertEquals(0, $lh['qc_rejected']);
+            $this->assertEquals(40, $lh['total_received']);
+            $this->assertEquals(10, $lh['total_pending']);
+
+        } finally {
+            DB::rollBack();
+        }
+    }
 }

@@ -27,6 +27,7 @@ class QuantityCalculationService
         'qc_received',
         'qc_approved',
         'qc_rework',
+        'qc_rejected',
         'qc_inspected',
         'paint_completed',
         'assembly_completed',
