@@ -59,6 +59,13 @@ class QcController extends Controller
     {
         $request->user()?->hasAnyRole(['ADMIN', 'QC']) ?: abort(403, 'Unauthorized. QC operational permission required.');
 
+        $request->validate([
+            'receipt_item_id' => ['nullable', 'integer'],
+            'bom_item_id' => ['nullable', 'integer'],
+            'side' => ['nullable', 'in:RH,LH,COMMON'],
+            'quantity' => ['nullable', 'integer', 'min:1'],
+        ]);
+
         return DB::transaction(function () use ($request) {
             $item = null;
             if ($request->filled('receipt_item_id')) {
@@ -87,28 +94,64 @@ class QcController extends Controller
                 return response()->json(['success' => false, 'message' => 'Item is not awaiting physical QC receipt or has already been received.'], 422);
             }
 
-            $item->update([
-                'status' => 'qc_received',
-                'qc_received_at' => now(),
-            ]);
+            $availableQty = (int) $item->received_quantity;
+            $receiveQty = $request->filled('quantity') ? (int) $request->input('quantity') : $availableQty;
+
+            if ($receiveQty <= 0) {
+                return response()->json(['success' => false, 'message' => 'Quantity to receive must be at least 1.'], 422);
+            }
+
+            if ($receiveQty > $availableQty) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Requested quantity ({$receiveQty}) exceeds pending physical arrival quantity ({$availableQty})."
+                ], 422);
+            }
+
+            $activeItem = $item;
+
+            // Handle Atomic ReceiptItem splitting if partial physical arrival
+            if ($receiveQty < $availableQty) {
+                $remainingQty = $availableQty - $receiveQty;
+                
+                // Retain remaining unarrived quantity in pending physical arrival
+                $item->update(['received_quantity' => $remainingQty]);
+
+                // Create new ReceiptItem for the arrived portion
+                $activeItem = $item->replicate();
+                $activeItem->received_quantity = $receiveQty;
+                $activeItem->status = 'qc_received';
+                $activeItem->qc_received_at = now();
+                $activeItem->save();
+            } else {
+                $item->update([
+                    'status' => 'qc_received',
+                    'qc_received_at' => now(),
+                ]);
+                $activeItem = $item;
+            }
 
             WorkflowEvent::create([
-                'bom_item_id' => $item->bom_item_id,
-                'project_id' => $item->bomItem->project_id,
+                'bom_item_id' => $activeItem->bom_item_id,
+                'project_id' => $activeItem->bomItem->project_id,
                 'user_id' => $request->user()->id,
                 'event_type' => 'qc_received',
-                'side' => $item->side,
-                'quantity' => $item->received_quantity,
+                'side' => $activeItem->side,
+                'quantity' => $receiveQty,
                 'previous_state' => 'sent_to_qc',
                 'new_state' => 'qc_received',
-                'remarks' => 'Physical arrival confirmed in QC department.',
+                'remarks' => "Physical arrival confirmed in QC department ({$receiveQty} pcs).",
             ]);
 
             try {
-                broadcast(new \App\Events\PhysicalArrivalCompleted($item))->toOthers();
+                broadcast(new \App\Events\PhysicalArrivalCompleted($activeItem))->toOthers();
             } catch (\Throwable $e) {}
 
-            return response()->json(['success' => true, 'message' => 'Physical arrival confirmed in QC department.']);
+            return response()->json([
+                'success' => true,
+                'processed_quantity' => $receiveQty,
+                'message' => "Successfully confirmed physical arrival for {$receiveQty} pcs in QC department."
+            ]);
         });
     }
 
@@ -121,13 +164,81 @@ class QcController extends Controller
             'receipt_item_ids.*' => ['integer'],
             'bom_item_ids' => ['nullable', 'array'],
             'bom_item_ids.*' => ['integer'],
+            'items' => ['nullable', 'array'],
+            'items.*.receipt_item_id' => ['nullable', 'integer'],
+            'items.*.bom_item_id' => ['nullable', 'integer'],
+            'items.*.side' => ['nullable', 'in:RH,LH,COMMON'],
+            'items.*.quantity' => ['nullable', 'integer', 'min:1'],
             'side' => ['nullable', 'in:RH,LH,COMMON'],
         ]);
 
         return DB::transaction(function () use ($request) {
+            $itemsPayload = $request->input('items', []);
             $ids = $request->input('receipt_item_ids', []);
             $bomIds = $request->input('bom_item_ids', []);
             $side = $request->input('side');
+
+            if (!empty($itemsPayload)) {
+                $processedCount = 0;
+                $processedTotalQty = 0;
+
+                foreach ($itemsPayload as $itemData) {
+                    $q = ReceiptItem::query()->lockForUpdate()->with('bomItem.project');
+                    if (!empty($itemData['receipt_item_id'])) {
+                        $q->where('id', $itemData['receipt_item_id']);
+                    } elseif (!empty($itemData['bom_item_id'])) {
+                        $q->where('bom_item_id', $itemData['bom_item_id'])->whereIn('status', ['received', 'sent_to_qc', 'store_resident']);
+                        if (!empty($itemData['side'])) {
+                            $q->where('side', $itemData['side']);
+                        }
+                    } else {
+                        continue;
+                    }
+
+                    $recItem = $q->first();
+                    if (!$recItem || !in_array($recItem->status, ['received', 'sent_to_qc', 'store_resident'])) {
+                        continue;
+                    }
+
+                    $avail = (int) $recItem->received_quantity;
+                    $reqQty = !empty($itemData['quantity']) ? (int) $itemData['quantity'] : $avail;
+                    $reqQty = min($reqQty, $avail);
+                    if ($reqQty <= 0) continue;
+
+                    if ($reqQty < $avail) {
+                        $recItem->update(['received_quantity' => $avail - $reqQty]);
+                        $arrived = $recItem->replicate();
+                        $arrived->received_quantity = $reqQty;
+                        $arrived->status = 'qc_received';
+                        $arrived->qc_received_at = now();
+                        $arrived->save();
+                    } else {
+                        $recItem->update(['status' => 'qc_received', 'qc_received_at' => now()]);
+                    }
+
+                    WorkflowEvent::create([
+                        'bom_item_id' => $recItem->bom_item_id,
+                        'project_id' => $recItem->bomItem->project_id,
+                        'user_id' => $request->user()->id,
+                        'event_type' => 'qc_received',
+                        'side' => $recItem->side,
+                        'quantity' => $reqQty,
+                        'previous_state' => 'sent_to_qc',
+                        'new_state' => 'qc_received',
+                        'remarks' => "Bulk physical arrival confirmed in QC department ({$reqQty} pcs).",
+                    ]);
+
+                    $processedCount++;
+                    $processedTotalQty += $reqQty;
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'processed_count' => $processedCount,
+                    'processed_quantity' => $processedTotalQty,
+                    'message' => "Successfully confirmed physical arrival for {$processedCount} items ({$processedTotalQty} pcs)."
+                ]);
+            }
 
             $query = ReceiptItem::query()->lockForUpdate()->with('bomItem.project');
 
@@ -153,7 +264,6 @@ class QcController extends Controller
             $eligibleItems = $allItems->filter(fn($item) => in_array($item->status, ['received', 'sent_to_qc', 'store_resident']));
 
             if ($eligibleItems->isEmpty()) {
-                // If all were already qc_received or downstream, return friendly notice
                 $alreadyReceived = $allItems->where('status', 'qc_received')->count();
                 if ($alreadyReceived > 0) {
                     return response()->json([
@@ -167,7 +277,9 @@ class QcController extends Controller
             }
 
             $processedCount = 0;
+            $processedTotalQty = 0;
             foreach ($eligibleItems as $item) {
+                $qty = (int) $item->received_quantity;
                 $item->update([
                     'status' => 'qc_received',
                     'qc_received_at' => now(),
@@ -179,10 +291,10 @@ class QcController extends Controller
                     'user_id' => $request->user()->id,
                     'event_type' => 'qc_received',
                     'side' => $item->side,
-                    'quantity' => $item->received_quantity,
+                    'quantity' => $qty,
                     'previous_state' => $item->status,
                     'new_state' => 'qc_received',
-                    'remarks' => 'Bulk physical arrival confirmed in QC department.',
+                    'remarks' => "Bulk physical arrival confirmed in QC department ({$qty} pcs).",
                 ]);
 
                 try {
@@ -190,12 +302,14 @@ class QcController extends Controller
                 } catch (\Throwable $e) {}
 
                 $processedCount++;
+                $processedTotalQty += $qty;
             }
 
             return response()->json([
                 'success' => true,
                 'processed_count' => $processedCount,
-                'message' => "Successfully confirmed physical arrival for {$processedCount} items."
+                'processed_quantity' => $processedTotalQty,
+                'message' => "Successfully confirmed physical arrival for {$processedCount} items ({$processedTotalQty} pcs)."
             ]);
         });
     }

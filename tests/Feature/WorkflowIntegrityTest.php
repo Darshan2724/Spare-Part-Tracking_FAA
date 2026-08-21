@@ -696,4 +696,106 @@ class WorkflowIntegrityTest extends TestCase
             DB::rollBack();
         }
     }
+
+    public function test_qc_partial_physical_arrival_and_inspection_retention()
+    {
+        DB::beginTransaction();
+        try {
+            $user = $this->getAdminUser();
+            $this->actingAs($user, 'sanctum');
+
+            $project = Project::create([
+                'name' => 'QC-Arrival-Test-' . uniqid(),
+                'project_code' => 'QAT-' . rand(1000, 9999),
+                'status' => 'active',
+            ]);
+
+            $bomItem = BomItem::create([
+                'project_id' => $project->id,
+                'standard_part_no' => 'ARRIV-PART-01',
+                'item_no' => '1',
+            ]);
+
+            BomRequirement::create([
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'required_quantity' => 6,
+            ]);
+
+            // Store receives 6 and dispatches to QC
+            $recRes = $this->postJson('/api/v1/store/receipts', [
+                'project_id' => $project->id,
+                'delivery_note_number' => 'DN-ARRIV-01',
+                'items' => [
+                    [
+                        'bom_item_id' => $bomItem->id,
+                        'side' => 'RH',
+                        'received_quantity' => 6,
+                    ]
+                ]
+            ]);
+            $recRes->assertSuccessful();
+
+            $ri = ReceiptItem::where('bom_item_id', $bomItem->id)->first();
+            $this->postJson("/api/v1/store/items/{$ri->id}/send-to-qc")->assertStatus(200);
+
+            // Hierarchy Check before physical arrival
+            $hierService = app(\App\Services\HierarchyService::class);
+            $hierTree1 = $hierService->getDepartmentHierarchy('qc', $project->id, ['side' => 'RH']);
+            $partData1 = $hierTree1['jigs'][0]['units'][0]['parts'][0];
+            $sideStat1 = $partData1->side_stats['RH'];
+            $this->assertEquals(6, $sideStat1['qc_pending_arrival']);
+            $this->assertEquals(0, $sideStat1['qc_pending_inspection']);
+
+            // 1. Partial Physical Arrival: Confirm 2 out of 6 arrive in QC bay
+            $arrRes = $this->postJson('/api/v1/qc/receive', [
+                'receipt_item_id' => $ri->id,
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'quantity' => 2,
+            ]);
+            $arrRes->assertStatus(200);
+
+            $hierTree2 = $hierService->getDepartmentHierarchy('qc', $project->id, ['side' => 'RH']);
+            $partData2 = $hierTree2['jigs'][0]['units'][0]['parts'][0];
+            $sideStat2 = $partData2->side_stats['RH'];
+            $this->assertEquals(4, $sideStat2['qc_pending_arrival']);
+            $this->assertEquals(2, $sideStat2['qc_pending_inspection']);
+
+            // 2. Partial Inspection: Approve 1 out of 2 in inspection bay to Paint
+            $qcInspItem = ReceiptItem::where('bom_item_id', $bomItem->id)->where('status', 'qc_received')->first();
+            $this->assertNotNull($qcInspItem);
+
+            $inspRes = $this->postJson('/api/v1/qc/inspect', [
+                'receipt_item_id' => $qcInspItem->id,
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'result' => 'approved',
+                'approved_quantity' => 1,
+                'paint_quantity' => 1,
+                'assembly_quantity' => 0,
+            ]);
+            $inspRes->assertStatus(200);
+
+            $hierTree3 = $hierService->getDepartmentHierarchy('qc', $project->id, ['side' => 'RH']);
+            $partData3 = $hierTree3['jigs'][0]['units'][0]['parts'][0];
+            $sideStat3 = $partData3->side_stats['RH'];
+            // 4 still in arrival queue, 1 remains in inspection bay, 1 in Paint
+            $this->assertEquals(4, $sideStat3['qc_pending_arrival']);
+            $this->assertEquals(1, $sideStat3['qc_pending_inspection']);
+            $this->assertEquals(1, $sideStat3['parts_in_paint']);
+
+            // Overall Zero-sum ledger check
+            $calcService = app(\App\Services\QuantityCalculationService::class);
+            $metrics = $calcService->calculateProjectMetrics($project, 'RH');
+            $this->assertEquals(6, $metrics['total_received']);
+            $this->assertEquals(5, $metrics['parts_in_qc']); // 4 in arrival + 1 in inspection bay
+            $this->assertEquals(1, $metrics['parts_in_paint']);
+            $locSum = $metrics['parts_in_store'] + $metrics['parts_in_qc'] + $metrics['parts_in_rework'] + $metrics['parts_in_paint'] + $metrics['parts_in_assembly'] + $metrics['assembly_completed'] + $metrics['qc_rejected'];
+            $this->assertEquals(6, $locSum);
+
+        } finally {
+            DB::rollBack();
+        }
+    }
 }
