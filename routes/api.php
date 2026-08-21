@@ -47,6 +47,22 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
         Route::post('/export/movement', [ExportController::class, 'exportMovement']);
         Route::get('/export/movement', [ExportController::class, 'exportMovement']);
 
+        // Dashboard Complete Excel and PDF Export
+        Route::post('/export/dashboard', [ExportController::class, 'exportDashboard']);
+        Route::get('/export/dashboard', [ExportController::class, 'exportDashboard']);
+
+        // Supplier Registry Excel and PDF Export
+        Route::post('/export/suppliers', [ExportController::class, 'exportSuppliers']);
+        Route::get('/export/suppliers', [ExportController::class, 'exportSuppliers']);
+
+        // Individual Dashboard Block Excel Export
+        Route::post('/export/block', [ExportController::class, 'exportBlock']);
+        Route::get('/export/block', [ExportController::class, 'exportBlock']);
+
+        // Manufacturing & Parts Report Excel Export
+        Route::post('/export/report', [ExportController::class, 'exportReport']);
+        Route::get('/export/report', [ExportController::class, 'exportReport']);
+
         // Admin System Logs & Diagnostics (ADMIN ONLY)
         Route::prefix('admin')->group(function () {
             Route::get('/logs', [SystemLogController::class, 'index']);
@@ -57,6 +73,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
 
         // Dashboard Summary Metrics
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
+        Route::get('/dashboard/block-details', [DashboardController::class, 'blockDetails']);
         Route::get('/dashboard/project-hierarchy', [DashboardController::class, 'projectHierarchy']);
         Route::get('/dashboard/bottleneck', [DashboardController::class, 'bottleneck']);
         Route::get('/dashboard/daily-movement', [DashboardController::class, 'dailyMovement']);

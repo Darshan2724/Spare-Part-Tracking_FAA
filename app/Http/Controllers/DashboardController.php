@@ -239,6 +239,545 @@ class DashboardController extends Controller
         ]);
     }
 
+    /**
+     * Retrieve all parts/records belonging to a specific clicked Dashboard data block.
+     */
+    public function blockDetails(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC', 'REWORK', 'PAINT', 'ASSEMBLY', 'PURCHASE']) ?: abort(403);
+
+        $block = $request->query('block', 'total_parts');
+        $projectId = $request->query('project_id') ? (int) $request->query('project_id') : null;
+
+        $activeProjectsQuery = Project::query();
+        if ($projectId) {
+            $activeProjectsQuery->where('id', $projectId);
+        } else {
+            $activeProjectsQuery->where('status', 'active');
+        }
+        $activeProjectIds = $activeProjectsQuery->pluck('id')->toArray();
+
+        $title = '';
+        $items = [];
+        $columns = [];
+        $totalQuantity = 0;
+
+        switch ($block) {
+            case 'active_projects':
+                $title = 'Active Projects Overview';
+                $projects = Project::where('status', 'active')->orderBy('name')->get();
+                $columns = [
+                    ['label' => 'Project Code', 'key' => 'code'],
+                    ['label' => 'Project Name', 'key' => 'name'],
+                    ['label' => 'Required (pcs)', 'key' => 'required', 'align' => 'center'],
+                    ['label' => 'Received (pcs)', 'key' => 'received', 'align' => 'center'],
+                    ['label' => 'Pending (pcs)', 'key' => 'pending', 'align' => 'center'],
+                    ['label' => 'Progress %', 'key' => 'completion_pct', 'align' => 'center'],
+                    ['label' => 'Status', 'key' => 'status', 'align' => 'center'],
+                ];
+                foreach ($projects as $p) {
+                    $m = $this->quantityService->calculateProjectMetrics($p);
+                    $totalQuantity += $m['required_qty'];
+                    $items[] = [
+                        'id' => $p->id,
+                        'code' => $p->project_code,
+                        'name' => $p->name,
+                        'required' => $m['required_qty'],
+                        'received' => $m['received_qty'],
+                        'pending' => $m['pending_qty'],
+                        'completion_pct' => $m['completion_pct'] . '%',
+                        'status' => 'ACTIVE',
+                    ];
+                }
+                break;
+
+            case 'completed_projects':
+                $title = 'Completed Projects';
+                $projects = Project::where('status', 'completed')->orderBy('name')->get();
+                $columns = [
+                    ['label' => 'Project Code', 'key' => 'code'],
+                    ['label' => 'Project Name', 'key' => 'name'],
+                    ['label' => 'Total Parts', 'key' => 'total_parts', 'align' => 'center'],
+                    ['label' => 'Completion', 'key' => 'completion_pct', 'align' => 'center'],
+                    ['label' => 'Status', 'key' => 'status', 'align' => 'center'],
+                ];
+                foreach ($projects as $p) {
+                    $m = $this->quantityService->calculateProjectMetrics($p);
+                    $totalQuantity += $m['received_qty'];
+                    $items[] = [
+                        'id' => $p->id,
+                        'code' => $p->project_code,
+                        'name' => $p->name,
+                        'total_parts' => $m['required_qty'],
+                        'completion_pct' => '100%',
+                        'status' => 'COMPLETED',
+                    ];
+                }
+                break;
+
+            case 'delayed_projects':
+                $title = 'Delayed Projects (>14d Inactive & <80% Complete)';
+                $delayedQuery = Project::where('status', 'active')
+                    ->where('created_at', '<', now()->subDays(14))
+                    ->whereDoesntHave('bomItems.receiptItems', fn($q) => $q->where('updated_at', '>=', now()->subDays(14)))
+                    ->get();
+                $columns = [
+                    ['label' => 'Project Code', 'key' => 'code'],
+                    ['label' => 'Project Name', 'key' => 'name'],
+                    ['label' => 'Required', 'key' => 'required', 'align' => 'center'],
+                    ['label' => 'Received', 'key' => 'received', 'align' => 'center'],
+                    ['label' => 'Pending', 'key' => 'pending', 'align' => 'center'],
+                    ['label' => 'Progress %', 'key' => 'completion_pct', 'align' => 'center'],
+                    ['label' => 'Status', 'key' => 'status', 'align' => 'center'],
+                ];
+                foreach ($delayedQuery as $p) {
+                    $m = $this->quantityService->calculateProjectMetrics($p);
+                    $totalQuantity += $m['pending_qty'];
+                    $items[] = [
+                        'id' => $p->id,
+                        'code' => $p->project_code,
+                        'name' => $p->name,
+                        'required' => $m['required_qty'],
+                        'received' => $m['received_qty'],
+                        'pending' => $m['pending_qty'],
+                        'completion_pct' => $m['completion_pct'] . '%',
+                        'status' => 'DELAYED',
+                    ];
+                }
+                break;
+
+            case 'total_parts':
+                $title = 'Total Required BOM Parts';
+                $bomQuery = BomItem::query()
+                    ->with(['project', 'supplier', 'requirements'])
+                    ->whereIn('project_id', $activeProjectIds)
+                    ->orderBy('standard_part_no');
+                $columns = [
+                    ['label' => 'Part Number', 'key' => 'part_number'],
+                    ['label' => 'Part No', 'key' => 'part_no'],
+                    ['label' => 'Item No', 'key' => 'item_no'],
+                    ['label' => 'Project', 'key' => 'project'],
+                    ['label' => 'JIG / Unit', 'key' => 'jig_unit'],
+                    ['label' => 'Side', 'key' => 'side', 'align' => 'center'],
+                    ['label' => 'Supplier', 'key' => 'supplier'],
+                    ['label' => 'Required', 'key' => 'required', 'align' => 'center'],
+                    ['label' => 'Received', 'key' => 'received', 'align' => 'center'],
+                    ['label' => 'Pending', 'key' => 'pending', 'align' => 'center'],
+                    ['label' => 'Quantity', 'key' => 'quantity', 'align' => 'center'],
+                ];
+                foreach ($bomQuery->get() as $b) {
+                    $jig = $b->jig_no ?? '';
+                    $unitNo = $b->unit_no ?? '';
+                    $partNo = $b->standard_part_no ?? '';
+                    $projCode = $b->project?->project_code ?? ($b->project?->name ?? '—');
+                    $jigUnit = ($jig ? $jig : '') . ($unitNo ? ' / ' . $unitNo : '');
+                    $supplierName = $b->supplier?->name ?? $b->supplier_name_raw ?? '—';
+
+                    if ($b->requirements->isNotEmpty()) {
+                        foreach ($b->requirements as $req) {
+                            $side = $req->side ?: 'COMMON';
+                            $reqQty = (int) $req->required_quantity;
+                            $recQty = (int) $req->received_quantity;
+                            $pendQty = (int) ($req->pending_quantity > 0 ? $req->pending_quantity : max(0, $reqQty - $recQty));
+                            $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                            $totalQuantity += $reqQty;
+                            $items[] = [
+                                'id' => $req->id,
+                                'part_number' => $partNumber,
+                                'part_no' => $partNo,
+                                'item_no' => $b->item_no ?? '—',
+                                'project' => $projCode,
+                                'jig_unit' => $jigUnit,
+                                'side' => $side,
+                                'supplier' => $supplierName,
+                                'required' => $reqQty,
+                                'received' => $recQty,
+                                'pending' => $pendQty,
+                                'quantity' => $reqQty,
+                            ];
+                        }
+                    } else {
+                        $side = $b->side ?: 'COMMON';
+                        $reqQty = (int) ($b->total_required ?? 0);
+                        $recQty = (int) ($b->total_received ?? 0);
+                        $pendQty = (int) ($b->total_pending ?? max(0, $reqQty - $recQty));
+                        $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                        $totalQuantity += $reqQty;
+                        $items[] = [
+                            'id' => $b->id,
+                            'part_number' => $partNumber,
+                            'part_no' => $partNo,
+                            'item_no' => $b->item_no ?? '—',
+                            'project' => $projCode,
+                            'jig_unit' => $jigUnit,
+                            'side' => $side,
+                            'supplier' => $supplierName,
+                            'required' => $reqQty,
+                            'received' => $recQty,
+                            'pending' => $pendQty,
+                            'quantity' => $reqQty,
+                        ];
+                    }
+                }
+                break;
+
+            case 'total_parts_received':
+                $title = 'Total Parts Received (In-Plant)';
+                $recQuery = ReceiptItem::query()
+                    ->with(['bomItem.project', 'bomItem.supplier', 'receipt'])
+                    ->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES)
+                    ->whereHas('bomItem', fn($q) => $q->whereIn('project_id', $activeProjectIds))
+                    ->orderByDesc('created_at');
+                $columns = [
+                    ['label' => 'Part Number', 'key' => 'part_number'],
+                    ['label' => 'Part No', 'key' => 'part_no'],
+                    ['label' => 'Item No', 'key' => 'item_no'],
+                    ['label' => 'Project', 'key' => 'project'],
+                    ['label' => 'JIG / Unit', 'key' => 'jig_unit'],
+                    ['label' => 'Side', 'key' => 'side', 'align' => 'center'],
+                    ['label' => 'Received Qty', 'key' => 'quantity', 'align' => 'center'],
+                    ['label' => 'Current Status', 'key' => 'status', 'align' => 'center'],
+                    ['label' => 'Supplier', 'key' => 'supplier'],
+                    ['label' => 'Intake Date', 'key' => 'date', 'align' => 'center'],
+                ];
+                foreach ($recQuery->get() as $r) {
+                    $qty = (int) ($r->received_quantity ?? 0);
+                    $jig = $r->bomItem?->jig_no ?? '';
+                    $unitNo = $r->bomItem?->unit_no ?? '';
+                    $partNo = $r->bomItem?->standard_part_no ?? '';
+                    $side = $r->side ?? 'COMMON';
+                    $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                    $totalQuantity += $qty;
+                    $items[] = [
+                        'id' => $r->id,
+                        'part_number' => $partNumber,
+                        'part_no' => $partNo ?: '—',
+                        'item_no' => $r->bomItem?->item_no ?? '—',
+                        'project' => $r->bomItem?->project?->project_code ?? ($r->bomItem?->project?->name ?? '—'),
+                        'jig_unit' => ($jig ? $jig : '') . ($unitNo ? ' / ' . $unitNo : ''),
+                        'side' => $side,
+                        'quantity' => $qty,
+                        'status' => strtoupper(str_replace('_', ' ', $r->status)),
+                        'supplier' => $r->bomItem?->supplier?->name ?? $r->bomItem?->supplier_name_raw ?? '—',
+                        'date' => $r->created_at?->format('d-M-Y H:i') ?? '—',
+                    ];
+                }
+                break;
+
+            case 'parts_pending':
+                $title = 'Parts Pending Intake';
+                $bomQuery = BomItem::query()
+                    ->with(['project', 'supplier', 'requirements'])
+                    ->whereIn('project_id', $activeProjectIds)
+                    ->orderBy('standard_part_no');
+                $columns = [
+                    ['label' => 'Part Number', 'key' => 'part_number'],
+                    ['label' => 'Part No', 'key' => 'part_no'],
+                    ['label' => 'Item No', 'key' => 'item_no'],
+                    ['label' => 'Project', 'key' => 'project'],
+                    ['label' => 'JIG / Unit', 'key' => 'jig_unit'],
+                    ['label' => 'Side', 'key' => 'side', 'align' => 'center'],
+                    ['label' => 'Supplier', 'key' => 'supplier'],
+                    ['label' => 'Required', 'key' => 'required', 'align' => 'center'],
+                    ['label' => 'Received', 'key' => 'received', 'align' => 'center'],
+                    ['label' => 'Pending Qty', 'key' => 'pending', 'align' => 'center'],
+                    ['label' => 'Quantity', 'key' => 'quantity', 'align' => 'center'],
+                ];
+                foreach ($bomQuery->get() as $b) {
+                    $jig = $b->jig_no ?? '';
+                    $unitNo = $b->unit_no ?? '';
+                    $partNo = $b->standard_part_no ?? '';
+                    $projCode = $b->project?->project_code ?? ($b->project?->name ?? '—');
+                    $jigUnit = ($jig ? $jig : '') . ($unitNo ? ' / ' . $unitNo : '');
+                    $supplierName = $b->supplier?->name ?? $b->supplier_name_raw ?? '—';
+
+                    if ($b->requirements->isNotEmpty()) {
+                        foreach ($b->requirements as $req) {
+                            $side = $req->side ?: 'COMMON';
+                            $reqQty = (int) $req->required_quantity;
+                            $recQty = (int) $req->received_quantity;
+                            $pendQty = (int) ($req->pending_quantity > 0 ? $req->pending_quantity : max(0, $reqQty - $recQty));
+                            $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                            if ($pendQty > 0) {
+                                $totalQuantity += $pendQty;
+                                $items[] = [
+                                    'id' => $req->id,
+                                    'part_number' => $partNumber,
+                                    'part_no' => $partNo,
+                                    'item_no' => $b->item_no ?? '—',
+                                    'project' => $projCode,
+                                    'jig_unit' => $jigUnit,
+                                    'side' => $side,
+                                    'supplier' => $supplierName,
+                                    'required' => $reqQty,
+                                    'received' => $recQty,
+                                    'pending' => $pendQty,
+                                    'quantity' => $pendQty,
+                                ];
+                            }
+                        }
+                    } else {
+                        $side = $b->side ?: 'COMMON';
+                        $reqQty = (int) ($b->total_required ?? 0);
+                        $recQty = (int) ($b->total_received ?? 0);
+                        $pendQty = (int) ($b->total_pending ?? max(0, $reqQty - $recQty));
+                        $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                        if ($pendQty > 0) {
+                            $totalQuantity += $pendQty;
+                            $items[] = [
+                                'id' => $b->id,
+                                'part_number' => $partNumber,
+                                'part_no' => $partNo,
+                                'item_no' => $b->item_no ?? '—',
+                                'project' => $projCode,
+                                'jig_unit' => $jigUnit,
+                                'side' => $side,
+                                'supplier' => $supplierName,
+                                'required' => $reqQty,
+                                'received' => $recQty,
+                                'pending' => $pendQty,
+                                'quantity' => $pendQty,
+                            ];
+                        }
+                    }
+                }
+                break;
+
+            case 'store':
+                $title = 'Parts in Store Intake';
+                $storeQuery = ReceiptItem::query()
+                    ->with(['bomItem.project', 'bomItem.supplier'])
+                    ->whereIn('status', ['received', 'returned_to_store'])
+                    ->whereHas('bomItem', fn($q) => $q->whereIn('project_id', $activeProjectIds))
+                    ->orderByDesc('created_at');
+                $columns = [
+                    ['label' => 'Part Number', 'key' => 'part_number'],
+                    ['label' => 'Part No', 'key' => 'part_no'],
+                    ['label' => 'Item No', 'key' => 'item_no'],
+                    ['label' => 'Project', 'key' => 'project'],
+                    ['label' => 'JIG / Unit', 'key' => 'jig_unit'],
+                    ['label' => 'Side', 'key' => 'side', 'align' => 'center'],
+                    ['label' => 'Store Qty', 'key' => 'quantity', 'align' => 'center'],
+                    ['label' => 'Supplier', 'key' => 'supplier'],
+                    ['label' => 'Location / Status', 'key' => 'status', 'align' => 'center'],
+                    ['label' => 'Received At', 'key' => 'date', 'align' => 'center'],
+                ];
+                foreach ($storeQuery->get() as $s) {
+                    $qty = (int) ($s->received_quantity ?? 0);
+                    $jig = $s->bomItem?->jig_no ?? '';
+                    $unitNo = $s->bomItem?->unit_no ?? '';
+                    $partNo = $s->bomItem?->standard_part_no ?? '';
+                    $side = $s->side ?? 'COMMON';
+                    $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                    $totalQuantity += $qty;
+                    $items[] = [
+                        'id' => $s->id,
+                        'part_number' => $partNumber,
+                        'part_no' => $partNo ?: '—',
+                        'item_no' => $s->bomItem?->item_no ?? '—',
+                        'project' => $s->bomItem?->project?->project_code ?? ($s->bomItem?->project?->name ?? '—'),
+                        'jig_unit' => ($jig ? $jig : '') . ($unitNo ? ' / ' . $unitNo : ''),
+                        'side' => $side,
+                        'quantity' => $qty,
+                        'supplier' => $s->bomItem?->supplier?->name ?? $s->bomItem?->supplier_name_raw ?? '—',
+                        'status' => 'STORE INTAKE',
+                        'date' => $s->created_at?->format('d-M-Y H:i') ?? '—',
+                    ];
+                }
+                break;
+
+            case 'qc':
+                $title = 'Parts in QC Inspection Queue';
+                $qcQuery = ReceiptItem::query()
+                    ->with(['bomItem.project', 'bomItem.supplier'])
+                    ->whereIn('status', ['sent_to_qc', 'qc_received'])
+                    ->whereHas('bomItem', fn($q) => $q->whereIn('project_id', $activeProjectIds))
+                    ->orderByDesc('updated_at');
+                $columns = [
+                    ['label' => 'Part Number', 'key' => 'part_number'],
+                    ['label' => 'Part No', 'key' => 'part_no'],
+                    ['label' => 'Item No', 'key' => 'item_no'],
+                    ['label' => 'Project', 'key' => 'project'],
+                    ['label' => 'JIG / Unit', 'key' => 'jig_unit'],
+                    ['label' => 'Side', 'key' => 'side', 'align' => 'center'],
+                    ['label' => 'QC Queue Qty', 'key' => 'quantity', 'align' => 'center'],
+                    ['label' => 'Status', 'key' => 'status', 'align' => 'center'],
+                    ['label' => 'Supplier', 'key' => 'supplier'],
+                    ['label' => 'Sent to QC', 'key' => 'date', 'align' => 'center'],
+                ];
+                foreach ($qcQuery->get() as $q) {
+                    $qty = (int) ($q->received_quantity ?? 0);
+                    $jig = $q->bomItem?->jig_no ?? '';
+                    $unitNo = $q->bomItem?->unit_no ?? '';
+                    $partNo = $q->bomItem?->standard_part_no ?? '';
+                    $side = $q->side ?? 'COMMON';
+                    $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                    $totalQuantity += $qty;
+                    $items[] = [
+                        'id' => $q->id,
+                        'part_number' => $partNumber,
+                        'part_no' => $partNo ?: '—',
+                        'item_no' => $q->bomItem?->item_no ?? '—',
+                        'project' => $q->bomItem?->project?->project_code ?? ($q->bomItem?->project?->name ?? '—'),
+                        'jig_unit' => ($jig ? $jig : '') . ($unitNo ? ' / ' . $unitNo : ''),
+                        'side' => $side,
+                        'quantity' => $qty,
+                        'status' => strtoupper(str_replace('_', ' ', $q->status)),
+                        'supplier' => $q->bomItem?->supplier?->name ?? $q->bomItem?->supplier_name_raw ?? '—',
+                        'date' => $q->updated_at?->format('d-M-Y H:i') ?? '—',
+                    ];
+                }
+                break;
+
+            case 'rework':
+                $title = 'Parts in Rework Queue';
+                $reworkQuery = ReworkRecord::query()
+                    ->with(['bomItem.project', 'bomItem.supplier'])
+                    ->whereIn('status', ['pending', 'in_progress'])
+                    ->whereHas('bomItem', fn($q) => $q->whereIn('project_id', $activeProjectIds))
+                    ->orderByDesc('created_at');
+                $columns = [
+                    ['label' => 'Part Number', 'key' => 'part_number'],
+                    ['label' => 'Part No', 'key' => 'part_no'],
+                    ['label' => 'Item No', 'key' => 'item_no'],
+                    ['label' => 'Project', 'key' => 'project'],
+                    ['label' => 'JIG / Unit', 'key' => 'jig_unit'],
+                    ['label' => 'Side', 'key' => 'side', 'align' => 'center'],
+                    ['label' => 'Rework Qty', 'key' => 'quantity', 'align' => 'center'],
+                    ['label' => 'Rework Reason / Defect', 'key' => 'reason'],
+                    ['label' => 'Status', 'key' => 'status', 'align' => 'center'],
+                    ['label' => 'Date', 'key' => 'date', 'align' => 'center'],
+                ];
+                foreach ($reworkQuery->get() as $rw) {
+                    $qty = (int) ($rw->quantity ?? 0);
+                    $jig = $rw->bomItem?->jig_no ?? '';
+                    $unitNo = $rw->bomItem?->unit_no ?? '';
+                    $partNo = $rw->bomItem?->standard_part_no ?? '';
+                    $side = $rw->side ?? 'COMMON';
+                    $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                    $totalQuantity += $qty;
+                    $items[] = [
+                        'id' => $rw->id,
+                        'part_number' => $partNumber,
+                        'part_no' => $partNo ?: '—',
+                        'item_no' => $rw->bomItem?->item_no ?? '—',
+                        'project' => $rw->bomItem?->project?->project_code ?? ($rw->bomItem?->project?->name ?? '—'),
+                        'jig_unit' => ($jig ? $jig : '') . ($unitNo ? ' / ' . $unitNo : ''),
+                        'side' => $side,
+                        'quantity' => $qty,
+                        'reason' => $rw->rework_reason ?: ($rw->remarks ?: 'Rework Required'),
+                        'status' => strtoupper(str_replace('_', ' ', $rw->status)),
+                        'date' => $rw->created_at?->format('d-M-Y H:i') ?? '—',
+                    ];
+                }
+                break;
+
+            case 'paint':
+                $title = 'Parts in Paint Shop Queue';
+                $paintQuery = PaintRecord::query()
+                    ->with(['bomItem.project', 'bomItem.supplier'])
+                    ->whereIn('status', ['pending', 'in_progress', 'ready'])
+                    ->whereHas('bomItem', fn($q) => $q->whereIn('project_id', $activeProjectIds))
+                    ->orderByDesc('created_at');
+                $columns = [
+                    ['label' => 'Part Number', 'key' => 'part_number'],
+                    ['label' => 'Part No', 'key' => 'part_no'],
+                    ['label' => 'Item No', 'key' => 'item_no'],
+                    ['label' => 'Project', 'key' => 'project'],
+                    ['label' => 'JIG / Unit', 'key' => 'jig_unit'],
+                    ['label' => 'Side', 'key' => 'side', 'align' => 'center'],
+                    ['label' => 'Paint Qty', 'key' => 'quantity', 'align' => 'center'],
+                    ['label' => 'Process Type', 'key' => 'process_type'],
+                    ['label' => 'Status', 'key' => 'status', 'align' => 'center'],
+                    ['label' => 'Date', 'key' => 'date', 'align' => 'center'],
+                ];
+                foreach ($paintQuery->get() as $pt) {
+                    $qty = (int) ($pt->quantity ?? 0);
+                    $jig = $pt->bomItem?->jig_no ?? '';
+                    $unitNo = $pt->bomItem?->unit_no ?? '';
+                    $partNo = $pt->bomItem?->standard_part_no ?? '';
+                    $side = $pt->side ?? 'COMMON';
+                    $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                    $totalQuantity += $qty;
+                    $items[] = [
+                        'id' => $pt->id,
+                        'part_number' => $partNumber,
+                        'part_no' => $partNo ?: '—',
+                        'item_no' => $pt->bomItem?->item_no ?? '—',
+                        'project' => $pt->bomItem?->project?->project_code ?? ($pt->bomItem?->project?->name ?? '—'),
+                        'jig_unit' => ($jig ? $jig : '') . ($unitNo ? ' / ' . $unitNo : ''),
+                        'side' => $side,
+                        'quantity' => $qty,
+                        'process_type' => $pt->remarks ?: 'Surface Primer & Paint',
+                        'status' => strtoupper(str_replace('_', ' ', $pt->status)),
+                        'date' => $pt->created_at?->format('d-M-Y H:i') ?? '—',
+                    ];
+                }
+                break;
+
+            case 'assembly':
+                $title = 'Parts in Assembly Shop Queue';
+                $asmQuery = AssemblyRecord::query()
+                    ->with(['bomItem.project', 'bomItem.supplier'])
+                    ->whereIn('status', ['pending', 'in_progress', 'ready'])
+                    ->whereHas('bomItem', fn($q) => $q->whereIn('project_id', $activeProjectIds))
+                    ->orderByDesc('created_at');
+                $columns = [
+                    ['label' => 'Part Number', 'key' => 'part_number'],
+                    ['label' => 'Part No', 'key' => 'part_no'],
+                    ['label' => 'Item No', 'key' => 'item_no'],
+                    ['label' => 'Project', 'key' => 'project'],
+                    ['label' => 'JIG / Unit', 'key' => 'jig_unit'],
+                    ['label' => 'Side', 'key' => 'side', 'align' => 'center'],
+                    ['label' => 'Assembly Qty', 'key' => 'quantity', 'align' => 'center'],
+                    ['label' => 'Status', 'key' => 'status', 'align' => 'center'],
+                    ['label' => 'Date', 'key' => 'date', 'align' => 'center'],
+                ];
+                foreach ($asmQuery->get() as $as) {
+                    $qty = (int) ($as->quantity ?? 0);
+                    $jig = $as->bomItem?->jig_no ?? '';
+                    $unitNo = $as->bomItem?->unit_no ?? '';
+                    $partNo = $as->bomItem?->standard_part_no ?? '';
+                    $side = $as->side ?? 'COMMON';
+                    $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                    $totalQuantity += $qty;
+                    $items[] = [
+                        'id' => $as->id,
+                        'part_number' => $partNumber,
+                        'part_no' => $partNo ?: '—',
+                        'item_no' => $as->bomItem?->item_no ?? '—',
+                        'project' => $as->bomItem?->project?->project_code ?? ($as->bomItem?->project?->name ?? '—'),
+                        'jig_unit' => ($jig ? $jig : '') . ($unitNo ? ' / ' . $unitNo : ''),
+                        'side' => $side,
+                        'quantity' => $qty,
+                        'status' => strtoupper(str_replace('_', ' ', $as->status)),
+                        'date' => $as->created_at?->format('d-M-Y H:i') ?? '—',
+                    ];
+                }
+                break;
+        }
+
+        return response()->json([
+            'block' => $block,
+            'title' => $title,
+            'project_id' => $projectId,
+            'columns' => $columns,
+            'items' => $items,
+            'total_quantity' => $totalQuantity,
+            'total_records' => count($items),
+        ]);
+    }
+
     public function bottleneck(Request $request)
     {
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER']) ?: abort(403);
@@ -305,8 +844,9 @@ class DashboardController extends Controller
             ->when($side, fn($q) => $q->where('side', $side));
 
         // Get all distinct active dates containing movements in descending order
+        $dateSql = DB::getDriverName() === 'sqlite' ? "strftime('%Y-%m-%d', created_at)" : "to_char(created_at, 'YYYY-MM-DD')";
         $allActiveDates = (clone $baseQuery)
-            ->selectRaw("to_char(created_at, 'YYYY-MM-DD') as date_key")
+            ->selectRaw("{$dateSql} as date_key")
             ->groupBy('date_key')
             ->orderBy('date_key', 'desc')
             ->pluck('date_key')
@@ -353,10 +893,10 @@ class DashboardController extends Controller
             $targetDates = array_values(array_filter($allActiveDates, fn($d) => $d >= $startDate));
             $hasPrev = false;
             $hasNext = false;
-            $displayedPeriodLabel = "This Month (" . now()->format('M Y') . ")";
-        } elseif ($quickRange === 'custom' && $request->filled('date_from')) {
+            $displayedPeriodLabel = "This Month";
+        } elseif ($quickRange === 'custom' && $request->filled('date_from') && $request->filled('date_to')) {
             $from = $request->input('date_from');
-            $to = $request->input('date_to', now()->format('Y-m-d'));
+            $to = $request->input('date_to');
             $targetDates = array_values(array_filter($allActiveDates, fn($d) => $d >= $from && $d <= $to));
             $hasPrev = false;
             $hasNext = false;
@@ -373,7 +913,7 @@ class DashboardController extends Controller
         if (!empty($targetDates)) {
             $events = (clone $baseQuery)
                 ->with(['bomItem.project', 'user'])
-                ->whereIn(DB::raw("to_char(created_at, 'YYYY-MM-DD')"), $targetDates)
+                ->whereIn(DB::raw($dateSql), $targetDates)
                 ->orderBy('created_at', 'desc')
                 ->get();
         }
