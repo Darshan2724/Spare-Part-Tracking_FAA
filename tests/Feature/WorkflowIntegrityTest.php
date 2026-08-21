@@ -934,4 +934,98 @@ class WorkflowIntegrityTest extends TestCase
             DB::rollBack();
         }
     }
+
+    public function test_qc_inspection_aggregates_multiple_split_receipt_items()
+    {
+        DB::beginTransaction();
+        try {
+            $user = $this->getAdminUser();
+            $this->actingAs($user, 'sanctum');
+
+            $project = Project::create([
+                'name' => 'Multi-Receipt-QC-Test-' . uniqid(),
+                'project_code' => 'MRQ-' . rand(1000, 9999),
+                'status' => 'active',
+            ]);
+
+            $bomItem = BomItem::create([
+                'project_id' => $project->id,
+                'standard_part_no' => 'MULTI-REC-01',
+                'item_no' => '1',
+            ]);
+
+            BomRequirement::create([
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'required_quantity' => 4,
+            ]);
+
+            // 1. Two separate store receipts of 2 units each
+            $this->postJson('/api/v1/store/receipts', [
+                'project_id' => $project->id,
+                'delivery_note_number' => 'DN-MRQ-01',
+                'items' => [
+                    ['bom_item_id' => $bomItem->id, 'side' => 'RH', 'received_quantity' => 2]
+                ]
+            ])->assertSuccessful();
+
+            $this->postJson('/api/v1/store/receipts', [
+                'project_id' => $project->id,
+                'delivery_note_number' => 'DN-MRQ-02',
+                'items' => [
+                    ['bom_item_id' => $bomItem->id, 'side' => 'RH', 'received_quantity' => 2]
+                ]
+            ])->assertSuccessful();
+
+            // Send both to QC and confirm physical arrival
+            $rItems = ReceiptItem::where('bom_item_id', $bomItem->id)->get();
+            $this->assertCount(2, $rItems);
+
+            foreach ($rItems as $ri) {
+                $this->postJson("/api/v1/store/items/{$ri->id}/send-to-qc")->assertStatus(200);
+                $this->postJson('/api/v1/qc/receive', [
+                    'receipt_item_id' => $ri->id,
+                    'bom_item_id' => $bomItem->id,
+                    'side' => 'RH',
+                    'quantity' => 2,
+                ])->assertStatus(200);
+            }
+
+            // Both items are now in qc_received (2 pcs each, total = 4 in QC bay)
+            $hierService = app(\App\Services\HierarchyService::class);
+            $calcService = app(\App\Services\QuantityCalculationService::class);
+
+            $hierTree1 = $hierService->getDepartmentHierarchy('qc', $project->id, ['side' => 'RH']);
+            $sideStat1 = $hierTree1['jigs'][0]['units'][0]['parts'][0]->side_stats['RH'];
+            $this->assertEquals(4, $sideStat1['qc_pending_inspection']);
+
+            // 2. User inspects 3 units (spans across both receipt items) passing the first receipt_item_id
+            $firstRi = $rItems->first();
+            $inspectRes = $this->postJson('/api/v1/qc/inspect', [
+                'receipt_item_id' => $firstRi->id,
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'result' => 'approved',
+                'approved_quantity' => 3,
+                'paint_quantity' => 3,
+                'assembly_quantity' => 0,
+            ]);
+            $inspectRes->assertStatus(200);
+
+            // 3. Verify state after 3 units approved to Paint:
+            // 1 unit remains in QC inspection bay, 3 units in Paint
+            $m1 = $calcService->calculateProjectMetrics($project, 'RH');
+            $this->assertEquals(1, $m1['parts_in_qc']);
+            $this->assertEquals(3, $m1['parts_in_paint']);
+            $this->assertEquals(4, $m1['total_received']);
+
+            $hierTree2 = $hierService->getDepartmentHierarchy('qc', $project->id, ['side' => 'RH']);
+            $sideStat2 = $hierTree2['jigs'][0]['units'][0]['parts'][0]->side_stats['RH'];
+            $this->assertEquals(1, $sideStat2['qc_pending_inspection']);
+            $this->assertEquals(3, $sideStat2['parts_in_paint']);
+
+        } finally {
+            DB::rollBack();
+        }
+    }
 }
