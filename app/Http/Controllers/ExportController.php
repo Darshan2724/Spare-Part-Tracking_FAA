@@ -30,4 +30,15 @@ class ExportController extends Controller
 
         return $this->exportService->generateExcel($data);
     }
+
+    /**
+     * Filtered Export Endpoint for Dashboard KPI Drill-Down
+     */
+    public function exportKpiDrilldown(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC', 'REWORK', 'PAINT', 'ASSEMBLY', 'PURCHASE']) ?: abort(403);
+
+        $data = $this->exportService->exportKpiDrilldownData($request);
+        return $this->exportService->generateExcel($data);
+    }
 }

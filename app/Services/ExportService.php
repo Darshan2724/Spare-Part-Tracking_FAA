@@ -79,6 +79,83 @@ class ExportService
     }
 
     /**
+     * Build export payload for Dashboard KPI Drill-down View.
+     */
+    public function exportKpiDrilldownData(Request $request): array
+    {
+        $kpiKey = $request->input('kpi', 'total_parts');
+        $kpiNames = [
+            'active_projects' => 'Active Projects',
+            'completed_projects' => 'Completed Projects',
+            'delayed_projects' => 'Delayed Projects',
+            'total_parts' => 'Total Parts',
+            'total_parts_received' => 'Total Parts Received',
+            'parts_pending' => 'Parts Pending',
+            'store' => 'Store Inventory',
+            'qc' => 'QC Bay Parts',
+            'rework' => 'Rework Queue',
+            'paint' => 'Paint Shop Parts',
+            'assembly' => 'Assembly Bay Parts',
+        ];
+        $kpiDisplayName = $kpiNames[$kpiKey] ?? ucwords(str_replace('_', ' ', $kpiKey));
+
+        $filters = [
+            'project_id' => $request->input('project_id'),
+            'side' => $request->input('side'),
+            'substate' => $request->input('substate', 'all'),
+            'search' => $request->input('search'),
+            'date_from' => $request->input('date_from'),
+            'date_to' => $request->input('date_to'),
+            'supplier_id' => $request->input('supplier_id'),
+        ];
+
+        $drilldownService = new KpiDrilldownService();
+        // Fetch all matching rows (large per_page to retrieve all dataset items)
+        $drilldown = $drilldownService->getDrilldownData($kpiKey, $filters, 1, 100000);
+
+        $activeFilters = [];
+        $activeFilters[] = "KPI: {$kpiDisplayName}";
+        $activeFilters[] = "Scope: " . ($drilldown['project_scope'] ?? 'All Active Projects');
+        if (!empty($filters['side'])) {
+            $activeFilters[] = "Side: {$filters['side']}";
+        }
+        if (!empty($filters['substate']) && $filters['substate'] !== 'all') {
+            $activeFilters[] = "Substate: " . ucfirst($filters['substate']);
+        }
+        if (!empty($filters['search'])) {
+            $activeFilters[] = "Search: '{$filters['search']}'";
+        }
+        $activeFiltersStr = implode(' | ', $activeFilters);
+
+        $scopeClean = preg_replace('/[^A-Za-z0-9_-]/', '', str_replace(' ', '_', $drilldown['project_scope'] ?? 'All_Projects'));
+        $timestamp = now()->format('Ymd_His');
+        $filename = "SpareTrack_{$kpiKey}_{$scopeClean}_{$timestamp}";
+
+        // Configure Excel columns: for part-level, use single "Part Number" column (Jig+Unit+Part+R/L) as requested
+        $columns = $drilldown['columns'];
+        if (($drilldown['kpi_type'] ?? 'part') === 'part') {
+            $columns = [
+                ['label' => 'Project', 'key' => 'project_code'],
+                ['label' => 'Part Number', 'key' => 'excel_part_number'],
+                ['label' => 'Status', 'key' => 'status'],
+                ['label' => 'Quantity', 'key' => 'quantity', 'align' => 'center'],
+            ];
+        }
+
+        return [
+            'title' => "{$kpiDisplayName} — Detailed KPI Breakdown",
+            'section_name' => substr("KPI_{$kpiKey}", 0, 30),
+            'date_range' => now()->format('d-M-Y'),
+            'active_filters' => $activeFiltersStr,
+            'generated_at' => now()->format('d-M-Y H:i:s T'),
+            'generated_by' => $request->user()?->name ?? 'FAITH AUTOMATION User',
+            'filename' => $filename,
+            'columns' => $columns,
+            'rows' => $drilldown['all_data'] ?? $drilldown['data'],
+        ];
+    }
+
+    /**
      * Generate Styled Excel (.xlsx) file download using PhpSpreadsheet.
      */
     public function generateExcel(array $data): StreamedResponse

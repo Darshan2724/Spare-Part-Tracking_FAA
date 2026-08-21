@@ -15,6 +15,7 @@ use App\Models\WorkflowEvent;
 use App\Models\Supplier;
 use App\Services\QuantityCalculationService;
 use App\Services\HierarchyService;
+use App\Services\KpiDrilldownService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -22,8 +23,33 @@ class DashboardController extends Controller
 {
     public function __construct(
         protected QuantityCalculationService $quantityService = new QuantityCalculationService(),
-        protected HierarchyService $hierarchyService = new HierarchyService()
+        protected HierarchyService $hierarchyService = new HierarchyService(),
+        protected KpiDrilldownService $kpiDrilldownService = new KpiDrilldownService()
     ) {}
+
+    public function kpiDrilldown(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC', 'REWORK', 'PAINT', 'ASSEMBLY', 'PURCHASE']) ?: abort(403);
+
+        $kpiKey = $request->query('kpi', 'total_parts');
+        $filters = [
+            'project_id' => $request->query('project_id'),
+            'side' => $request->query('side'),
+            'substate' => $request->query('substate', 'all'),
+            'search' => $request->query('search'),
+            'date_from' => $request->query('date_from'),
+            'date_to' => $request->query('date_to'),
+            'supplier_id' => $request->query('supplier_id'),
+        ];
+        $page = (int) $request->query('page', 1);
+        $perPage = (int) $request->query('per_page', 50);
+
+        $data = $this->kpiDrilldownService->getDrilldownData($kpiKey, $filters, $page, $perPage);
+        // Exclude all_data from standard JSON response to minimize payload
+        unset($data['all_data']);
+
+        return response()->json($data);
+    }
 
     public function projectHierarchy(Request $request)
     {
