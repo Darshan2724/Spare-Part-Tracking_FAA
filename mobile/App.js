@@ -247,6 +247,11 @@ function App() {
   const [reworkQty, setReworkQty] = useState('1');
   const [reworkNotes, setReworkNotes] = useState('');
 
+  // QC Physical Arrival Modal state
+  const [showPhysicalArrivalModal, setShowPhysicalArrivalModal] = useState(false);
+  const [selectedPhysicalArrivalItem, setSelectedPhysicalArrivalItem] = useState(null);
+  const [physicalArrivalQty, setPhysicalArrivalQty] = useState('1');
+
   // QC Inspection Modal state
   const [showQcModal, setShowQcModal] = useState(false);
   const [selectedQcItem, setSelectedQcItem] = useState(null);
@@ -701,10 +706,38 @@ function App() {
   };
 
   // --- QC ACTIONS ---
-  const handleConfirmQcPhysicalArrival = async (receiptItemId, partNo = '') => {
+  const openPhysicalArrivalModal = (item) => {
+    setSelectedPhysicalArrivalItem(item);
+    const sideStat = item.side_stats?.[unitSideTab] || {};
+    const pending = sideStat.qc_pending_arrival || item.received_quantity || 1;
+    setPhysicalArrivalQty(String(pending));
+    setShowPhysicalArrivalModal(true);
+  };
+
+  const submitPhysicalArrival = async () => {
+    if (!selectedPhysicalArrivalItem) return;
+    const item = selectedPhysicalArrivalItem;
+    const sideStat = item.side_stats?.[unitSideTab] || {};
+    const pending = sideStat.qc_pending_arrival || item.received_quantity || 1;
+    const qty = parseInt(physicalArrivalQty, 10);
+
+    if (isNaN(qty) || qty <= 0 || qty > pending) {
+      Alert.alert('Invalid Quantity', `Quantity to receive must be between 1 and pending (${pending}).`);
+      return;
+    }
+
+    const sideReceipts = sideStat.receipt_items || (item.receipt_items || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
+    const rec = sideReceipts.find(r => ['received', 'sent_to_qc'].includes(r.status));
+
     try {
-      await apiClient.post('/qc/receive', { receipt_item_id: receiptItemId });
-      showToast(`Physical Arrival Confirmed: ${partNo || 'Item'}`);
+      await apiClient.post('/qc/receive', {
+        receipt_item_id: rec ? rec.id : null,
+        bom_item_id: item.id,
+        side: unitSideTab,
+        quantity: qty,
+      });
+      setShowPhysicalArrivalModal(false);
+      showToast(`Physical Arrival Confirmed: ${qty} pcs of ${item.standard_part_no} (${unitSideTab})`);
       loadData('qc', false);
     } catch (err) {
       Alert.alert('Action Failed', err.response?.data?.message || 'Could not confirm physical QC arrival.');
@@ -2057,11 +2090,8 @@ function App() {
                                     <View style={{ marginTop: 2 }}>
                                       <TouchableOpacity
                                         style={[styles.actionBtn, { backgroundColor: '#10b981' }]}
-                                        onPress={() => {
-                                          const rec = sideReceipts.find(r => ['received', 'sent_to_qc'].includes(r.status));
-                                          if (rec) handleConfirmQcPhysicalArrival(rec.id, item.standard_part_no);
-                                        }}>
-                                        <Text style={styles.actionBtnText}>CONFIRM PHYSICAL ARRIVAL ({pendingArrival})</Text>
+                                        onPress={() => openPhysicalArrivalModal(item)}>
+                                        <Text style={styles.actionBtnText}>RECEIVE PHYSICAL ARRIVAL ({pendingArrival} pcs)</Text>
                                       </TouchableOpacity>
                                     </View>
                                   ) : null}
@@ -2576,6 +2606,90 @@ function App() {
         </View>
       </Modal>
 
+      {/* QC PHYSICAL ARRIVAL MODAL (Section 1: Strict Quantity Processing) */}
+      <Modal visible={showPhysicalArrivalModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { maxHeight: '90%' }]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalTitle}>Confirm QC Physical Arrival</Text>
+              <Text style={styles.itemPartNo}>{selectedPhysicalArrivalItem?.standard_part_no || `Part #${selectedPhysicalArrivalItem?.id}`}</Text>
+              
+              {(() => {
+                const sideStat = selectedPhysicalArrivalItem?.side_stats?.[unitSideTab] || {};
+                const req = sideStat.required || 0;
+                const rec = sideStat.qc_pending_inspection || 0;
+                const pending = sideStat.qc_pending_arrival || selectedPhysicalArrivalItem?.received_quantity || 1;
+                const curQty = parseInt(physicalArrivalQty, 10) || 0;
+
+                return (
+                  <View>
+                    {/* Summary Info Box */}
+                    <View style={[styles.qtySummaryBox, { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', marginTop: 8 }]}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <Text style={{ fontSize: 12, color: '#166534' }}>Required Quantity:</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#166534' }}>{req} pcs</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <Text style={{ fontSize: 12, color: '#166534' }}>Already In Inspection Bay:</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#166534' }}>{rec} pcs</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 12, color: '#15803d', fontWeight: '800' }}>Pending Physical Arrival:</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '900', color: '#15803d' }}>{pending} pcs</Text>
+                      </View>
+                    </View>
+
+                    {/* Quantity To Receive Input */}
+                    <View style={{ marginTop: 12 }}>
+                      <Text style={[styles.label, { color: '#0f172a', fontWeight: '800' }]}>
+                        Quantity to Receive (1 to {pending})
+                      </Text>
+                      <View style={styles.qtyStepperRow}>
+                        <TouchableOpacity
+                          style={[styles.qtyBtn, { borderColor: '#10b981' }]}
+                          onPress={() => setPhysicalArrivalQty(String(Math.max(1, curQty - 1)))}>
+                          <Text style={[styles.qtyBtnText, { color: '#10b981' }]}>−</Text>
+                        </TouchableOpacity>
+                        <TextInput
+                          style={[styles.qtyInput, { borderColor: '#10b981' }]}
+                          keyboardType="numeric"
+                          value={physicalArrivalQty}
+                          onChangeText={setPhysicalArrivalQty}
+                        />
+                        <TouchableOpacity
+                          style={[styles.qtyBtn, { borderColor: '#10b981' }]}
+                          onPress={() => setPhysicalArrivalQty(String(Math.min(pending, curQty + 1)))}>
+                          <Text style={[styles.qtyBtnText, { color: '#10b981' }]}>+</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={styles.qtyRemainingText}>
+                        Remaining in Physical Arrival queue: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{Math.max(0, pending - curQty)} pcs</Text>
+                      </Text>
+                    </View>
+
+                    {/* Action Buttons */}
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
+                      <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]} onPress={() => setShowPhysicalArrivalModal(false)}>
+                        <Text style={styles.buttonText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.button,
+                          { flex: 1, backgroundColor: '#10b981', opacity: (curQty <= 0 || curQty > pending) ? 0.6 : 1.0 }
+                        ]}
+                        disabled={curQty <= 0 || curQty > pending}
+                        onPress={submitPhysicalArrival}>
+                        <Text style={styles.buttonText}>Confirm Arrival ({curQty})</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })()}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* QC INSPECTION MODAL (With Paint vs Assembly Split & Quantity Processing) */}
       <Modal visible={showQcModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
@@ -2597,7 +2711,7 @@ function App() {
                   <View>
                     <View style={styles.qtySummaryBox}>
                       <Text style={styles.qtySummaryText}>
-                        Available in QC: <Text style={{ fontWeight: '800', color: '#0284c7' }}>{avail} pcs</Text> ({selectedQcItem?.side || 'COMMON'})
+                        Available in QC Inspection: <Text style={{ fontWeight: '800', color: '#0284c7' }}>{avail} pcs</Text> ({selectedQcItem?.side || 'COMMON'})
                       </Text>
                     </View>
 
@@ -2854,7 +2968,7 @@ function App() {
         </View>
       </Modal>
 
-      {/* BULK QC APPROVAL DESTINATION MODAL (Prominent PAINT & ASSEMBLY Labels) */}
+      {/* BULK QC APPROVAL DESTINATION MODAL (Prominent PAINT & ASSEMBLY Labels with Fixed Layout) */}
       <Modal visible={showBulkQcDestinationModal} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
@@ -2863,26 +2977,26 @@ function App() {
               Select where the {selectedItemIds.size} approved parts should proceed ({unitSideTab}):
             </Text>
 
-            <View style={{ gap: 12, marginTop: 14 }}>
+            <View style={{ marginTop: 14 }}>
               {/* PAINT BUTTON WITH PROMINENT TEXT LABEL */}
               <TouchableOpacity
                 style={[
-                  styles.routeCard,
-                  { borderColor: '#7c3aed', borderWidth: 2, backgroundColor: '#f5f3ff', padding: 16 }
+                  styles.bulkRouteCard,
+                  { borderColor: '#7c3aed', backgroundColor: '#f5f3ff' }
                 ]}
                 onPress={() => {
                   const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
                   handleBulkQcInspect(parts, 'approved', 'PAINT');
                 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text style={{ color: '#7c3aed', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>
+                  <Text style={{ color: '#6b21a8', fontSize: 20, fontWeight: '900', letterSpacing: 1 }}>
                     PAINT
                   </Text>
-                  <View style={{ backgroundColor: '#7c3aed', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                  <View style={{ backgroundColor: '#7c3aed', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 }}>
                     <Text style={{ color: '#ffffff', fontSize: 11, fontWeight: '800' }}>PAINT SHOP</Text>
                   </View>
                 </View>
-                <Text style={[styles.routeCardDesc, { color: '#6d28d9' }]}>
+                <Text style={{ color: '#581c87', fontSize: 12, marginTop: 2, fontWeight: '600' }}>
                   Routes all selected parts into the Paint department queue for coating.
                 </Text>
               </TouchableOpacity>
@@ -2890,22 +3004,22 @@ function App() {
               {/* ASSEMBLY BUTTON WITH PROMINENT TEXT LABEL */}
               <TouchableOpacity
                 style={[
-                  styles.routeCard,
-                  { borderColor: '#0d9488', borderWidth: 2, backgroundColor: '#f0fdfa', padding: 16 }
+                  styles.bulkRouteCard,
+                  { borderColor: '#0d9488', backgroundColor: '#f0fdfa', marginTop: 8 }
                 ]}
                 onPress={() => {
                   const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
                   handleBulkQcInspect(parts, 'approved', 'ASSEMBLY');
                 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text style={{ color: '#0d9488', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>
+                  <Text style={{ color: '#115e59', fontSize: 20, fontWeight: '900', letterSpacing: 1 }}>
                     ASSEMBLY
                   </Text>
-                  <View style={{ backgroundColor: '#0d9488', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                  <View style={{ backgroundColor: '#0d9488', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 }}>
                     <Text style={{ color: '#ffffff', fontSize: 11, fontWeight: '800' }}>DIRECT ASSEMBLY</Text>
                   </View>
                 </View>
-                <Text style={[styles.routeCardDesc, { color: '#0f766e' }]}>
+                <Text style={{ color: '#134e4a', fontSize: 12, marginTop: 2, fontWeight: '600' }}>
                   Bypasses paint station and moves parts directly to Assembly line.
                 </Text>
               </TouchableOpacity>
@@ -4043,6 +4157,13 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     backgroundColor: '#f8fafc',
     alignItems: 'center',
+  },
+  bulkRouteCard: {
+    width: '100%',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2.5,
+    marginVertical: 4,
   },
   routeCardTitle: {
     fontWeight: 'bold',

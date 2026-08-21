@@ -201,7 +201,7 @@ class HierarchyService
                 $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
                 $storeResident = max(0, $recQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReady + $asmComp));
                 $qcPendingArrival = (int) $recForSide->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
-                $qcPendingInspection = max(0, (int) $recForSide->where('status', 'qc_received')->sum('received_quantity') + $rewComp - ($qcApp + $qcRej + $qcRew));
+                $qcPendingInspection = (int) $recForSide->where('status', 'qc_received')->sum('received_quantity');
 
                 // Determine Part Status Badge
                 if ($reqQty > 0 && $asmComp >= $reqQty) {
