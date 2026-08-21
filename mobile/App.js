@@ -1201,14 +1201,14 @@ function App() {
     }
   };
 
-  const handleBulkReworkAction = async (targetItems, action) => {
+  const handleBulkReworkAction = async (targetItems) => {
     if (isSubmittingBulk) return;
     const reworkIds = targetItems
-      .map(item => (item.rework_records || []).find(r => (action === 'start' ? r.status === 'pending' : (r.status === 'pending' || r.status === 'in_progress')) && (r.side === unitSideTab || r.side === 'COMMON'))?.id)
+      .map(item => (item.rework_records || []).find(r => ['pending', 'in_progress'].includes(r.status) && (r.side === unitSideTab || r.side === 'COMMON'))?.id)
       .filter(Boolean);
 
     if (!reworkIds.length) {
-      Alert.alert('No Eligible Items', `No rework records available to ${action}.`);
+      Alert.alert('No Eligible Items', 'No active rework records available for selected items.');
       return;
     }
 
@@ -1216,10 +1216,10 @@ function App() {
     try {
       const res = await apiClient.post('/rework/bulk-action', {
         rework_record_ids: reworkIds,
-        action,
+        action: 'complete',
         completion_notes: bulkReworkNotes || 'Bulk rework completed.',
       });
-      showToast(res.data.message || `Bulk rework ${action} completed`);
+      showToast(res.data.message || `Bulk rework completed for ${reworkIds.length} items (Returned to QC)`);
       clearSelection();
       setShowBulkReworkModal(false);
       loadData('rework', false);
@@ -2485,18 +2485,11 @@ function App() {
                 )}
 
                 {activeTab === 'rework' && (
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <TouchableOpacity
-                      style={[styles.bulkBtn, { backgroundColor: '#f59e0b', flex: 1 }]}
-                      onPress={() => handleBulkReworkAction(selectedItemsList, 'start')}>
-                      <Text style={styles.bulkBtnText}>START REWORK ({selectedItemIds.size})</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.bulkBtn, { backgroundColor: '#10b981', flex: 1 }]}
-                      onPress={() => setShowBulkReworkModal(true)}>
-                      <Text style={styles.bulkBtnText}>COMPLETE ALL ({selectedItemIds.size})</Text>
-                    </TouchableOpacity>
-                  </View>
+                  <TouchableOpacity
+                    style={[styles.bulkBtn, { backgroundColor: '#f59e0b' }]}
+                    onPress={() => setShowBulkReworkModal(true)}>
+                    <Text style={styles.bulkBtnText}>COMPLETE REWORK ({selectedItemIds.size} PARTS)</Text>
+                  </TouchableOpacity>
                 )}
 
                 {activeTab === 'paint' && (
@@ -3226,74 +3219,7 @@ function App() {
         </View>
       </Modal>
 
-      {/* REWORK COMPLETION MODAL (With Quantity Input) */}
-      <Modal visible={showReworkModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Complete Rework Operation</Text>
-            <Text style={styles.itemPartNo}>{selectedReworkItem?.bom_item?.standard_part_no || `Rework #${selectedReworkItem?.id}`}</Text>
-            
-            {(() => {
-              const avail = selectedReworkItem?.quantity || 1;
-              const rQty = parseInt(reworkQty, 10) || 0;
 
-              return (
-                <View>
-                  <View style={styles.qtySummaryBox}>
-                    <Text style={styles.qtySummaryText}>
-                      Available in Rework: <Text style={{ fontWeight: '800', color: '#f59e0b' }}>{avail} pcs</Text> ({selectedReworkItem?.side || 'COMMON'})
-                    </Text>
-                  </View>
-
-                  <Text style={[styles.label, { marginTop: 10, color: '#f59e0b', fontWeight: '800' }]}>
-                    Completed Quantity (1 to {avail})
-                  </Text>
-                  <View style={styles.qtyStepperRow}>
-                    <TouchableOpacity
-                      style={[styles.qtyBtn, { borderColor: '#f59e0b' }]}
-                      onPress={() => setReworkQty(String(Math.max(1, rQty - 1)))}>
-                      <Text style={[styles.qtyBtnText, { color: '#f59e0b' }]}>−</Text>
-                    </TouchableOpacity>
-                    <TextInput
-                      style={[styles.qtyInput, { borderColor: '#f59e0b' }]}
-                      keyboardType="numeric"
-                      value={reworkQty}
-                      onChangeText={setReworkQty}
-                    />
-                    <TouchableOpacity
-                      style={[styles.qtyBtn, { borderColor: '#f59e0b' }]}
-                      onPress={() => setReworkQty(String(Math.min(avail, rQty + 1)))}>
-                      <Text style={[styles.qtyBtnText, { color: '#f59e0b' }]}>+</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={styles.qtyRemainingText}>
-                    Remaining in Rework after action: <Text style={{ fontWeight: '700' }}>{Math.max(0, avail - rQty)} pcs</Text>
-                  </Text>
-
-                  <Text style={[styles.label, { marginTop: 12 }]}>Work Performed / Completion Remarks</Text>
-                  <TextInput
-                    style={[styles.input, { minHeight: 70, textAlignVertical: 'top' }]}
-                    value={reworkNotes}
-                    onChangeText={setReworkNotes}
-                    multiline
-                    numberOfLines={3}
-                    placeholder="Describe corrective actions taken (e.g. dimensional grinding, surface re-finishing)..."
-                  />
-
-                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
-                    <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]} onPress={() => setShowReworkModal(false)}>
-                      <Text style={styles.buttonText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#10b981' }]} onPress={submitReworkCompletion}>
-                      <Text style={styles.buttonText}>Return to QC</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              );
-            })()}
-          </View>
-        </View>
-      </Modal>
 
       {/* ASSEMBLY COMPLETION MODAL (With Quantity Input) */}
       <Modal visible={showAssemblyModal} animationType="slide" transparent>
