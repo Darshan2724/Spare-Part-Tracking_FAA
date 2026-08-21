@@ -392,36 +392,47 @@ class QcController extends Controller
                 }
             }
 
-            // 1. Strict primary lookup by exact receipt_item_id and exact side
-            $receiptItem = ReceiptItem::where('id', $receiptItemId)
-                ->where(function ($q) use ($side) {
-                    $q->where('side', $side)->orWhere('side', 'COMMON');
-                })
-                ->where('status', 'qc_received')
-                ->lockForUpdate()
-                ->with('bomItem.project')
-                ->first();
+            // 1. Strict primary lookup by exact receipt_item_id to verify identity if provided
+            if ($receiptItemId > 0 && !$bomItemId) {
+                $temp = ReceiptItem::find($receiptItemId);
+                if ($temp) {
+                    $bomItemId = $temp->bom_item_id;
+                    if (!$side) $side = $temp->side;
+                }
+            }
 
-            // 2. Strict fallback lookup by bom_item_id and exact side (only when receipt_item_id is not a foreign receipt)
-            if (!$receiptItem && $bomItemId) {
-                $receiptItem = ReceiptItem::where('bom_item_id', $bomItemId)
-                    ->where(function ($q) use ($side) {
-                        $q->where('side', $side)->orWhere('side', 'COMMON');
-                    })
+            // 2. Query all eligible receipt items in qc_received for this BOM item and side
+            $eligibleQuery = ReceiptItem::query()->where('status', 'qc_received');
+            if ($bomItemId) {
+                $eligibleQuery->where('bom_item_id', $bomItemId);
+            }
+            if ($side) {
+                $eligibleQuery->where(function ($q) use ($side) {
+                    $q->where('side', $side)->orWhere('side', 'COMMON');
+                });
+            } elseif ($receiptItemId > 0) {
+                $eligibleQuery->where('id', $receiptItemId);
+            }
+
+            $eligibleReceiptItems = $eligibleQuery->orderBy('id')->lockForUpdate()->with('bomItem.project')->get();
+
+            if ($eligibleReceiptItems->isEmpty() && $receiptItemId > 0) {
+                $eligibleReceiptItems = ReceiptItem::where('id', $receiptItemId)
                     ->where('status', 'qc_received')
                     ->lockForUpdate()
                     ->with('bomItem.project')
-                    ->first();
+                    ->get();
             }
 
-            if (!$receiptItem) {
+            if ($eligibleReceiptItems->isEmpty()) {
                 return response()->json([
                     'success' => false,
                     'message' => "No eligible QC item found for {$side} side in inspection bay (or already processed)."
                 ], 422);
             }
 
-            $availableQty = (int) $receiptItem->received_quantity;
+            $receiptItem = $eligibleReceiptItems->first();
+            $availableQty = (int) $eligibleReceiptItems->sum('received_quantity');
             $result = $request->input('result');
 
             // Determine target quantities based on action
@@ -497,28 +508,37 @@ class QcController extends Controller
                 ], 422);
             }
 
-            // Handle Atomic ReceiptItem splitting if partial quantity processed
-            if ($inspectedQty < $availableQty) {
-                $remainingQty = $availableQty - $inspectedQty;
-                // Create duplicate receipt item representing remaining quantity in QC bay
-                $remainingItem = $receiptItem->replicate();
-                $remainingItem->received_quantity = $remainingQty;
-                $remainingItem->status = 'qc_received';
-                $remainingItem->save();
+            // Sequentially fulfill inspected quantity across eligible receipt items
+            $qtyToConsume = $inspectedQty;
+            $newStatus = ($result === 'approved') ? 'qc_approved' : (($result === 'rejected') ? 'qc_rejected' : (($result === 'rework') ? 'qc_rework' : 'qc_inspected'));
 
-                // Current item now represents exact inspected portion
-                $receiptItem->received_quantity = $inspectedQty;
-            }
+            foreach ($eligibleReceiptItems as $rItem) {
+                if ($qtyToConsume <= 0) {
+                    break;
+                }
 
-            // Update receipt item status
-            if ($result === 'approved') {
-                $receiptItem->update(['status' => 'qc_approved']);
-            } elseif ($result === 'rejected') {
-                $receiptItem->update(['status' => 'qc_rejected']);
-            } elseif ($result === 'rework') {
-                $receiptItem->update(['status' => 'qc_rework']);
-            } else {
-                $receiptItem->update(['status' => 'qc_inspected']);
+                $rQty = (int) $rItem->received_quantity;
+                if ($qtyToConsume >= $rQty) {
+                    // Full row consumed
+                    $qtyToConsume -= $rQty;
+                    $rItem->update(['status' => $newStatus]);
+                } else {
+                    // Partial row consumed: split it!
+                    $remQty = $rQty - $qtyToConsume;
+                    
+                    // Create remaining item staying in qc_received
+                    $remItem = $rItem->replicate();
+                    $remItem->received_quantity = $remQty;
+                    $remItem->status = 'qc_received';
+                    $remItem->save();
+
+                    // Current item is the consumed portion
+                    $rItem->received_quantity = $qtyToConsume;
+                    $rItem->status = $newStatus;
+                    $rItem->save();
+
+                    $qtyToConsume = 0;
+                }
             }
 
             $createdInspections = [];
