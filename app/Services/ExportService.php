@@ -216,106 +216,280 @@ class ExportService
         $spreadsheet = new Spreadsheet();
 
         // -------------------------------------------------------------
-        // SHEET 1: DASHBOARD SUMMARY
+        // SHEET 1: DASHBOARD SUMMARY (EXACT DASHBOARD HORIZONTAL LAYOUT)
         // -------------------------------------------------------------
         $sheet1 = $spreadsheet->getActiveSheet();
         $sheet1->setTitle('Dashboard Summary');
 
         // Brand Banner
         $sheet1->setCellValue('A1', 'FAITH AUTOMATION — Industrial Spare Parts Tracking System');
-        $sheet1->mergeCells('A1:G1');
-        $sheet1->getStyle('A1')->getFont()->setBold(true)->setSize(14)->setColor(new Color('0F172A'));
-        $sheet1->getRowDimension(1)->setRowHeight(24);
+        $sheet1->mergeCells('A1:H1');
+        $sheet1->getStyle('A1')->getFont()->setBold(true)->setSize(13)->setColor(new Color('0F172A'));
+        $sheet1->getRowDimension(1)->setRowHeight(22);
 
         // Subtitle
         $sheet1->setCellValue('A2', 'Manufacturing Manager Terminal — Dashboard Executive Summary');
-        $sheet1->mergeCells('A2:G2');
-        $sheet1->getStyle('A2')->getFont()->setBold(true)->setSize(11)->setColor(new Color('2563EB'));
+        $sheet1->mergeCells('A2:H2');
+        $sheet1->getStyle('A2')->getFont()->setBold(true)->setSize(10.5)->setColor(new Color('2563EB'));
 
-        // Metadata
+        // Metadata Box
         $sheet1->setCellValue('A3', 'Scope: ' . $data['scope_label'] . '   |   Generated: ' . $data['generated_at'] . '   |   By: ' . $data['generated_by']);
-        $sheet1->mergeCells('A3:G3');
-        $sheet1->getStyle('A3')->getFont()->setItalic(true)->setSize(9)->setColor(new Color('64748B'));
-        $sheet1->getRowDimension(3)->setRowHeight(18);
+        $sheet1->mergeCells('A3:H3');
+        $sheet1->getStyle('A3')->getFont()->setItalic(true)->setSize(8.5)->setColor(new Color('64748B'));
+        $sheet1->getRowDimension(3)->setRowHeight(16);
 
-        // Section 1 Header: Primary KPI Cards
-        $sheet1->setCellValue('A5', '1. EXECUTIVE KPI SUMMARY');
-        $sheet1->mergeCells('A5:C5');
-        $sheet1->getStyle('A5')->getFont()->setBold(true)->setSize(11)->setColor(new Color('0F172A'));
+        // =============================================================
+        // ROW 1: EXECUTIVE PROJECT STATUS CARDS (Horizontal Blocks)
+        // =============================================================
+        $sheet1->setCellValue('A5', 'ROW 1: EXECUTIVE PROJECT STATUS');
+        $sheet1->mergeCells('A5:H5');
+        $sheet1->getStyle('A5')->getFont()->setBold(true)->setSize(10)->setColor(new Color('0F172A'));
+        $sheet1->getRowDimension(5)->setRowHeight(18);
 
-        $sheet1->setCellValue('A6', 'Metric Description');
-        $sheet1->setCellValue('B6', 'Current Value');
-        $sheet1->setCellValue('C6', 'Unit / Details');
-        $sheet1->getStyle('A6:C6')->getFont()->setBold(true)->setColor(new Color('FFFFFF'));
-        $sheet1->getStyle('A6:C6')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
-
-        $summaryRows = [];
         if (empty($data['project_id'])) {
-            $summaryRows[] = ['Active Projects', $data['summary']['active_projects'] ?? 0, 'Projects In Progress'];
-            $summaryRows[] = ['Completed Projects', $data['summary']['completed_projects'] ?? 0, '100% Assembled'];
-            $summaryRows[] = ['Delayed Projects', $data['summary']['delayed_projects'] ?? 0, '>14d Inactive & <80% Complete'];
+            // Card 1: Active Projects
+            $sheet1->mergeCells('A6:B6');
+            $sheet1->setCellValue('A6', 'ACTIVE PROJECTS');
+            $sheet1->getStyle('A6:B6')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF2563EB');
+            $sheet1->getStyle('A6:B6')->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(8.5);
+            $sheet1->getStyle('A6:B6')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('A7:B7');
+            $sheet1->setCellValue('A7', $data['summary']['active_projects'] ?? 0);
+            $sheet1->getStyle('A7:B7')->getFont()->setBold(true)->setSize(15)->setColor(new Color('2563EB'));
+            $sheet1->getStyle('A7:B7')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('A8:B8');
+            $sheet1->setCellValue('A8', 'Portfolio In-Progress');
+            $sheet1->getStyle('A8:B8')->getFont()->setItalic(true)->setSize(7.5)->setColor(new Color('64748B'));
+            $sheet1->getStyle('A8:B8')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            // Card 2: Completed Projects
+            $sheet1->mergeCells('C6:D6');
+            $sheet1->setCellValue('C6', 'COMPLETED PROJECTS');
+            $sheet1->getStyle('C6:D6')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0D9488');
+            $sheet1->getStyle('C6:D6')->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(8.5);
+            $sheet1->getStyle('C6:D6')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('C7:D7');
+            $sheet1->setCellValue('C7', $data['summary']['completed_projects'] ?? 0);
+            $sheet1->getStyle('C7:D7')->getFont()->setBold(true)->setSize(15)->setColor(new Color('0D9488'));
+            $sheet1->getStyle('C7:D7')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('C8:D8');
+            $sheet1->setCellValue('C8', '100% Assembled');
+            $sheet1->getStyle('C8:D8')->getFont()->setItalic(true)->setSize(7.5)->setColor(new Color('64748B'));
+            $sheet1->getStyle('C8:D8')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            // Card 3: Delayed Projects
+            $sheet1->mergeCells('E6:F6');
+            $sheet1->setCellValue('E6', 'DELAYED PROJECTS');
+            $sheet1->getStyle('E6:F6')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFEF4444');
+            $sheet1->getStyle('E6:F6')->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(8.5);
+            $sheet1->getStyle('E6:F6')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('E7:F7');
+            $sheet1->setCellValue('E7', $data['summary']['delayed_projects'] ?? 0);
+            $sheet1->getStyle('E7:F7')->getFont()->setBold(true)->setSize(15)->setColor(new Color('EF4444'));
+            $sheet1->getStyle('E7:F7')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('E8:F8');
+            $sheet1->setCellValue('E8', '>14d Inactive & <80%');
+            $sheet1->getStyle('E8:F8')->getFont()->setItalic(true)->setSize(7.5)->setColor(new Color('64748B'));
+            $sheet1->getStyle('E8:F8')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            // Card 4: Overall Progress
+            $sheet1->mergeCells('G6:H6');
+            $sheet1->setCellValue('G6', 'OVERALL COMPLETION');
+            $sheet1->getStyle('G6:H6')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
+            $sheet1->getStyle('G6:H6')->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(8.5);
+            $sheet1->getStyle('G6:H6')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('G7:H7');
+            $sheet1->setCellValue('G7', ($data['summary']['completion_pct'] ?? 0) . '%');
+            $sheet1->getStyle('G7:H7')->getFont()->setBold(true)->setSize(15)->setColor(new Color('10B981'));
+            $sheet1->getStyle('G7:H7')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('G8:H8');
+            $sheet1->setCellValue('G8', ($data['summary']['total_received'] ?? 0) . ' / ' . ($data['summary']['total_bom_parts'] ?? 0) . ' Pcs');
+            $sheet1->getStyle('G8:H8')->getFont()->setItalic(true)->setSize(7.5)->setColor(new Color('64748B'));
+            $sheet1->getStyle('G8:H8')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         } else {
-            $summaryRows[] = ['Project Name', $data['project_name'] ?? '—', 'Selected Project'];
-            $summaryRows[] = ['Project Code', $data['project_code'] ?? '—', 'Code'];
-            $summaryRows[] = ['Total Jigs', $data['summary']['total_jigs'] ?? 0, 'Jigs'];
-            $summaryRows[] = ['Total Units', $data['summary']['total_units'] ?? 0, 'Production Units'];
-            $summaryRows[] = ['Overall Project Completion', ($data['summary']['completion_pct'] ?? 0) . '%', 'Completion Rate'];
+            // Selected Single Project
+            $sheet1->mergeCells('A6:B6');
+            $sheet1->setCellValue('A6', $data['project_code'] ?? 'PROJECT');
+            $sheet1->getStyle('A6:B6')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
+            $sheet1->getStyle('A6:B6')->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(8.5);
+            $sheet1->getStyle('A6:B6')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('A7:B7');
+            $sheet1->setCellValue('A7', $data['project_name'] ?? 'Selected Project');
+            $sheet1->getStyle('A7:B7')->getFont()->setBold(true)->setSize(11)->setColor(new Color('0F172A'));
+            $sheet1->getStyle('A7:B7')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('A8:B8');
+            $sheet1->setCellValue('A8', 'Target Project Scope');
+            $sheet1->getStyle('A8:B8')->getFont()->setItalic(true)->setSize(7.5)->setColor(new Color('64748B'));
+            $sheet1->getStyle('A8:B8')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            // Jigs / Units
+            $sheet1->mergeCells('C6:D6');
+            $sheet1->setCellValue('C6', 'TOTAL JIGS / UNITS');
+            $sheet1->getStyle('C6:D6')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF2563EB');
+            $sheet1->getStyle('C6:D6')->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(8.5);
+            $sheet1->getStyle('C6:D6')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('C7:D7');
+            $sheet1->setCellValue('C7', ($data['summary']['total_jigs'] ?? 0) . ' / ' . ($data['summary']['total_units'] ?? 0));
+            $sheet1->getStyle('C7:D7')->getFont()->setBold(true)->setSize(15)->setColor(new Color('2563EB'));
+            $sheet1->getStyle('C7:D7')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('C8:D8');
+            $sheet1->setCellValue('C8', 'Production Units');
+            $sheet1->getStyle('C8:D8')->getFont()->setItalic(true)->setSize(7.5)->setColor(new Color('64748B'));
+            $sheet1->getStyle('C8:D8')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            // Assembly Progress
+            $sheet1->mergeCells('E6:F6');
+            $sheet1->setCellValue('E6', 'ASSEMBLY PROGRESS');
+            $sheet1->getStyle('E6:F6')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0D9488');
+            $sheet1->getStyle('E6:F6')->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(8.5);
+            $sheet1->getStyle('E6:F6')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('E7:F7');
+            $sheet1->setCellValue('E7', ($data['summary']['completion_pct'] ?? 0) . '%');
+            $sheet1->getStyle('E7:F7')->getFont()->setBold(true)->setSize(15)->setColor(new Color('0D9488'));
+            $sheet1->getStyle('E7:F7')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('E8:F8');
+            $sheet1->setCellValue('E8', ($data['summary']['total_received'] ?? 0) . ' / ' . ($data['summary']['total_bom_parts'] ?? 0) . ' Pcs');
+            $sheet1->getStyle('E8:F8')->getFont()->setItalic(true)->setSize(7.5)->setColor(new Color('64748B'));
+            $sheet1->getStyle('E8:F8')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            // Pending Parts
+            $sheet1->mergeCells('G6:H6');
+            $sheet1->setCellValue('G6', 'PENDING PARTS');
+            $sheet1->getStyle('G6:H6')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFEF4444');
+            $sheet1->getStyle('G6:H6')->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(8.5);
+            $sheet1->getStyle('G6:H6')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('G7:H7');
+            $sheet1->setCellValue('G7', $data['summary']['parts_pending'] ?? 0);
+            $sheet1->getStyle('G7:H7')->getFont()->setBold(true)->setSize(15)->setColor(new Color('EF4444'));
+            $sheet1->getStyle('G7:H7')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->mergeCells('G8:H8');
+            $sheet1->setCellValue('G8', 'Missing To Complete');
+            $sheet1->getStyle('G8:H8')->getFont()->setItalic(true)->setSize(7.5)->setColor(new Color('64748B'));
+            $sheet1->getStyle('G8:H8')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         }
-        $summaryRows[] = ['Total Required BOM Parts', $data['summary']['total_bom_parts'] ?? 0, 'Pieces Required'];
-        $summaryRows[] = ['Total Received Parts', $data['summary']['total_received'] ?? 0, 'Pieces In-Plant'];
-        $summaryRows[] = ['Parts Pending Intake', $data['summary']['parts_pending'] ?? 0, 'Pieces Missing'];
-        $summaryRows[] = ['Overall Portfolio Completion', ($data['summary']['completion_pct'] ?? 0) . '%', 'Received / Required'];
+        $sheet1->getStyle('A6:H8')->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
 
-        $rowIdx = 7;
-        foreach ($summaryRows as $sr) {
-            $sheet1->setCellValue('A' . $rowIdx, $sr[0]);
-            $sheet1->setCellValue('B' . $rowIdx, $sr[1]);
-            $sheet1->setCellValue('C' . $rowIdx, $sr[2]);
-            if (($rowIdx - 7) % 2 === 0) {
-                $sheet1->getStyle("A{$rowIdx}:C{$rowIdx}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF8FAFC');
-            }
-            $rowIdx++;
-        }
-        $sheet1->getStyle("A6:C" . ($rowIdx - 1))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
+        // =============================================================
+        // ROW 2: WORKSTATION OPERATIONAL 8-STAGE STATUS (Across Columns A to H)
+        // =============================================================
+        $sheet1->setCellValue('A10', 'ROW 2: WORKSTATION OPERATIONAL STATUS (8 STAGES)');
+        $sheet1->mergeCells('A10:H10');
+        $sheet1->getStyle('A10')->getFont()->setBold(true)->setSize(10)->setColor(new Color('0F172A'));
+        $sheet1->getRowDimension(10)->setRowHeight(18);
 
-        // Section 2 Header: Workstation Operational Status
-        $rowIdx += 2;
-        $sheet1->setCellValue('A' . $rowIdx, '2. WORKSTATION OPERATIONAL STATUS');
-        $sheet1->mergeCells("A{$rowIdx}:D{$rowIdx}");
-        $sheet1->getStyle('A' . $rowIdx)->getFont()->setBold(true)->setSize(11)->setColor(new Color('0F172A'));
-        $rowIdx++;
-
-        $sheet1->setCellValue('A' . $rowIdx, 'Workstation / Department');
-        $sheet1->setCellValue('B' . $rowIdx, 'Active Queue (pcs)');
-        $sheet1->setCellValue('C' . $rowIdx, 'Completed / Approved (pcs)');
-        $sheet1->setCellValue('D' . $rowIdx, 'Operational Notes');
-        $sheet1->getStyle("A{$rowIdx}:D{$rowIdx}")->getFont()->setBold(true)->setColor(new Color('FFFFFF'));
-        $sheet1->getStyle("A{$rowIdx}:D{$rowIdx}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
-        $opHeaderRow = $rowIdx;
-        $rowIdx++;
-
-        $opRows = [
-            ['Store Intake', $data['summary']['parts_in_store'] ?? 0, $data['summary']['total_received'] ?? 0, 'Parts currently stored in warehouse intake'],
-            ['QC Department', $data['summary']['qc_inspections'] ?? 0, $data['summary']['qc_approved'] ?? 0, 'Rejections: ' . ($data['summary']['qc_rejected'] ?? 0) . ' | Rework: ' . ($data['summary']['qc_rework'] ?? 0)],
-            ['Rework Queue', $data['summary']['rework_queue'] ?? 0, $data['summary']['rework_completed'] ?? 0, 'Parts requiring machining/welding corrections'],
-            ['Purchase Queue', $data['summary']['purchase_queue'] ?? 0, '—', 'Rejected pieces waiting for vendor reordering'],
-            ['Paint Shop', $data['summary']['parts_in_paint'] ?? 0, $data['summary']['paint_completed'] ?? 0, 'Surface preparation, primer & topcoat'],
-            ['Assembly Shop', $data['summary']['parts_in_assembly'] ?? 0, $data['summary']['assembly_completed'] ?? 0, 'Final jig mechanical assembly and testing'],
+        $opStages = [
+            ['col' => 'A', 'title' => 'TOTAL PARTS', 'color' => 'FF4F46E5', 'val' => $data['summary']['total_bom_parts'] ?? 0, 'sub' => 'Required BOM'],
+            ['col' => 'B', 'title' => 'PARTS RECEIVED', 'color' => 'FF10B981', 'val' => $data['summary']['total_received'] ?? 0, 'sub' => 'In-Plant Total'],
+            ['col' => 'C', 'title' => 'PARTS PENDING', 'color' => 'FF0F172A', 'val' => $data['summary']['parts_pending'] ?? 0, 'sub' => 'Intake Deficit'],
+            ['col' => 'D', 'title' => 'STORE', 'color' => 'FFD97706', 'val' => $data['summary']['parts_in_store'] ?? 0, 'sub' => 'In Warehouse'],
+            ['col' => 'E', 'title' => 'QC QUEUE', 'color' => 'FF0284C7', 'val' => $data['summary']['qc_inspections'] ?? 0, 'sub' => 'Rej: ' . ($data['summary']['qc_rejected'] ?? 0)],
+            ['col' => 'F', 'title' => 'REWORK', 'color' => 'FFEA580C', 'val' => $data['summary']['rework_queue'] ?? 0, 'sub' => 'In Corrections'],
+            ['col' => 'G', 'title' => 'PAINT SHOP', 'color' => 'FF7C3AED', 'val' => $data['summary']['parts_in_paint'] ?? 0, 'sub' => 'Done: ' . ($data['summary']['paint_completed'] ?? 0)],
+            ['col' => 'H', 'title' => 'ASSEMBLY', 'color' => 'FFDB2777', 'val' => $data['summary']['parts_in_assembly'] ?? 0, 'sub' => 'Done: ' . ($data['summary']['assembly_completed'] ?? 0)],
         ];
 
-        foreach ($opRows as $opr) {
-            $sheet1->setCellValue('A' . $rowIdx, $opr[0]);
-            $sheet1->setCellValue('B' . $rowIdx, $opr[1]);
-            $sheet1->setCellValue('C' . $rowIdx, $opr[2]);
-            $sheet1->setCellValue('D' . $rowIdx, $opr[3]);
-            if (($rowIdx - $opHeaderRow) % 2 === 0) {
-                $sheet1->getStyle("A{$rowIdx}:D{$rowIdx}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF8FAFC');
-            }
-            $rowIdx++;
-        }
-        $sheet1->getStyle("A{$opHeaderRow}:D" . ($rowIdx - 1))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
+        foreach ($opStages as $stg) {
+            $col = $stg['col'];
+            $sheet1->setCellValue($col . '11', $stg['title']);
+            $sheet1->getStyle($col . '11')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB($stg['color']);
+            $sheet1->getStyle($col . '11')->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(8);
+            $sheet1->getStyle($col . '11')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-        foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G'] as $col) {
+            $sheet1->setCellValue($col . '12', $stg['val']);
+            $sheet1->getStyle($col . '12')->getFont()->setBold(true)->setSize(14)->setColor(new Color('0F172A'));
+            $sheet1->getStyle($col . '12')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->setCellValue($col . '13', $stg['sub']);
+            $sheet1->getStyle($col . '13')->getFont()->setItalic(true)->setSize(7.5)->setColor(new Color('64748B'));
+            $sheet1->getStyle($col . '13')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        }
+        $sheet1->getStyle('A11:H13')->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
+
+        // =============================================================
+        // ROW 3: SIDE-BY-SIDE ANALYTICS (Top Projects Left, Health Right)
+        // =============================================================
+        $sheet1->setCellValue('A15', 'ROW 3: TOP PROJECTS NEAR COMPLETION');
+        $sheet1->mergeCells('A15:E15');
+        $sheet1->getStyle('A15')->getFont()->setBold(true)->setSize(9.5)->setColor(new Color('0F172A'));
+
+        $sheet1->setCellValue('G15', 'ROW 3: PROJECT HEALTH DISTRIBUTION');
+        $sheet1->mergeCells('G15:H15');
+        $sheet1->getStyle('G15')->getFont()->setBold(true)->setSize(9.5)->setColor(new Color('0F172A'));
+
+        // Left Table Headers (Row 16)
+        $sheet1->setCellValue('A16', 'Project Code');
+        $sheet1->setCellValue('B16', 'Project Name');
+        $sheet1->setCellValue('C16', 'Required');
+        $sheet1->setCellValue('D16', 'Received');
+        $sheet1->setCellValue('E16', 'Completion %');
+        $sheet1->getStyle('A16:E16')->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(8);
+        $sheet1->getStyle('A16:E16')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
+
+        // Right Table Headers (Row 16)
+        $sheet1->setCellValue('G16', 'Health Classification');
+        $sheet1->setCellValue('H16', 'Count / Share');
+        $sheet1->getStyle('G16:H16')->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(8);
+        $sheet1->getStyle('G16:H16')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
+
+        // Populate Left (Top Projects)
+        $leftRow = 17;
+        foreach (array_slice($data['top_projects_list'], 0, 5) as $tp) {
+            $sheet1->setCellValue('A' . $leftRow, $tp['code']);
+            $sheet1->setCellValue('B' . $leftRow, $tp['name']);
+            $sheet1->setCellValue('C' . $leftRow, $tp['required']);
+            $sheet1->setCellValue('D' . $leftRow, $tp['received']);
+            $sheet1->setCellValue('E' . $leftRow, ($tp['percentage'] / 100));
+            $sheet1->getStyle('E' . $leftRow)->getNumberFormat()->setFormatCode('0.0%');
+            if ($leftRow % 2 === 0) {
+                $sheet1->getStyle("A{$leftRow}:E{$leftRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF8FAFC');
+            }
+            $leftRow++;
+        }
+        if ($leftRow === 17) {
+            $sheet1->setCellValue('A17', 'All active projects are 100% complete.');
+            $sheet1->mergeCells('A17:E17');
+            $leftRow = 18;
+        }
+
+        // Populate Right (Health Distribution)
+        $healthRows = [
+            ['Near Completion (≥85%)', ($data['health_counts']['near_completion'] ?? 0) . ' (' . ($data['health_pcts']['near_completion'] ?? 0) . '%)'],
+            ['On Track (Active last 7d)', ($data['health_counts']['on_track'] ?? 0) . ' (' . ($data['health_pcts']['on_track'] ?? 0) . '%)'],
+            ['At Risk (7-14d inactive)', ($data['health_counts']['at_risk'] ?? 0) . ' (' . ($data['health_pcts']['at_risk'] ?? 0) . '%)'],
+            ['Delayed (>14d & <80%)', ($data['health_counts']['delayed'] ?? 0) . ' (' . ($data['health_pcts']['delayed'] ?? 0) . '%)'],
+            ['Total Active Evaluated', ($data['health_total'] ?? 0) . ' (100%)'],
+        ];
+
+        $rightRow = 17;
+        foreach ($healthRows as $hr) {
+            $sheet1->setCellValue('G' . $rightRow, $hr[0]);
+            $sheet1->setCellValue('H' . $rightRow, $hr[1]);
+            if ($rightRow % 2 === 0) {
+                $sheet1->getStyle("G{$rightRow}:H{$rightRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF8FAFC');
+            }
+            $rightRow++;
+        }
+
+        $sheet1->getStyle('A16:E' . ($leftRow - 1))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
+        $sheet1->getStyle('G16:H' . ($rightRow - 1))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
+
+        foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as $col) {
             $sheet1->getColumnDimension($col)->setAutoSize(true);
         }
 

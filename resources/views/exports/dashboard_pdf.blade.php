@@ -5,33 +5,33 @@
     <title>{{ $title ?? 'FAITH AUTOMATION — Dashboard Report' }}</title>
     <style>
         @page {
-            margin: 12mm 10mm 12mm 10mm;
+            margin: 10mm 10mm 10mm 10mm;
             size: a4 landscape;
         }
         body {
             font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-            font-size: 9px;
+            font-size: 8.5px;
             color: #1e293b;
-            line-height: 1.3;
+            line-height: 1.25;
         }
         .header-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 10px;
+            margin-bottom: 6px;
             border-bottom: 2px solid #0f172a;
-            padding-bottom: 6px;
+            padding-bottom: 4px;
         }
         .header-table td {
             vertical-align: middle;
         }
         .brand-title {
-            font-size: 15px;
+            font-size: 14px;
             font-weight: bold;
             color: #0f172a;
             letter-spacing: 0.5px;
         }
         .report-subtitle {
-            font-size: 11px;
+            font-size: 10px;
             color: #2563eb;
             font-weight: 600;
             margin-top: 1px;
@@ -40,13 +40,13 @@
             background-color: #f1f5f9;
             border: 1px solid #cbd5e1;
             border-radius: 4px;
-            padding: 5px 8px;
-            margin-bottom: 10px;
-            font-size: 8.5px;
+            padding: 4px 8px;
+            margin-bottom: 8px;
+            font-size: 8px;
         }
         .meta-item {
             display: inline-block;
-            margin-right: 15px;
+            margin-right: 18px;
         }
         .meta-label {
             font-weight: bold;
@@ -55,63 +55,133 @@
         .meta-val {
             color: #0f172a;
         }
-        .section-title {
-            font-size: 11px;
+        .section-heading {
+            font-size: 9.5px;
             font-weight: bold;
             color: #0f172a;
-            margin-top: 10px;
-            margin-bottom: 4px;
-            border-bottom: 1.5px solid #cbd5e1;
-            padding-bottom: 2px;
-        }
-        .kpi-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 10px;
-        }
-        .kpi-card {
-            border: 1px solid #cbd5e1;
-            border-radius: 4px;
-            padding: 6px 8px;
-            text-align: center;
-            vertical-align: top;
-            background-color: #ffffff;
-        }
-        .kpi-title {
-            font-size: 8px;
+            margin-top: 6px;
+            margin-bottom: 3px;
             text-transform: uppercase;
-            color: #64748b;
-            font-weight: bold;
-            margin-bottom: 2px;
+            letter-spacing: 0.3px;
         }
-        .kpi-value {
-            font-size: 14px;
-            font-weight: bold;
-            color: #0f172a;
+
+        /* ------------------------------------------------------------- */
+        /* HORIZONTAL ROW 1: PRIMARY EXECUTIVE KPI CARDS                */
+        /* ------------------------------------------------------------- */
+        .exec-kpi-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 6px 0;
+            margin-bottom: 6px;
+            margin-left: -6px;
+            margin-right: -6px;
         }
-        .kpi-sub {
+        .exec-kpi-card {
+            border-radius: 5px;
+            padding: 7px 10px;
+            color: #ffffff;
+            vertical-align: middle;
+        }
+        .exec-card-blue   { background-color: #2563eb; }
+        .exec-card-teal   { background-color: #0d9488; }
+        .exec-card-danger { background-color: #ef4444; }
+        .exec-card-dark   { background-color: #0f172a; }
+
+        .exec-title {
             font-size: 7.5px;
-            color: #64748b;
+            text-transform: uppercase;
+            font-weight: bold;
+            color: rgba(255, 255, 255, 0.85);
+            letter-spacing: 0.5px;
+        }
+        .exec-value {
+            font-size: 18px;
+            font-weight: bold;
+            line-height: 1.1;
+            color: #ffffff;
             margin-top: 2px;
         }
+        .exec-sub {
+            font-size: 7px;
+            color: rgba(255, 255, 255, 0.75);
+            margin-top: 2px;
+        }
+
+        /* ------------------------------------------------------------- */
+        /* HORIZONTAL ROW 2: WORKSTATION OPERATIONAL 8-STAGE KPI GRID   */
+        /* ------------------------------------------------------------- */
+        .op-kpi-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 4px 0;
+            margin-bottom: 8px;
+            margin-left: -4px;
+            margin-right: -4px;
+        }
+        .op-kpi-card {
+            border-radius: 4px;
+            padding: 5px 6px;
+            color: #ffffff;
+            text-align: center;
+            vertical-align: top;
+        }
+        .op-title {
+            font-size: 6.8px;
+            text-transform: uppercase;
+            font-weight: bold;
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: 2px;
+            white-space: nowrap;
+        }
+        .op-value {
+            font-size: 13px;
+            font-weight: bold;
+            color: #ffffff;
+            line-height: 1.1;
+        }
+        .op-sub {
+            font-size: 6.5px;
+            color: rgba(255, 255, 255, 0.8);
+            margin-top: 2px;
+            white-space: nowrap;
+        }
+
+        /* Stage Card Colors matching Dashboard UI */
+        .card-parts     { background-color: #4f46e5; }
+        .card-received  { background-color: #10b981; }
+        .card-pending   { background-color: #0f172a; }
+        .card-store     { background-color: #d97706; }
+        .card-qc        { background-color: #0284c7; }
+        .card-rework    { background-color: #ea580c; }
+        .card-paint     { background-color: #7c3aed; }
+        .card-assembly  { background-color: #db2777; }
+
+        /* ------------------------------------------------------------- */
+        /* HORIZONTAL ROW 3: SIDE-BY-SIDE ANALYTICS (TOP PROJ & HEALTH) */
+        /* ------------------------------------------------------------- */
+        .side-by-side-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 6px;
+        }
+
         .data-table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 4px;
-            margin-bottom: 10px;
+            margin-top: 3px;
         }
         .data-table th, .data-table td {
             border: 1px solid #cbd5e1;
-            padding: 4px 5px;
+            padding: 3.5px 5px;
             text-align: left;
-            font-size: 8.5px;
+            font-size: 8px;
         }
         .data-table th {
             background-color: #0f172a;
             color: #ffffff;
             font-weight: bold;
             text-transform: uppercase;
-            font-size: 8px;
+            font-size: 7.5px;
             letter-spacing: 0.3px;
         }
         .data-table tr:nth-child(even) {
@@ -120,35 +190,21 @@
         .badge {
             display: inline-block;
             padding: 1px 4px;
-            font-size: 7.5px;
+            font-size: 7px;
             font-weight: bold;
             border-radius: 3px;
             text-align: center;
         }
-        .badge-primary { background-color: #2563eb; color: #fff; }
-        .badge-success { background-color: #10b981; color: #fff; }
-        .badge-danger  { background-color: #ef4444; color: #fff; }
-        .badge-warning { background-color: #f59e0b; color: #fff; }
+        .badge-primary   { background-color: #2563eb; color: #fff; }
+        .badge-success   { background-color: #10b981; color: #fff; }
+        .badge-danger    { background-color: #ef4444; color: #fff; }
+        .badge-warning   { background-color: #f59e0b; color: #fff; }
         .badge-secondary { background-color: #64748b; color: #fff; }
-        .badge-purple  { background-color: #8b5cf6; color: #fff; }
-        .badge-teal    { background-color: #0d9488; color: #fff; }
+        .badge-dark      { background-color: #0f172a; color: #fff; }
 
-        .progress-bar-bg {
-            background-color: #e2e8f0;
-            border-radius: 2px;
-            height: 6px;
-            width: 80px;
-            display: inline-block;
-            vertical-align: middle;
-        }
-        .progress-bar-fill {
-            background-color: #10b981;
-            height: 6px;
-            border-radius: 2px;
-        }
         .footer-table {
             position: fixed;
-            bottom: -8mm;
+            bottom: -7mm;
             left: 0;
             right: 0;
             width: 100%;
@@ -158,9 +214,9 @@
             color: #64748b;
         }
         .text-center { text-align: center; }
-        .text-right { text-align: right; }
-        .fw-bold { font-weight: bold; }
-        .page-break { page-break-after: always; }
+        .text-right  { text-align: right; }
+        .fw-bold     { font-weight: bold; }
+        .page-break  { page-break-after: always; }
     </style>
 </head>
 <body>
@@ -169,10 +225,10 @@
         <tr>
             <td>
                 <div class="brand-title">FAITH AUTOMATION — Industrial Spare Parts Tracking System</div>
-                <div class="report-subtitle">Manufacturing Manager Terminal — Dashboard Executive Report</div>
+                <div class="report-subtitle">Manufacturing Manager Terminal &bull; Dashboard Executive Report</div>
             </td>
             <td class="text-right">
-                <div style="font-size: 8px; color: #64748b;">
+                <div style="font-size: 7.5px; color: #64748b;">
                     <strong>Generated:</strong> {{ $generated_at }}<br>
                     <strong>Generated By:</strong> {{ $generated_by }}
                 </div>
@@ -188,106 +244,137 @@
         </div>
         <div class="meta-item">
             <span class="meta-label">Total Active Projects:</span>
-            <span class="meta-val">{{ $active_projects_count ?? 0 }}</span>
+            <span class="meta-val fw-bold">{{ $active_projects_count ?? ($summary['active_projects'] ?? 0) }}</span>
         </div>
         <div class="meta-item">
             <span class="meta-label">Overall Completion:</span>
-            <span class="meta-val fw-bold text-success">{{ $summary['completion_pct'] ?? 0 }}%</span>
+            <span class="meta-val fw-bold" style="color: #10b981;">{{ $summary['completion_pct'] ?? 0 }}%</span>
+        </div>
+        <div class="meta-item">
+            <span class="meta-label">Total BOM Requirements:</span>
+            <span class="meta-val fw-bold">{{ $summary['total_bom_parts'] ?? 0 }} Pcs</span>
         </div>
     </div>
 
-    <!-- 1. PRIMARY MANAGEMENT KPI SUMMARY -->
-    <div class="section-title">1. EXECUTIVE KPI &amp; OPERATIONAL SUMMARY</div>
-    <table class="kpi-table">
+    <!-- ========================================================================= -->
+    <!-- ROW 1: PRIMARY EXECUTIVE KPI CARDS (Horizontal Row)                       -->
+    <!-- ========================================================================= -->
+    <div class="section-heading">Row 1 &bull; Executive Project Status</div>
+    <table class="exec-kpi-table">
         <tr>
             @if(empty($project_id))
-                <td class="kpi-card" style="width: 33.3%;">
-                    <div class="kpi-title" style="color: #2563eb;">Active Projects</div>
-                    <div class="kpi-value" style="color: #2563eb;">{{ $summary['active_projects'] ?? 0 }}</div>
-                    <div class="kpi-sub">Portfolio In-Progress</div>
+                <!-- 1. Active Projects -->
+                <td class="exec-kpi-card exec-card-blue" style="width: 33.3%;">
+                    <div class="exec-title">Active Projects</div>
+                    <div class="exec-value">{{ $summary['active_projects'] ?? 0 }}</div>
+                    <div class="exec-sub">Portfolio In-Progress</div>
                 </td>
-                <td class="kpi-card" style="width: 33.3%;">
-                    <div class="kpi-title" style="color: #10b981;">Completed Projects</div>
-                    <div class="kpi-value" style="color: #10b981;">{{ $summary['completed_projects'] ?? 0 }}</div>
-                    <div class="kpi-sub">100% Assembled</div>
+                <!-- 2. Completed Projects -->
+                <td class="exec-kpi-card exec-card-teal" style="width: 33.3%;">
+                    <div class="exec-title">Completed Projects</div>
+                    <div class="exec-value">{{ $summary['completed_projects'] ?? 0 }}</div>
+                    <div class="exec-sub">100% Assembled</div>
                 </td>
-                <td class="kpi-card" style="width: 33.3%;">
-                    <div class="kpi-title" style="color: #ef4444;">Delayed Projects</div>
-                    <div class="kpi-value" style="color: #ef4444;">{{ $summary['delayed_projects'] ?? 0 }}</div>
-                    <div class="kpi-sub">>14d Inactive &amp; &lt;80%</div>
+                <!-- 3. Delayed Projects -->
+                <td class="exec-kpi-card exec-card-danger" style="width: 33.3%;">
+                    <div class="exec-title">Delayed Projects</div>
+                    <div class="exec-value">{{ $summary['delayed_projects'] ?? 0 }}</div>
+                    <div class="exec-sub">&gt;14d Inactive &amp; &lt;80%</div>
                 </td>
             @else
-                <td class="kpi-card" style="width: 25%;">
-                    <div class="kpi-title" style="color: #2563eb;">Selected Project</div>
-                    <div class="kpi-value" style="font-size: 11px;">{{ $project_name ?? 'Project' }}</div>
-                    <div class="kpi-sub">{{ $project_code ?? '' }}</div>
+                <!-- Single Project Selected View -->
+                <td class="exec-kpi-card exec-card-dark" style="width: 30%;">
+                    <div class="exec-title">{{ $project_code ?? 'PROJECT' }}</div>
+                    <div class="exec-value" style="font-size: 13px;">{{ $project_name ?? 'Selected Project' }}</div>
+                    <div class="exec-sub">Target Active Project</div>
                 </td>
-                <td class="kpi-card" style="width: 25%;">
-                    <div class="kpi-title" style="color: #475569;">Total Jigs / Units</div>
-                    <div class="kpi-value">{{ $summary['total_jigs'] ?? 0 }} / {{ $summary['total_units'] ?? 0 }}</div>
-                    <div class="kpi-sub">Production Units</div>
+                <td class="exec-kpi-card exec-card-blue" style="width: 23.3%;">
+                    <div class="exec-title">Total Jigs / Units</div>
+                    <div class="exec-value">{{ $summary['total_jigs'] ?? 0 }} / {{ $summary['total_units'] ?? 0 }}</div>
+                    <div class="exec-sub">Production Hierarchy Units</div>
                 </td>
-                <td class="kpi-card" style="width: 25%;">
-                    <div class="kpi-title" style="color: #10b981;">Completion Rate</div>
-                    <div class="kpi-value" style="color: #10b981;">{{ $summary['completion_pct'] ?? 0 }}%</div>
-                    <div class="kpi-sub">{{ $summary['total_received'] ?? 0 }} / {{ $summary['total_bom_parts'] ?? 0 }} Pcs</div>
+                <td class="exec-kpi-card exec-card-teal" style="width: 23.3%;">
+                    <div class="exec-title">Assembly Progress</div>
+                    <div class="exec-value">{{ $summary['completion_pct'] ?? 0 }}%</div>
+                    <div class="exec-sub">{{ $summary['total_received'] ?? 0 }} / {{ $summary['total_bom_parts'] ?? 0 }} Pcs</div>
                 </td>
-                <td class="kpi-card" style="width: 25%;">
-                    <div class="kpi-title" style="color: #ef4444;">Pending Parts</div>
-                    <div class="kpi-value" style="color: #ef4444;">{{ $summary['parts_pending'] ?? 0 }}</div>
-                    <div class="kpi-sub">To Complete Project</div>
+                <td class="exec-kpi-card exec-card-danger" style="width: 23.3%;">
+                    <div class="exec-title">Pending Parts</div>
+                    <div class="exec-value">{{ $summary['parts_pending'] ?? 0 }}</div>
+                    <div class="exec-sub">Missing To Complete</div>
                 </td>
             @endif
         </tr>
     </table>
 
-    <!-- Workstation Operational KPI Grid (8 Stages) -->
-    <table class="kpi-table" style="margin-top: 6px;">
+    <!-- ========================================================================= -->
+    <!-- ROW 2: WORKSTATION OPERATIONAL 8-STAGE KPI CARDS (Horizontal Row)         -->
+    <!-- ========================================================================= -->
+    <div class="section-heading" style="margin-top: 8px;">Row 2 &bull; Operational Pipeline &amp; Department Stages</div>
+    <table class="op-kpi-table">
         <tr>
-            <td class="kpi-card">
-                <div class="kpi-title">Total BOM Parts</div>
-                <div class="kpi-value">{{ $summary['total_bom_parts'] ?? 0 }}</div>
-                <div class="kpi-sub">Received: {{ $summary['total_received'] ?? 0 }} | Pend: {{ $summary['parts_pending'] ?? 0 }}</div>
+            <!-- 1. Total Parts -->
+            <td class="op-kpi-card card-parts" style="width: 12.5%;">
+                <div class="op-title">Total Parts</div>
+                <div class="op-value">{{ $summary['total_bom_parts'] ?? 0 }}</div>
+                <div class="op-sub">Required BOM</div>
             </td>
-            <td class="kpi-card">
-                <div class="kpi-title">Store Intake</div>
-                <div class="kpi-value" style="color: #d97706;">{{ $summary['parts_in_store'] ?? 0 }}</div>
-                <div class="kpi-sub">In Store Queue</div>
+            <!-- 2. Received -->
+            <td class="op-kpi-card card-received" style="width: 12.5%;">
+                <div class="op-title">Parts Received</div>
+                <div class="op-value">{{ $summary['total_received'] ?? 0 }}</div>
+                <div class="op-sub">In-Plant Total</div>
             </td>
-            <td class="kpi-card">
-                <div class="kpi-title">QC Department</div>
-                <div class="kpi-value" style="color: #0284c7;">{{ $summary['qc_inspections'] ?? 0 }}</div>
-                <div class="kpi-sub">Approved: {{ $summary['qc_approved'] ?? 0 }} | Rej: {{ $summary['qc_rejected'] ?? 0 }}</div>
+            <!-- 3. Pending -->
+            <td class="op-kpi-card card-pending" style="width: 12.5%;">
+                <div class="op-title">Parts Pending</div>
+                <div class="op-value">{{ $summary['parts_pending'] ?? 0 }}</div>
+                <div class="op-sub">Intake Deficit</div>
             </td>
-            <td class="kpi-card">
-                <div class="kpi-title">Rework Queue</div>
-                <div class="kpi-value" style="color: #dc2626;">{{ $summary['rework_queue'] ?? 0 }}</div>
-                <div class="kpi-sub">In Rework Process</div>
+            <!-- 4. Store -->
+            <td class="op-kpi-card card-store" style="width: 12.5%;">
+                <div class="op-title">Store</div>
+                <div class="op-value">{{ $summary['parts_in_store'] ?? 0 }}</div>
+                <div class="op-sub">In Warehouse</div>
             </td>
-            <td class="kpi-card">
-                <div class="kpi-title">Purchase Queue</div>
-                <div class="kpi-value" style="color: #ea580c;">{{ $summary['purchase_queue'] ?? 0 }}</div>
-                <div class="kpi-sub">Reorder Queue Items</div>
+            <!-- 5. QC -->
+            <td class="op-kpi-card card-qc" style="width: 12.5%;">
+                <div class="op-title">QC Queue</div>
+                <div class="op-value">{{ $summary['qc_inspections'] ?? 0 }}</div>
+                <div class="op-sub">Rej: {{ $summary['qc_rejected'] ?? 0 }}</div>
             </td>
-            <td class="kpi-card">
-                <div class="kpi-title">Paint Shop</div>
-                <div class="kpi-value" style="color: #7c3aed;">{{ $summary['parts_in_paint'] ?? 0 }}</div>
-                <div class="kpi-sub">Painted: {{ $summary['paint_completed'] ?? 0 }}</div>
+            <!-- 6. Rework -->
+            <td class="op-kpi-card card-rework" style="width: 12.5%;">
+                <div class="op-title">Rework</div>
+                <div class="op-value">{{ $summary['rework_queue'] ?? 0 }}</div>
+                <div class="op-sub">In Corrections</div>
             </td>
-            <td class="kpi-card">
-                <div class="kpi-title">Assembly Shop</div>
-                <div class="kpi-value" style="color: #db2777;">{{ $summary['parts_in_assembly'] ?? 0 }}</div>
-                <div class="kpi-sub">Completed: {{ $summary['assembly_completed'] ?? 0 }}</div>
+            <!-- 7. Paint -->
+            <td class="op-kpi-card card-paint" style="width: 12.5%;">
+                <div class="op-title">Paint Shop</div>
+                <div class="op-value">{{ $summary['parts_in_paint'] ?? 0 }}</div>
+                <div class="op-sub">Done: {{ $summary['paint_completed'] ?? 0 }}</div>
+            </td>
+            <!-- 8. Assembly -->
+            <td class="op-kpi-card card-assembly" style="width: 12.5%;">
+                <div class="op-title">Assembly</div>
+                <div class="op-value">{{ $summary['parts_in_assembly'] ?? 0 }}</div>
+                <div class="op-sub">Done: {{ $summary['assembly_completed'] ?? 0 }}</div>
             </td>
         </tr>
     </table>
 
-    <!-- 2. TOP PROJECTS NEAR COMPLETION & HEALTH DISTRIBUTION ROW -->
-    <table style="width: 100%; border-collapse: collapse; margin-top: 8px;">
+    <!-- ========================================================================= -->
+    <!-- ROW 3: SIDE-BY-SIDE ANALYTICS (Top Projects Near Completion & Health)     -->
+    <!-- ========================================================================= -->
+    <div class="section-heading" style="margin-top: 8px;">Row 3 &bull; Portfolio Analytics &amp; Velocity Distribution</div>
+    <table class="side-by-side-table">
         <tr>
             <!-- Left Column: Top Projects Near Completion -->
-            <td style="width: 58%; vertical-align: top; padding-right: 8px;">
-                <div class="section-title">2. TOP PROJECTS NEAR COMPLETION</div>
+            <td style="width: 58%; vertical-align: top; padding-right: 6px;">
+                <div style="font-weight: bold; font-size: 8.5px; color: #0f172a; margin-bottom: 2px;">
+                    Top Projects Near Completion <span style="font-size: 7.5px; color: #64748b; font-weight: normal;">(Ranked by % Completion)</span>
+                </div>
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -303,11 +390,11 @@
                             <tr>
                                 <td>
                                     <strong>{{ $proj['name'] }}</strong>
-                                    <span style="color: #64748b; font-size: 7.5px;">({{ $proj['code'] }})</span>
+                                    <span style="color: #64748b; font-size: 7px;">({{ $proj['code'] }})</span>
                                 </td>
                                 <td class="text-center">{{ $proj['required'] }}</td>
-                                <td class="text-center" style="color: #10b981; font-weight: bold;">{{ $proj['received'] }}</td>
-                                <td class="text-center" style="color: #ef4444; font-weight: bold;">{{ $proj['pending'] }}</td>
+                                <td class="text-center fw-bold" style="color: #10b981;">{{ $proj['received'] }}</td>
+                                <td class="text-center fw-bold" style="color: #ef4444;">{{ $proj['pending'] }}</td>
                                 <td class="text-center">
                                     <span class="badge {{ $proj['percentage'] >= 85 ? 'badge-success' : ($proj['percentage'] >= 50 ? 'badge-primary' : 'badge-warning') }}">
                                         {{ $proj['percentage'] }}%
@@ -326,39 +413,41 @@
             </td>
 
             <!-- Right Column: Project Health Distribution -->
-            <td style="width: 42%; vertical-align: top; padding-left: 8px;">
-                <div class="section-title">3. PROJECT HEALTH DISTRIBUTION</div>
+            <td style="width: 42%; vertical-align: top; padding-left: 6px;">
+                <div style="font-weight: bold; font-size: 8.5px; color: #0f172a; margin-bottom: 2px;">
+                    Project Health Distribution <span style="font-size: 7.5px; color: #64748b; font-weight: normal;">(Portfolio Risk Status)</span>
+                </div>
                 <table class="data-table">
                     <thead>
                         <tr>
                             <th>Health Classification</th>
-                            <th style="text-align: center; width: 25%;">Count</th>
+                            <th style="text-align: center; width: 22%;">Count</th>
                             <th style="text-align: center; width: 25%;">Share %</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td><span class="badge badge-success">Near Completion</span> <span style="font-size: 7.5px; color: #64748b;">(≥85% Complete)</span></td>
+                            <td><span class="badge badge-success">Near Completion</span> <span style="font-size: 7px; color: #64748b;">(≥85%)</span></td>
                             <td class="text-center fw-bold">{{ $health_counts['near_completion'] ?? 0 }}</td>
                             <td class="text-center">{{ $health_pcts['near_completion'] ?? 0 }}%</td>
                         </tr>
                         <tr>
-                            <td><span class="badge badge-primary">On Track</span> <span style="font-size: 7.5px; color: #64748b;">(Active last 7 days)</span></td>
+                            <td><span class="badge badge-primary">On Track</span> <span style="font-size: 7px; color: #64748b;">(Active last 7d)</span></td>
                             <td class="text-center fw-bold">{{ $health_counts['on_track'] ?? 0 }}</td>
                             <td class="text-center">{{ $health_pcts['on_track'] ?? 0 }}%</td>
                         </tr>
                         <tr>
-                            <td><span class="badge badge-warning">At Risk</span> <span style="font-size: 7.5px; color: #64748b;">(No activity 7–14 days)</span></td>
+                            <td><span class="badge badge-warning">At Risk</span> <span style="font-size: 7px; color: #64748b;">(7–14d inactive)</span></td>
                             <td class="text-center fw-bold">{{ $health_counts['at_risk'] ?? 0 }}</td>
                             <td class="text-center">{{ $health_pcts['at_risk'] ?? 0 }}%</td>
                         </tr>
                         <tr>
-                            <td><span class="badge badge-danger">Delayed</span> <span style="font-size: 7.5px; color: #64748b;">(>14d inactive &amp; &lt;80%)</span></td>
+                            <td><span class="badge badge-danger">Delayed</span> <span style="font-size: 7px; color: #64748b;">(&gt;14d &amp; &lt;80%)</span></td>
                             <td class="text-center fw-bold">{{ $health_counts['delayed'] ?? 0 }}</td>
                             <td class="text-center">{{ $health_pcts['delayed'] ?? 0 }}%</td>
                         </tr>
                         <tr style="background-color: #f1f5f9; font-weight: bold;">
-                            <td>Total Active Projects Evaluated</td>
+                            <td>Total Active Evaluated</td>
                             <td class="text-center">{{ $health_total ?? 0 }}</td>
                             <td class="text-center">100%</td>
                         </tr>
@@ -368,7 +457,9 @@
         </tr>
     </table>
 
-    <!-- 3. PROJECT HIERARCHY OR PORTFOLIO BREAKDOWN (Page 2) -->
+    <!-- ========================================================================= -->
+    <!-- ROW 4+: PROJECT HIERARCHY OR JIGS BREAKDOWN (Page 2)                      -->
+    <!-- ========================================================================= -->
     @if(!empty($jigs) && count($jigs) > 0)
         <div class="page-break"></div>
 
@@ -376,18 +467,18 @@
         <table class="header-table">
             <tr>
                 <td>
-                    <div class="brand-title">FAITH AUTOMATION — Project Hierarchy Breakdown</div>
-                    <div class="report-subtitle">{{ $scope_label }} — Level 3 Jigs &amp; Units Detail</div>
+                    <div class="brand-title">FAITH AUTOMATION — Project Hierarchy &amp; Jig Breakdown</div>
+                    <div class="report-subtitle">{{ $scope_label }} &bull; Level 3 Jigs &amp; Assembly Detail</div>
                 </td>
                 <td class="text-right">
-                    <div style="font-size: 8px; color: #64748b;">
+                    <div style="font-size: 7.5px; color: #64748b;">
                         <strong>Generated:</strong> {{ $generated_at }}
                     </div>
                 </td>
             </tr>
         </table>
 
-        <div class="section-title">4. JIG &amp; PRODUCTION UNIT HIERARCHY DETAIL</div>
+        <div class="section-heading">Row 4 &bull; Jig Production Units &amp; Assembly Status</div>
         <table class="data-table">
             <thead>
                 <tr>
@@ -419,7 +510,7 @@
 
         <!-- Parts Inventory Table Sample for Project -->
         @if(!empty($parts_sample) && count($parts_sample) > 0)
-            <div class="section-title" style="margin-top: 12px;">5. PART INVENTORY SAMPLE DETAIL</div>
+            <div class="section-heading" style="margin-top: 10px;">Part Inventory Sample Detail</div>
             <table class="data-table">
                 <thead>
                     <tr>
