@@ -53,8 +53,18 @@ class QcInspection extends Model
         return $this->hasOne(PaintRecord::class, 'qc_inspection_id');
     }
 
+    public function paintRecords()
+    {
+        return $this->hasMany(PaintRecord::class, 'qc_inspection_id');
+    }
+
     public function assemblyRecord()
     {
         return $this->hasOne(AssemblyRecord::class, 'qc_inspection_id');
+    }
+
+    public function assemblyRecords()
+    {
+        return $this->hasMany(AssemblyRecord::class, 'qc_inspection_id');
     }
 }

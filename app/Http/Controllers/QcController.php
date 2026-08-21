@@ -248,10 +248,12 @@ class QcController extends Controller
             'receipt_item_id' => ['required', 'integer'],
             'bom_item_id' => ['nullable', 'exists:bom_items,id'],
             'side' => ['required', 'in:RH,LH,COMMON'],
-            'inspected_quantity' => ['required', 'integer', 'min:1'],
+            'inspected_quantity' => ['nullable', 'integer', 'min:1'],
             'result' => ['required', 'in:approved,rejected,rework,partial'],
-            'destination' => ['required_if:result,approved', 'nullable', 'in:PAINT,ASSEMBLY'],
+            'destination' => ['nullable', 'in:PAINT,ASSEMBLY'],
             'approved_quantity' => ['nullable', 'integer', 'min:0'],
+            'paint_quantity' => ['nullable', 'integer', 'min:0'],
+            'assembly_quantity' => ['nullable', 'integer', 'min:0'],
             'rejected_quantity' => ['nullable', 'integer', 'min:0'],
             'rework_quantity' => ['nullable', 'integer', 'min:0'],
             'rejection_reason' => ['nullable', 'string', 'max:255'],
@@ -304,33 +306,95 @@ class QcController extends Controller
                     'message' => "No eligible QC item found for {$side} side in inspection bay (or already processed)."
                 ], 422);
             }
-            
-            $inspectedQty = (int) $request->input('inspected_quantity');
+
+            $availableQty = (int) $receiptItem->received_quantity;
             $result = $request->input('result');
-            $destination = $result === 'approved' ? $request->input('destination') : null;
 
-            $approvedQty = $result === 'approved' ? $inspectedQty : (int) $request->input('approved_quantity', 0);
-            $rejectedQty = $result === 'rejected' ? $inspectedQty : (int) $request->input('rejected_quantity', 0);
-            $reworkQty   = $result === 'rework'   ? $inspectedQty : (int) $request->input('rework_quantity', 0);
+            // Determine target quantities based on action
+            if ($result === 'approved') {
+                $approvedQty = $request->filled('approved_quantity') 
+                    ? (int) $request->input('approved_quantity') 
+                    : (int) $request->input('inspected_quantity', $availableQty);
+                $rejectedQty = 0;
+                $reworkQty = 0;
+                $inspectedQty = $approvedQty;
 
-            $inspection = QcInspection::create([
-                'bom_item_id' => $receiptItem->bom_item_id,
-                'receipt_item_id' => $receiptItem->id,
-                'rework_record_id' => $request->input('rework_record_id'),
-                'side' => $request->input('side'),
-                'inspected_quantity' => $inspectedQty,
-                'approved_quantity' => $approvedQty,
-                'rejected_quantity' => $rejectedQty,
-                'rework_quantity' => $reworkQty,
-                'result' => $result,
-                'destination' => $destination,
-                'rejection_reason' => $request->input('rejection_reason'),
-                'rework_reason' => $request->input('rework_reason'),
-                'remarks' => $request->input('remarks'),
-                'is_reinspection' => (bool) $request->input('rework_record_id'),
-                'inspected_by' => $request->user()->id,
-                'inspection_date' => now(),
-            ]);
+                // Check Paint / Assembly split inputs
+                $hasExplicitSplit = $request->has('paint_quantity') || $request->has('assembly_quantity');
+                if ($hasExplicitSplit) {
+                    $paintQty = (int) $request->input('paint_quantity', 0);
+                    $assemblyQty = (int) $request->input('assembly_quantity', 0);
+                    if (($paintQty + $assemblyQty) !== $approvedQty) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => "Paint quantity ({$paintQty}) + Assembly quantity ({$assemblyQty}) must equal approved quantity ({$approvedQty})."
+                        ], 422);
+                    }
+                } else {
+                    $dest = $request->input('destination', 'PAINT');
+                    $paintQty = ($dest === 'ASSEMBLY') ? 0 : $approvedQty;
+                    $assemblyQty = ($dest === 'ASSEMBLY') ? $approvedQty : 0;
+                }
+            } elseif ($result === 'rejected') {
+                $rejectedQty = $request->filled('rejected_quantity') 
+                    ? (int) $request->input('rejected_quantity') 
+                    : (int) $request->input('inspected_quantity', $availableQty);
+                $approvedQty = 0;
+                $reworkQty = 0;
+                $paintQty = 0;
+                $assemblyQty = 0;
+                $inspectedQty = $rejectedQty;
+            } elseif ($result === 'rework') {
+                $reworkQty = $request->filled('rework_quantity') 
+                    ? (int) $request->input('rework_quantity') 
+                    : (int) $request->input('inspected_quantity', $availableQty);
+                $approvedQty = 0;
+                $rejectedQty = 0;
+                $paintQty = 0;
+                $assemblyQty = 0;
+                $inspectedQty = $reworkQty;
+            } else {
+                // Partial composite
+                $approvedQty = (int) $request->input('approved_quantity', 0);
+                $rejectedQty = (int) $request->input('rejected_quantity', 0);
+                $reworkQty   = (int) $request->input('rework_quantity', 0);
+                $inspectedQty = $approvedQty + $rejectedQty + $reworkQty;
+                $paintQty = (int) $request->input('paint_quantity', 0);
+                $assemblyQty = (int) $request->input('assembly_quantity', 0);
+                if ($approvedQty > 0 && ($paintQty + $assemblyQty) !== $approvedQty) {
+                    $dest = $request->input('destination', 'PAINT');
+                    $paintQty = ($dest === 'ASSEMBLY') ? 0 : $approvedQty;
+                    $assemblyQty = ($dest === 'ASSEMBLY') ? $approvedQty : 0;
+                }
+            }
+
+            // Quantity Bounds Validation
+            if ($inspectedQty <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Processed quantity must be greater than 0.'
+                ], 422);
+            }
+
+            if ($inspectedQty > $availableQty) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Requested quantity ({$inspectedQty}) exceeds available QC inspection quantity ({$availableQty})."
+                ], 422);
+            }
+
+            // Handle Atomic ReceiptItem splitting if partial quantity processed
+            if ($inspectedQty < $availableQty) {
+                $remainingQty = $availableQty - $inspectedQty;
+                // Create duplicate receipt item representing remaining quantity in QC bay
+                $remainingItem = $receiptItem->replicate();
+                $remainingItem->received_quantity = $remainingQty;
+                $remainingItem->status = 'qc_received';
+                $remainingItem->save();
+
+                // Current item now represents exact inspected portion
+                $receiptItem->received_quantity = $inspectedQty;
+            }
 
             // Update receipt item status
             if ($result === 'approved') {
@@ -343,28 +407,88 @@ class QcController extends Controller
                 $receiptItem->update(['status' => 'qc_inspected']);
             }
 
-            // Auto-create Return-to-Purchase Workflow Event and Purchase Queue Item if rejected
+            $createdInspections = [];
+
+            // 1. Create QC Inspection records for Approved (Split Paint vs Assembly)
+            if ($approvedQty > 0) {
+                if ($paintQty > 0) {
+                    $createdInspections[] = QcInspection::create([
+                        'bom_item_id' => $receiptItem->bom_item_id,
+                        'receipt_item_id' => $receiptItem->id,
+                        'rework_record_id' => $request->input('rework_record_id'),
+                        'side' => $receiptItem->side,
+                        'inspected_quantity' => $paintQty,
+                        'approved_quantity' => $paintQty,
+                        'rejected_quantity' => 0,
+                        'rework_quantity' => 0,
+                        'result' => 'approved',
+                        'destination' => 'PAINT',
+                        'remarks' => $request->input('remarks'),
+                        'is_reinspection' => (bool) $request->input('rework_record_id'),
+                        'inspected_by' => $request->user()->id,
+                        'inspection_date' => now(),
+                    ]);
+                }
+                if ($assemblyQty > 0) {
+                    $createdInspections[] = QcInspection::create([
+                        'bom_item_id' => $receiptItem->bom_item_id,
+                        'receipt_item_id' => $receiptItem->id,
+                        'rework_record_id' => $request->input('rework_record_id'),
+                        'side' => $receiptItem->side,
+                        'inspected_quantity' => $assemblyQty,
+                        'approved_quantity' => $assemblyQty,
+                        'rejected_quantity' => 0,
+                        'rework_quantity' => 0,
+                        'result' => 'approved',
+                        'destination' => 'ASSEMBLY',
+                        'remarks' => $request->input('remarks'),
+                        'is_reinspection' => (bool) $request->input('rework_record_id'),
+                        'inspected_by' => $request->user()->id,
+                        'inspection_date' => now(),
+                    ]);
+                }
+            }
+
+            // 2. Create QC Inspection for Rejections
             if ($rejectedQty > 0) {
+                $rejInsp = QcInspection::create([
+                    'bom_item_id' => $receiptItem->bom_item_id,
+                    'receipt_item_id' => $receiptItem->id,
+                    'rework_record_id' => $request->input('rework_record_id'),
+                    'side' => $receiptItem->side,
+                    'inspected_quantity' => $rejectedQty,
+                    'approved_quantity' => 0,
+                    'rejected_quantity' => $rejectedQty,
+                    'rework_quantity' => 0,
+                    'result' => 'rejected',
+                    'rejection_reason' => $request->input('rejection_reason') ?? 'Quality Non-conformance',
+                    'remarks' => $request->input('remarks'),
+                    'is_reinspection' => (bool) $request->input('rework_record_id'),
+                    'inspected_by' => $request->user()->id,
+                    'inspection_date' => now(),
+                ]);
+                $createdInspections[] = $rejInsp;
+
                 WorkflowEvent::create([
                     'bom_item_id' => $receiptItem->bom_item_id,
                     'project_id' => $receiptItem->bomItem->project_id,
                     'user_id' => $request->user()->id,
                     'event_type' => 'returned_to_purchase',
-                    'side' => $request->input('side'),
+                    'side' => $receiptItem->side,
                     'quantity' => $rejectedQty,
                     'previous_state' => 'qc_received',
                     'new_state' => 'qc_rejected',
-                    'remarks' => "QC Rejection: " . ($request->input('rejection_reason') ?? 'Dimensional / Surface Defect') . ". Sent to Purchase Queue for re-ordering. " . ($request->input('remarks') ?? ''),
+                    'remarks' => "QC Rejection: " . ($request->input('rejection_reason') ?? 'Dimensional / Surface Defect') . ". Sent to Purchase Queue for procurement. " . ($request->input('remarks') ?? ''),
                 ]);
 
                 PurchaseQueueItem::create([
                     'bom_item_id' => $receiptItem->bom_item_id,
-                    'qc_inspection_id' => $inspection->id,
+                    'qc_inspection_id' => $rejInsp->id,
                     'project_id' => $receiptItem->bomItem->project_id,
                     'standard_part_no' => $receiptItem->bomItem->standard_part_no,
-                    'side' => $request->input('side'),
+                    'side' => $receiptItem->side,
                     'rejected_quantity' => $rejectedQty,
-                    'rejection_reason' => $request->input('rejection_reason'),
+                    'rejection_reason' => $request->input('rejection_reason') ?? 'Dimensional Defect',
                     'rejected_by' => $request->user()->id,
                     'rejected_at' => now(),
                     'status' => 'pending_purchase',
@@ -372,7 +496,7 @@ class QcController extends Controller
                 ]);
             }
 
-            // Auto-create Rework Record if rework
+            // 3. Create QC Inspection & Rework Record for Rework
             if ($reworkQty > 0) {
                 $prevCycle = 0;
                 if ($request->input('rework_record_id')) {
@@ -380,32 +504,32 @@ class QcController extends Controller
                     $prevCycle = $prevRework?->cycle_number ?? 1;
                 }
 
-                ReworkRecord::create([
-                    'qc_inspection_id' => $inspection->id,
+                $rewInsp = QcInspection::create([
                     'bom_item_id' => $receiptItem->bom_item_id,
-                    'side' => $request->input('side'),
+                    'receipt_item_id' => $receiptItem->id,
+                    'rework_record_id' => $request->input('rework_record_id'),
+                    'side' => $receiptItem->side,
+                    'inspected_quantity' => $reworkQty,
+                    'approved_quantity' => 0,
+                    'rejected_quantity' => 0,
+                    'rework_quantity' => $reworkQty,
+                    'result' => 'rework',
+                    'rework_reason' => $request->input('rework_reason') ?? 'Dimensional Correction',
+                    'remarks' => $request->input('remarks'),
+                    'is_reinspection' => (bool) $request->input('rework_record_id'),
+                    'inspected_by' => $request->user()->id,
+                    'inspection_date' => now(),
+                ]);
+                $createdInspections[] = $rewInsp;
+
+                ReworkRecord::create([
+                    'qc_inspection_id' => $rewInsp->id,
+                    'bom_item_id' => $receiptItem->bom_item_id,
+                    'side' => $receiptItem->side,
                     'quantity' => $reworkQty,
                     'status' => 'pending',
                     'rework_description' => $request->input('rework_reason') ?? $request->input('remarks'),
                     'cycle_number' => $prevCycle + 1,
-                ]);
-            }
-
-            // Handle optional photo attachment
-            if ($request->hasFile('photo')) {
-                $path = $request->file('photo')->store('qc_attachments', 'public');
-                DB::table('attachments')->insert([
-                    'attachable_type' => QcInspection::class,
-                    'attachable_id' => $inspection->id,
-                    'filename' => $request->file('photo')->hashName(),
-                    'original_filename' => $request->file('photo')->getClientOriginalName(),
-                    'mime_type' => $request->file('photo')->getClientMimeType(),
-                    'size_bytes' => $request->file('photo')->getSize(),
-                    'disk' => 'public',
-                    'path' => $path,
-                    'uploaded_by' => $request->user()->id,
-                    'created_at' => now(),
-                    'updated_at' => now(),
                 ]);
             }
 
@@ -415,20 +539,23 @@ class QcController extends Controller
                 'project_id' => $receiptItem->bomItem->project_id,
                 'user_id' => $request->user()->id,
                 'event_type' => 'qc_inspected',
-                'side' => $request->input('side'),
+                'side' => $receiptItem->side,
                 'quantity' => $inspectedQty,
-                'previous_state' => 'sent_to_qc',
+                'previous_state' => 'qc_received',
                 'new_state' => $result,
-                'remarks' => "QC Inspection Result: {$result} (Destination: {$destination}). Approved: {$approvedQty}, Rejected: {$rejectedQty}, Rework: {$reworkQty}.",
+                'remarks' => "QC Inspection Result: {$result}. Approved: {$approvedQty} (Paint: {$paintQty}, Assembly: {$assemblyQty}), Rejected: {$rejectedQty}, Rework: {$reworkQty}.",
             ]);
 
             try {
-                broadcast(new \App\Events\QcInspected($inspection))->toOthers();
+                if (!empty($createdInspections)) {
+                    broadcast(new \App\Events\QcInspected($createdInspections[0]))->toOthers();
+                }
             } catch (\Throwable $e) {}
 
             return response()->json([
                 'success' => true,
-                'inspection_id' => $inspection->id,
+                'processed_quantity' => $inspectedQty,
+                'inspection_ids' => collect($createdInspections)->pluck('id'),
                 'message' => 'QC inspection recorded successfully.',
             ]);
         });
