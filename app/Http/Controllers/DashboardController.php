@@ -305,8 +305,9 @@ class DashboardController extends Controller
             ->when($side, fn($q) => $q->where('side', $side));
 
         // Get all distinct active dates containing movements in descending order
+        $dateSql = DB::getDriverName() === 'sqlite' ? "strftime('%Y-%m-%d', created_at)" : "to_char(created_at, 'YYYY-MM-DD')";
         $allActiveDates = (clone $baseQuery)
-            ->selectRaw("to_char(created_at, 'YYYY-MM-DD') as date_key")
+            ->selectRaw("{$dateSql} as date_key")
             ->groupBy('date_key')
             ->orderBy('date_key', 'desc')
             ->pluck('date_key')
@@ -353,10 +354,10 @@ class DashboardController extends Controller
             $targetDates = array_values(array_filter($allActiveDates, fn($d) => $d >= $startDate));
             $hasPrev = false;
             $hasNext = false;
-            $displayedPeriodLabel = "This Month (" . now()->format('M Y') . ")";
-        } elseif ($quickRange === 'custom' && $request->filled('date_from')) {
+            $displayedPeriodLabel = "This Month";
+        } elseif ($quickRange === 'custom' && $request->filled('date_from') && $request->filled('date_to')) {
             $from = $request->input('date_from');
-            $to = $request->input('date_to', now()->format('Y-m-d'));
+            $to = $request->input('date_to');
             $targetDates = array_values(array_filter($allActiveDates, fn($d) => $d >= $from && $d <= $to));
             $hasPrev = false;
             $hasNext = false;
@@ -373,7 +374,7 @@ class DashboardController extends Controller
         if (!empty($targetDates)) {
             $events = (clone $baseQuery)
                 ->with(['bomItem.project', 'user'])
-                ->whereIn(DB::raw("to_char(created_at, 'YYYY-MM-DD')"), $targetDates)
+                ->whereIn(DB::raw($dateSql), $targetDates)
                 ->orderBy('created_at', 'desc')
                 ->get();
         }
