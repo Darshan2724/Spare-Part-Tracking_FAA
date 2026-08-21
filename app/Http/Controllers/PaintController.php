@@ -26,14 +26,14 @@ class PaintController extends Controller
     {
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'PAINT']) ?: abort(403);
 
-        // Fetch QC approved inspections that are routed to PAINT and ready for painting
+        // Fetch QC approved inspections that are routed to PAINT and have unpainted quantity remaining
         $query = QcInspection::query()
-            ->with(['bomItem.project', 'receiptItem'])
+            ->with(['bomItem.project', 'receiptItem', 'paintRecords'])
             ->where('approved_quantity', '>', 0)
             ->where(function ($q) {
                 $q->where('destination', 'PAINT')->orWhereNull('destination');
             })
-            ->whereDoesntHave('paintRecord');
+            ->whereRaw('approved_quantity > (SELECT COALESCE(SUM(quantity), 0) FROM paint_records WHERE qc_inspection_id = qc_inspections.id)');
 
         if ($request->filled('search')) {
             $search = trim($request->input('search'));
@@ -55,6 +55,12 @@ class PaintController extends Controller
 
         $perPage = (int) $request->input('per_page', 50);
         $queue = $query->orderByDesc('created_at')->paginate($perPage);
+
+        $queue->getCollection()->transform(function ($insp) {
+            $painted = $insp->paintRecords->sum('quantity');
+            $insp->available_paint_quantity = max(0, $insp->approved_quantity - $painted);
+            return $insp;
+        });
 
         return response()->json($queue);
     }
@@ -79,36 +85,49 @@ class PaintController extends Controller
                     $q->where('side', $side)->orWhere('side', 'COMMON');
                 })
                 ->lockForUpdate()
-                ->with(['receiptItem', 'bomItem', 'paintRecord'])
+                ->with(['receiptItem', 'bomItem', 'paintRecords'])
                 ->first();
 
             if (!$inspection) {
                 return response()->json(['success' => false, 'message' => "No eligible QC inspection found for {$side} side."], 422);
             }
 
-            if ($inspection->paintRecord) {
-                return response()->json(['success' => false, 'message' => 'Paint operation already completed for this inspection.'], 422);
-            }
-
             if ($inspection->destination === 'ASSEMBLY') {
                 return response()->json(['success' => false, 'message' => 'This part was routed directly to Assembly and cannot be painted.'], 422);
+            }
+
+            $alreadyPainted = (int) $inspection->paintRecords->sum('quantity');
+            $availableToPaint = max(0, $inspection->approved_quantity - $alreadyPainted);
+            $requestedQty = (int) $request->input('quantity');
+
+            if ($availableToPaint <= 0) {
+                return response()->json(['success' => false, 'message' => 'All approved units for this QC inspection have already been painted.'], 422);
+            }
+
+            if ($requestedQty > $availableToPaint) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Requested paint quantity ({$requestedQty}) exceeds available unpainted quantity ({$availableToPaint})."
+                ], 422);
             }
 
             $record = PaintRecord::create([
                 'bom_item_id' => $request->input('bom_item_id'),
                 'qc_inspection_id' => $inspection->id,
                 'side' => $request->input('side'),
-                'quantity' => $request->input('quantity'),
+                'quantity' => $requestedQty,
                 'painted_by' => $request->user()->id,
                 'status' => 'completed',
                 'completed_at' => now(),
-                'paint_type' => $request->input('paint_type'),
+                'paint_type' => $request->input('paint_type') ?? 'Standard',
                 'remarks' => $request->input('remarks'),
             ]);
 
-            // Update receipt item status to 'paint_completed'
-            if ($inspection->receiptItem) {
-                $inspection->receiptItem->update(['status' => 'paint_completed']);
+            // If full approved quantity is now painted, update receipt item status to 'paint_completed'
+            if (($alreadyPainted + $requestedQty) >= $inspection->approved_quantity) {
+                if ($inspection->receiptItem) {
+                    $inspection->receiptItem->update(['status' => 'paint_completed']);
+                }
             }
 
             WorkflowEvent::create([
@@ -117,16 +136,18 @@ class PaintController extends Controller
                 'user_id' => $request->user()->id,
                 'event_type' => 'paint_completed',
                 'side' => $request->input('side'),
-                'quantity' => $request->input('quantity'),
+                'quantity' => $requestedQty,
                 'previous_state' => 'qc_approved',
                 'new_state' => 'paint_completed',
-                'remarks' => "Painting completed for {$request->input('quantity')} units. Type: " . ($request->input('paint_type') ?? 'Standard'),
+                'remarks' => "Painting completed for {$requestedQty} units. Type: " . ($request->input('paint_type') ?? 'Standard'),
             ]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Paint process completed successfully.',
                 'paint_id' => $record->id,
+                'processed_quantity' => $requestedQty,
+                'remaining_quantity' => max(0, $availableToPaint - $requestedQty),
             ]);
         });
     }

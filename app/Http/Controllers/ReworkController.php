@@ -130,6 +130,7 @@ class ReworkController extends Controller
         $request->user()?->hasAnyRole(['ADMIN', 'REWORK']) ?: abort(403, 'Unauthorized. Rework operational permission required.');
 
         $request->validate([
+            'quantity' => ['nullable', 'integer', 'min:1'],
             'completion_notes' => ['nullable', 'string', 'max:1000'],
             'remarks' => ['nullable', 'string', 'max:1000'],
         ]);
@@ -145,6 +146,28 @@ class ReworkController extends Controller
                     'success' => false,
                     'message' => 'Rework record is not in an active state or has already been completed.',
                 ], 422);
+            }
+
+            $availableQty = (int) $record->quantity;
+            $completedQty = $request->filled('quantity') ? (int) $request->input('quantity') : $availableQty;
+
+            if ($completedQty <= 0) {
+                return response()->json(['success' => false, 'message' => 'Completed quantity must be greater than 0.'], 422);
+            }
+
+            if ($completedQty > $availableQty) {
+                return response()->json(['success' => false, 'message' => "Completed quantity ({$completedQty}) exceeds available rework quantity ({$availableQty})."], 422);
+            }
+
+            // If partial rework completed, split remaining rework record
+            if ($completedQty < $availableQty) {
+                $remainingQty = $availableQty - $completedQty;
+                $remainingRecord = $record->replicate();
+                $remainingRecord->quantity = $remainingQty;
+                $remainingRecord->status = 'in_progress';
+                $remainingRecord->save();
+
+                $record->quantity = $completedQty;
             }
 
             $notes = $request->input('completion_notes') ?? $request->input('remarks') ?? 'Rework completed.';
@@ -169,14 +192,15 @@ class ReworkController extends Controller
                 'user_id' => $request->user()->id,
                 'event_type' => 'rework_completed',
                 'side' => $record->side,
-                'quantity' => $record->quantity,
+                'quantity' => $completedQty,
                 'previous_state' => 'in_progress',
                 'new_state' => 'returned_to_qc',
-                'remarks' => "Rework cycle #{$record->cycle_number} completed: {$notes}. Returned to QC queue for re-inspection.",
+                'remarks' => "Rework cycle #{$record->cycle_number} completed: {$notes}. Returned {$completedQty} units to QC queue for re-inspection.",
             ]);
 
             return response()->json([
                 'success' => true,
+                'processed_quantity' => $completedQty,
                 'message' => 'Rework completed successfully and returned to QC for re-inspection.',
                 'record' => $record,
             ]);

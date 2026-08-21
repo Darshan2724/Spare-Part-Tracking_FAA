@@ -502,4 +502,198 @@ class WorkflowIntegrityTest extends TestCase
             DB::rollBack();
         }
     }
+
+    public function test_qc_partial_approval_with_paint_and_assembly_split()
+    {
+        DB::beginTransaction();
+        try {
+            $user = $this->getAdminUser();
+            $this->actingAs($user, 'sanctum');
+
+            $project = Project::create([
+                'name' => 'QC-Split-Test-' . uniqid(),
+                'project_code' => 'QST-' . rand(1000, 9999),
+                'status' => 'active',
+            ]);
+
+            $bomItem = BomItem::create([
+                'project_id' => $project->id,
+                'standard_part_no' => 'SPLIT-PART-01',
+                'item_no' => '1',
+            ]);
+
+            BomRequirement::create([
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'required_quantity' => 10,
+            ]);
+
+            $receipt = Receipt::create([
+                'project_id' => $project->id,
+                'delivery_note_number' => 'DN-SPLIT-01',
+                'received_by' => $user->id,
+            ]);
+
+            $recItem = ReceiptItem::create([
+                'receipt_id' => $receipt->id,
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'received_quantity' => 6,
+                'status' => 'qc_received',
+            ]);
+
+            // 1. Invalid Split Request: Approve 3, but Paint (2) + Assembly (2) = 4 != 3 (Must fail with 422)
+            $failRes = $this->postJson('/api/v1/qc/inspect', [
+                'receipt_item_id' => $recItem->id,
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'result' => 'approved',
+                'approved_quantity' => 3,
+                'paint_quantity' => 2,
+                'assembly_quantity' => 2,
+            ]);
+            $failRes->assertStatus(422);
+
+            // 2. Valid Split Request: Approve 3, Split into 2 Paint + 1 Assembly
+            $successRes = $this->postJson('/api/v1/qc/inspect', [
+                'receipt_item_id' => $recItem->id,
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'result' => 'approved',
+                'approved_quantity' => 3,
+                'paint_quantity' => 2,
+                'assembly_quantity' => 1,
+                'remarks' => 'Split 2 Paint and 1 Direct Assembly',
+            ]);
+            $successRes->assertStatus(200);
+
+            $service = app(QuantityCalculationService::class);
+            $metrics = $service->calculateProjectMetrics($project, 'RH');
+
+            // Zero-Sum Ledger Invariant Verification
+            $this->assertEquals(10, $metrics['total_required']);
+            $this->assertEquals(6, $metrics['total_received']);
+            $this->assertEquals(4, $metrics['total_pending']);
+
+            // 3 remaining in QC, 2 in Paint, 1 in Direct Assembly
+            $this->assertEquals(3, $metrics['parts_in_qc']);
+            $this->assertEquals(2, $metrics['parts_in_paint']);
+            $this->assertEquals(1, $metrics['parts_in_assembly']);
+            $this->assertEquals(0, $metrics['parts_in_store']);
+
+            $locSum = $metrics['parts_in_store'] + $metrics['parts_in_qc'] + $metrics['parts_in_rework'] + $metrics['parts_in_paint'] + $metrics['parts_in_assembly'] + $metrics['assembly_completed'] + $metrics['qc_rejected'];
+            $this->assertEquals(6, $locSum);
+
+        } finally {
+            DB::rollBack();
+        }
+    }
+
+    public function test_department_partial_quantity_operations()
+    {
+        DB::beginTransaction();
+        try {
+            $user = $this->getAdminUser();
+            $this->actingAs($user, 'sanctum');
+
+            $project = Project::create([
+                'name' => 'Partial-Dept-Test-' . uniqid(),
+                'project_code' => 'PDT-' . rand(1000, 9999),
+                'status' => 'active',
+            ]);
+
+            $bomItem = BomItem::create([
+                'project_id' => $project->id,
+                'standard_part_no' => 'DEPT-PART-01',
+                'item_no' => '1',
+            ]);
+
+            BomRequirement::create([
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'required_quantity' => 12,
+            ]);
+
+            // 1. Partial Store Receipt: receive 6 out of 12
+            $recRes = $this->postJson('/api/v1/store/receipts', [
+                'project_id' => $project->id,
+                'delivery_note_number' => 'DN-PARTIAL-01',
+                'items' => [
+                    [
+                        'bom_item_id' => $bomItem->id,
+                        'side' => 'RH',
+                        'received_quantity' => 6,
+                    ]
+                ]
+            ]);
+            $recRes->assertSuccessful();
+
+            $service = app(QuantityCalculationService::class);
+            $m1 = $service->calculateProjectMetrics($project, 'RH');
+            $this->assertEquals(6, $m1['total_received']);
+            $this->assertEquals(6, $m1['total_pending']);
+            $this->assertEquals(6, $m1['parts_in_store']);
+
+            // 2. Dispatch all 6 to QC
+            $ri = ReceiptItem::where('bom_item_id', $bomItem->id)->first();
+            $this->postJson("/api/v1/store/items/{$ri->id}/send-to-qc")->assertStatus(200);
+            $this->postJson("/api/v1/qc/receive", ['receipt_item_id' => $ri->id])->assertStatus(200);
+
+            // 3. QC: Approve 4 directly to Paint
+            $qcRes = $this->postJson('/api/v1/qc/inspect', [
+                'receipt_item_id' => $ri->id,
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'result' => 'approved',
+                'approved_quantity' => 4,
+                'paint_quantity' => 4,
+                'assembly_quantity' => 0,
+            ]);
+            $qcRes->assertStatus(200);
+
+            $m2 = $service->calculateProjectMetrics($project, 'RH');
+            $this->assertEquals(2, $m2['parts_in_qc']); // 2 remain in QC
+            $this->assertEquals(4, $m2['parts_in_paint']); // 4 in Paint
+
+            // 4. Paint: Partially complete 3 out of 4 to Assembly
+            $insp = QcInspection::where('bom_item_id', $bomItem->id)->where('destination', 'PAINT')->first();
+            $paintRes = $this->postJson('/api/v1/paint/items', [
+                'bom_item_id' => $bomItem->id,
+                'qc_inspection_id' => $insp->id,
+                'side' => 'RH',
+                'quantity' => 3,
+                'paint_type' => 'Powder Coat Blue',
+            ]);
+            $paintRes->assertStatus(200);
+
+            $m3 = $service->calculateProjectMetrics($project, 'RH');
+            $this->assertEquals(2, $m3['parts_in_qc']); // 2 in QC
+            $this->assertEquals(1, $m3['parts_in_paint']); // 1 remains in Paint
+            $this->assertEquals(3, $m3['parts_in_assembly']); // 3 in Assembly
+
+            // 5. Assembly: Partially complete 2 out of 3
+            $paintRec = PaintRecord::where('bom_item_id', $bomItem->id)->first();
+            $asmRes = $this->postJson('/api/v1/assembly/items', [
+                'bom_item_id' => $bomItem->id,
+                'paint_record_id' => $paintRec->id,
+                'side' => 'RH',
+                'quantity' => 2,
+            ]);
+            $asmRes->assertStatus(200);
+
+            $m4 = $service->calculateProjectMetrics($project, 'RH');
+            $this->assertEquals(2, $m4['parts_in_qc']); // 2 in QC
+            $this->assertEquals(1, $m4['parts_in_paint']); // 1 in Paint
+            $this->assertEquals(1, $m4['parts_in_assembly']); // 1 active in Assembly
+            $this->assertEquals(2, $m4['assembly_completed']); // 2 assembled
+
+            // Zero-Sum Ledger Check: 0 store + 2 QC + 1 paint + 1 assembly + 2 asmComp = 6 Total Received
+            $locSum = $m4['parts_in_store'] + $m4['parts_in_qc'] + $m4['parts_in_rework'] + $m4['parts_in_paint'] + $m4['parts_in_assembly'] + $m4['assembly_completed'] + $m4['qc_rejected'];
+            $this->assertEquals(6, $locSum);
+            $this->assertEquals(6, $m4['total_received']);
+
+        } finally {
+            DB::rollBack();
+        }
+    }
 }

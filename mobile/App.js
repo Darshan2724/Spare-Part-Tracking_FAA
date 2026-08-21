@@ -244,6 +244,7 @@ function App() {
   // Rework Completion Modal state
   const [showReworkModal, setShowReworkModal] = useState(false);
   const [selectedReworkItem, setSelectedReworkItem] = useState(null);
+  const [reworkQty, setReworkQty] = useState('1');
   const [reworkNotes, setReworkNotes] = useState('');
 
   // QC Inspection Modal state
@@ -252,6 +253,8 @@ function App() {
   const [qcResult, setQcResult] = useState('approved'); // 'approved' | 'rejected' | 'rework' | 'partial'
   const [qcDestination, setQcDestination] = useState(''); // 'PAINT' | 'ASSEMBLY'
   const [qcApprovedQty, setQcApprovedQty] = useState('1');
+  const [qcPaintQty, setQcPaintQty] = useState('1');
+  const [qcAssemblyQty, setQcAssemblyQty] = useState('0');
   const [qcRejectedQty, setQcRejectedQty] = useState('0');
   const [qcReworkQty, setQcReworkQty] = useState('0');
   const [qcReason, setQcReason] = useState('');
@@ -260,8 +263,15 @@ function App() {
   // Paint Modal state
   const [showPaintModal, setShowPaintModal] = useState(false);
   const [selectedPaintItem, setSelectedPaintItem] = useState(null);
+  const [paintQty, setPaintQty] = useState('1');
   const [paintType, setPaintType] = useState('RAL 7035 Powder Coat');
   const [paintRemarks, setPaintRemarks] = useState('');
+
+  // Assembly Modal state
+  const [showAssemblyModal, setShowAssemblyModal] = useState(false);
+  const [selectedAssemblyItem, setSelectedAssemblyItem] = useState(null);
+  const [assemblyQty, setAssemblyQty] = useState('1');
+  const [assemblyRemarks, setAssemblyRemarks] = useState('');
 
   // Multi-Selection & Bulk Operations State (Issue 5)
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -727,22 +737,30 @@ function App() {
   const openQcModal = (item, resultType) => {
     setSelectedQcItem(item);
     setQcResult(resultType);
-    setQcDestination(''); // No default destination
-    const qty = item.received_quantity || 1;
+    const qty = item.received_quantity || item.quantity || 1;
     if (resultType === 'approved') {
       setQcApprovedQty(String(qty));
+      setQcPaintQty(String(qty));
+      setQcAssemblyQty('0');
+      setQcDestination('PAINT');
       setQcRejectedQty('0');
       setQcReworkQty('0');
     } else if (resultType === 'rejected') {
       setQcApprovedQty('0');
+      setQcPaintQty('0');
+      setQcAssemblyQty('0');
       setQcRejectedQty(String(qty));
       setQcReworkQty('0');
     } else if (resultType === 'rework') {
       setQcApprovedQty('0');
+      setQcPaintQty('0');
+      setQcAssemblyQty('0');
       setQcRejectedQty('0');
       setQcReworkQty(String(qty));
     } else {
       setQcApprovedQty('0');
+      setQcPaintQty('0');
+      setQcAssemblyQty('0');
       setQcRejectedQty('0');
       setQcReworkQty('0');
     }
@@ -753,19 +771,33 @@ function App() {
 
   const submitQcInspection = async () => {
     if (!selectedQcItem) return;
-    const avail = selectedQcItem.received_quantity || 1;
+    const avail = selectedQcItem.received_quantity || selectedQcItem.quantity || 1;
     const app = parseInt(qcApprovedQty, 10) || 0;
+    const paint = parseInt(qcPaintQty, 10) || 0;
+    const asm = parseInt(qcAssemblyQty, 10) || 0;
     const rej = parseInt(qcRejectedQty, 10) || 0;
     const rew = parseInt(qcReworkQty, 10) || 0;
 
-    if (qcResult === 'approved' && !qcDestination) {
-      Alert.alert('Destination Required', 'Please select whether approved parts route to Paint Station or Direct Assembly.');
-      return;
-    }
-
-    if (qcResult === 'partial') {
-      if (app + rej + rew !== avail) {
-        Alert.alert('Quantity Error', `Sum of Approved (${app}) + Rework (${rew}) + Rejected (${rej}) must equal Available (${avail}).`);
+    if (qcResult === 'approved') {
+      if (app <= 0 || app > avail) {
+        Alert.alert('Invalid Quantity', `Approved quantity must be between 1 and available (${avail}).`);
+        return;
+      }
+      if (paint + asm !== app) {
+        Alert.alert(
+          'Routing Split Error',
+          `Paint Quantity (${paint}) + Assembly Quantity (${asm}) = ${paint + asm}\nMust exactly equal Approved Quantity (${app}).`
+        );
+        return;
+      }
+    } else if (qcResult === 'rejected') {
+      if (rej <= 0 || rej > avail) {
+        Alert.alert('Invalid Quantity', `Rejected quantity must be between 1 and available (${avail}).`);
+        return;
+      }
+    } else if (qcResult === 'rework') {
+      if (rew <= 0 || rew > avail) {
+        Alert.alert('Invalid Quantity', `Rework quantity must be between 1 and available (${avail}).`);
         return;
       }
     }
@@ -779,47 +811,17 @@ function App() {
         receipt_item_id: payloadReceiptId,
         bom_item_id: payloadBomId,
         side: payloadSide,
-        inspected_quantity: avail,
         result: qcResult,
-        destination: qcResult === 'approved' ? qcDestination : null,
-        approved_quantity: app,
-        rejected_quantity: rej,
-        rework_quantity: rew,
+        destination: paint > 0 ? (asm > 0 ? null : 'PAINT') : 'ASSEMBLY',
+        approved_quantity: qcResult === 'approved' ? app : 0,
+        paint_quantity: qcResult === 'approved' ? paint : 0,
+        assembly_quantity: qcResult === 'approved' ? asm : 0,
+        rejected_quantity: qcResult === 'rejected' ? rej : 0,
+        rework_quantity: qcResult === 'rework' ? rew : 0,
         rejection_reason: qcReason,
         rework_reason: qcReason,
         remarks: qcRemarks,
       });
-
-      // Immediate optimistic removal from active QC queue
-      if (selectedUnit && selectedUnit.parts) {
-        setSelectedUnit(prevUnit => {
-          if (!prevUnit) return prevUnit;
-          const updatedParts = (prevUnit.parts || []).map(p => {
-            if (p.id !== payloadBomId) return p;
-            const updatedSideStats = { ...(p.side_stats || {}) };
-            if (updatedSideStats[payloadSide]) {
-              const prevInsp = updatedSideStats[payloadSide].qc_pending_inspection || 0;
-              updatedSideStats[payloadSide] = {
-                ...updatedSideStats[payloadSide],
-                qc_pending_inspection: Math.max(0, prevInsp - avail),
-                qc_approved: (updatedSideStats[payloadSide].qc_approved || 0) + app,
-                qc_rejected: (updatedSideStats[payloadSide].qc_rejected || 0) + rej,
-                qc_rework: (updatedSideStats[payloadSide].qc_rework || 0) + rew,
-                paint_ready: qcDestination === 'PAINT' ? ((updatedSideStats[payloadSide].paint_ready || 0) + app) : (updatedSideStats[payloadSide].paint_ready || 0),
-                assembly_ready: qcDestination === 'ASSEMBLY' ? ((updatedSideStats[payloadSide].assembly_ready || 0) + app) : (updatedSideStats[payloadSide].assembly_ready || 0),
-              };
-            }
-            return {
-              ...p,
-              side_stats: updatedSideStats,
-            };
-          });
-          return {
-            ...prevUnit,
-            parts: updatedParts,
-          };
-        });
-      }
 
       setShowQcModal(false);
       showToast(`QC ${qcResult.toUpperCase()}: ${selectedQcItem.bom_item?.standard_part_no || 'Item'} (${payloadSide})`);
@@ -845,19 +847,28 @@ function App() {
       ...reworkRecord,
       bom_item: bomItem,
     });
+    setReworkQty(String(reworkRecord.quantity || 1));
     setReworkNotes('');
     setShowReworkModal(true);
   };
 
   const submitReworkCompletion = async () => {
     if (!selectedReworkItem) return;
+    const avail = selectedReworkItem.quantity || 1;
+    const qty = parseInt(reworkQty, 10);
+    if (isNaN(qty) || qty <= 0 || qty > avail) {
+      Alert.alert('Invalid Quantity', `Completed quantity must be between 1 and available (${avail}).`);
+      return;
+    }
+
     try {
       await apiClient.post(`/rework/items/${selectedReworkItem.id}/complete`, {
+        quantity: qty,
         completion_notes: reworkNotes || 'Rework completed.',
         remarks: reworkNotes || 'Rework completed.',
       });
       setShowReworkModal(false);
-      showToast(`Rework Completed: ${selectedReworkItem.bom_item?.standard_part_no || 'Item'}`);
+      showToast(`Rework Completed: ${qty} pcs of ${selectedReworkItem.bom_item?.standard_part_no || 'Item'}`);
       loadData('rework', false);
     } catch (err) {
       Alert.alert('Error', err.response?.data?.message || 'Could not complete rework.');
@@ -893,6 +904,8 @@ function App() {
   // --- PAINT ACTIONS ---
   const openPaintModal = (item) => {
     setSelectedPaintItem(item);
+    const avail = item.available_paint_quantity || item.approved_quantity || item.quantity || 1;
+    setPaintQty(String(avail));
     setPaintType('RAL 7035 Powder Coat');
     setPaintRemarks('');
     setShowPaintModal(true);
@@ -900,18 +913,25 @@ function App() {
 
   const submitPaintCompletion = async () => {
     if (!selectedPaintItem) return;
+    const avail = selectedPaintItem.available_paint_quantity || selectedPaintItem.approved_quantity || selectedPaintItem.quantity || 1;
+    const qty = parseInt(paintQty, 10);
+    if (isNaN(qty) || qty <= 0 || qty > avail) {
+      Alert.alert('Invalid Quantity', `Paint quantity must be between 1 and available (${avail}).`);
+      return;
+    }
+
     try {
       const payload = {
         bom_item_id: selectedPaintItem.bom_item_id || selectedPaintItem.bom_item?.id,
         qc_inspection_id: selectedPaintItem.id,
         side: selectedPaintItem.side || unitSideTab || 'COMMON',
-        quantity: selectedPaintItem.approved_quantity || selectedPaintItem.quantity || 1,
+        quantity: qty,
         paint_type: paintType,
         remarks: paintRemarks,
       };
       await apiClient.post('/paint/items', payload);
       setShowPaintModal(false);
-      showToast(`Paint Completed: ${selectedPaintItem.bom_item?.standard_part_no || 'Part'}`);
+      showToast(`Paint Completed: ${qty} pcs of ${selectedPaintItem.bom_item?.standard_part_no || 'Part'}`);
       loadData('paint', false);
     } catch (err) {
       Alert.alert('Action Failed', err.response?.data?.message || 'Could not complete paint process.');
@@ -919,9 +939,28 @@ function App() {
   };
 
   // --- ASSEMBLY ACTIONS ---
-  const handleSubmitAssembly = async (part) => {
+  const openAssemblyModal = (part) => {
+    setSelectedAssemblyItem(part);
+    const sideStat = part.side_stats?.[unitSideTab] || {};
+    const asmReady = sideStat.assembly_ready || 1;
+    setAssemblyQty(String(asmReady));
+    setAssemblyRemarks('');
+    setShowAssemblyModal(true);
+  };
+
+  const submitAssemblyCompletion = async () => {
+    if (!selectedAssemblyItem) return;
+    const part = selectedAssemblyItem;
+    const sideStat = part.side_stats?.[unitSideTab] || {};
+    const asmReady = sideStat.assembly_ready || 1;
+    const qty = parseInt(assemblyQty, 10);
+
+    if (isNaN(qty) || qty <= 0 || qty > asmReady) {
+      Alert.alert('Invalid Quantity', `Assembly quantity must be between 1 and available (${asmReady}).`);
+      return;
+    }
+
     try {
-      const sideStat = part.side_stats?.[unitSideTab] || {};
       const sidePaintRecords = sideStat.paint_records || (part.paint_records || []).filter(p => p.side === unitSideTab || p.side === 'COMMON');
       const sideQcInspections = sideStat.qc_inspections || (part.qc_inspections || []).filter(q => q.side === unitSideTab || q.side === 'COMMON');
 
@@ -933,10 +972,11 @@ function App() {
         paint_record_id: paintRec ? paintRec.id : null,
         qc_inspection_id: directQcInsp ? directQcInsp.id : null,
         side: unitSideTab,
-        quantity: sideStat.assembly_ready || 1,
-        remarks: 'Mobile Assembly Done',
+        quantity: qty,
+        remarks: assemblyRemarks || 'Mobile Assembly Complete',
       });
-      showToast(`Assembly Complete: ${part.standard_part_no} (${unitSideTab})`);
+      setShowAssemblyModal(false);
+      showToast(`Assembly Completed: ${qty} pcs of ${part.standard_part_no} (${unitSideTab})`);
       loadData('assembly', false);
     } catch (err) {
       Alert.alert('Action Failed', err.response?.data?.message || 'Could not complete assembly.');
@@ -2536,110 +2576,285 @@ function App() {
         </View>
       </Modal>
 
-      {/* QC INSPECTION MODAL (Issue 3: Route Selection Paint vs Assembly) */}
+      {/* QC INSPECTION MODAL (With Paint vs Assembly Split & Quantity Processing) */}
       <Modal visible={showQcModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Record QC Inspection ({qcResult.toUpperCase()})</Text>
-            <Text style={styles.itemPartNo}>{selectedQcItem?.bom_item?.standard_part_no}</Text>
-            <Text style={styles.itemSubText}>Available: {selectedQcItem?.received_quantity || 1} pcs ({selectedQcItem?.side})</Text>
+          <View style={[styles.modalBox, { maxHeight: '90%' }]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalTitle}>Record QC Inspection ({qcResult.toUpperCase()})</Text>
+              <Text style={styles.itemPartNo}>{selectedQcItem?.bom_item?.standard_part_no || `Item #${selectedQcItem?.id}`}</Text>
+              
+              {(() => {
+                const avail = selectedQcItem?.received_quantity || selectedQcItem?.quantity || 1;
+                const app = parseInt(qcApprovedQty, 10) || 0;
+                const paint = parseInt(qcPaintQty, 10) || 0;
+                const asm = parseInt(qcAssemblyQty, 10) || 0;
+                const rej = parseInt(qcRejectedQty, 10) || 0;
+                const rew = parseInt(qcReworkQty, 10) || 0;
+                const isSplitValid = (paint + asm) === app;
 
-            {qcResult === 'approved' && (
-              <View style={{ marginTop: 12, marginBottom: 8 }}>
-                <Text style={[styles.label, { color: '#0f172a', fontWeight: '800' }]}>
-                  Choose Next Processing Route (Required)
-                </Text>
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
-                  <TouchableOpacity
-                    style={[
-                      styles.routeCard,
-                      { borderColor: '#7c3aed' },
-                      qcDestination === 'PAINT' && { backgroundColor: '#7c3aed' }
-                    ]}
-                    onPress={() => setQcDestination('PAINT')}>
-                    <Text style={[
-                      styles.routeCardTitle,
-                      { color: '#7c3aed' },
-                      qcDestination === 'PAINT' && { color: '#ffffff' }
-                    ]}>
-                      PAINT SHOP
-                    </Text>
-                    <Text style={[
-                      styles.routeCardDesc,
-                      qcDestination === 'PAINT' && { color: '#f3e8ff' }
-                    ]}>
-                      Queue for painting
-                    </Text>
-                  </TouchableOpacity>
+                return (
+                  <View>
+                    <View style={styles.qtySummaryBox}>
+                      <Text style={styles.qtySummaryText}>
+                        Available in QC: <Text style={{ fontWeight: '800', color: '#0284c7' }}>{avail} pcs</Text> ({selectedQcItem?.side || 'COMMON'})
+                      </Text>
+                    </View>
 
-                  <TouchableOpacity
-                    style={[
-                      styles.routeCard,
-                      { borderColor: '#0d9488' },
-                      qcDestination === 'ASSEMBLY' && { backgroundColor: '#0d9488' }
-                    ]}
-                    onPress={() => setQcDestination('ASSEMBLY')}>
-                    <Text style={[
-                      styles.routeCardTitle,
-                      { color: '#0d9488' },
-                      qcDestination === 'ASSEMBLY' && { color: '#ffffff' }
-                    ]}>
-                      DIRECT ASSEMBLY
-                    </Text>
-                    <Text style={[
-                      styles.routeCardDesc,
-                      qcDestination === 'ASSEMBLY' && { color: '#ccfbf1' }
-                    ]}>
-                      Bypass paint direct to assembly
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                {!qcDestination && (
-                  <Text style={{ fontSize: 11, color: '#ef4444', marginTop: 4, fontWeight: '600' }}>
-                    * Must select Paint Shop or Direct Assembly before submitting approval.
-                  </Text>
-                )}
-              </View>
-            )}
+                    {/* APPROVAL QUANTITY & SPLIT ROUTING */}
+                    {qcResult === 'approved' && (
+                      <View style={{ marginTop: 10 }}>
+                        <Text style={[styles.label, { color: '#0f172a', fontWeight: '800' }]}>
+                          Approve Quantity (1 to {avail})
+                        </Text>
+                        <View style={styles.qtyStepperRow}>
+                          <TouchableOpacity
+                            style={styles.qtyBtn}
+                            onPress={() => {
+                              const nextApp = Math.max(1, app - 1);
+                              setQcApprovedQty(String(nextApp));
+                              setQcPaintQty(String(nextApp));
+                              setQcAssemblyQty('0');
+                            }}>
+                            <Text style={styles.qtyBtnText}>−</Text>
+                          </TouchableOpacity>
+                          <TextInput
+                            style={styles.qtyInput}
+                            keyboardType="numeric"
+                            value={qcApprovedQty}
+                            onChangeText={(t) => {
+                              const val = parseInt(t, 10) || 0;
+                              setQcApprovedQty(t);
+                              setQcPaintQty(String(val));
+                              setQcAssemblyQty('0');
+                            }}
+                          />
+                          <TouchableOpacity
+                            style={styles.qtyBtn}
+                            onPress={() => {
+                              const nextApp = Math.min(avail, app + 1);
+                              setQcApprovedQty(String(nextApp));
+                              setQcPaintQty(String(nextApp));
+                              setQcAssemblyQty('0');
+                            }}>
+                            <Text style={styles.qtyBtnText}>+</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <Text style={styles.qtyRemainingText}>
+                          Remaining in QC after approval: <Text style={{ fontWeight: '700' }}>{Math.max(0, avail - app)} pcs</Text>
+                        </Text>
 
-            {qcResult === 'rejected' || qcResult === 'rework' ? (
-              <View>
-                <Text style={[styles.label, { marginTop: 10 }]}>Reason for {qcResult.toUpperCase()}</Text>
-                <TextInput
-                  style={styles.input}
-                  value={qcReason}
-                  onChangeText={setQcReason}
-                  placeholder="e.g. Surface dent, dimensional mismatch"
-                />
-              </View>
-            ) : null}
+                        {/* SPLIT ROUTING CONTROLS */}
+                        <View style={{ marginTop: 14, padding: 12, backgroundColor: '#f8fafc', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                          <Text style={[styles.label, { color: '#334155', fontWeight: '800', marginBottom: 8 }]}>
+                            Split Routing: Paint vs Assembly
+                          </Text>
 
-            <Text style={styles.label}>Remarks / Inspection Notes</Text>
-            <TextInput
-              style={styles.input}
-              value={qcRemarks}
-              onChangeText={setQcRemarks}
-              placeholder="Optional remarks"
-            />
+                          {/* Paint Quantity */}
+                          <View style={{ marginBottom: 8 }}>
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#7c3aed' }}>
+                              PAINT SHOP Quantity
+                            </Text>
+                            <View style={styles.qtyStepperRow}>
+                              <TouchableOpacity
+                                style={[styles.qtyBtn, { borderColor: '#7c3aed' }]}
+                                onPress={() => {
+                                  const nextP = Math.max(0, paint - 1);
+                                  setQcPaintQty(String(nextP));
+                                  setQcAssemblyQty(String(Math.max(0, app - nextP)));
+                                }}>
+                                <Text style={[styles.qtyBtnText, { color: '#7c3aed' }]}>−</Text>
+                              </TouchableOpacity>
+                              <TextInput
+                                style={[styles.qtyInput, { borderColor: '#7c3aed' }]}
+                                keyboardType="numeric"
+                                value={qcPaintQty}
+                                onChangeText={(t) => {
+                                  setQcPaintQty(t);
+                                  const pVal = parseInt(t, 10) || 0;
+                                  setQcAssemblyQty(String(Math.max(0, app - pVal)));
+                                }}
+                              />
+                              <TouchableOpacity
+                                style={[styles.qtyBtn, { borderColor: '#7c3aed' }]}
+                                onPress={() => {
+                                  const nextP = Math.min(app, paint + 1);
+                                  setQcPaintQty(String(nextP));
+                                  setQcAssemblyQty(String(Math.max(0, app - nextP)));
+                                }}>
+                                <Text style={[styles.qtyBtnText, { color: '#7c3aed' }]}>+</Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
 
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-              <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]} onPress={() => setShowQcModal(false)}>
-                <Text style={styles.buttonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.button,
-                  { flex: 1, backgroundColor: qcResult === 'rejected' ? '#ef4444' : qcResult === 'rework' ? '#f59e0b' : '#10b981' }
-                ]}
-                onPress={submitQcInspection}>
-                <Text style={styles.buttonText}>Submit QC Result</Text>
-              </TouchableOpacity>
-            </View>
+                          {/* Assembly Quantity */}
+                          <View>
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#0d9488' }}>
+                              DIRECT ASSEMBLY Quantity
+                            </Text>
+                            <View style={styles.qtyStepperRow}>
+                              <TouchableOpacity
+                                style={[styles.qtyBtn, { borderColor: '#0d9488' }]}
+                                onPress={() => {
+                                  const nextA = Math.max(0, asm - 1);
+                                  setQcAssemblyQty(String(nextA));
+                                  setQcPaintQty(String(Math.max(0, app - nextA)));
+                                }}>
+                                <Text style={[styles.qtyBtnText, { color: '#0d9488' }]}>−</Text>
+                              </TouchableOpacity>
+                              <TextInput
+                                style={[styles.qtyInput, { borderColor: '#0d9488' }]}
+                                keyboardType="numeric"
+                                value={qcAssemblyQty}
+                                onChangeText={(t) => {
+                                  setQcAssemblyQty(t);
+                                  const aVal = parseInt(t, 10) || 0;
+                                  setQcPaintQty(String(Math.max(0, app - aVal)));
+                                }}
+                              />
+                              <TouchableOpacity
+                                style={[styles.qtyBtn, { borderColor: '#0d9488' }]}
+                                onPress={() => {
+                                  const nextA = Math.min(app, asm + 1);
+                                  setQcAssemblyQty(String(nextA));
+                                  setQcPaintQty(String(Math.max(0, app - nextA)));
+                                }}>
+                                <Text style={[styles.qtyBtnText, { color: '#0d9488' }]}>+</Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+
+                          {/* Validation Status Indicator */}
+                          <View style={{ marginTop: 10 }}>
+                            {isSplitValid ? (
+                              <View style={styles.validationSuccessBox}>
+                                <Text style={styles.validationSuccessText}>
+                                  ✓ Valid Split: {paint} Paint + {asm} Assembly = {app} Approved
+                                </Text>
+                              </View>
+                            ) : (
+                              <View style={styles.validationErrorBox}>
+                                <Text style={styles.validationErrorText}>
+                                  ⚠ Split Mismatch: Paint ({paint}) + Assembly ({asm}) = {paint + asm} (Must equal {app})
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* REJECTED QUANTITY CONTROLS */}
+                    {qcResult === 'rejected' && (
+                      <View style={{ marginTop: 10 }}>
+                        <Text style={[styles.label, { color: '#ef4444', fontWeight: '800' }]}>
+                          Reject Quantity (1 to {avail})
+                        </Text>
+                        <View style={styles.qtyStepperRow}>
+                          <TouchableOpacity
+                            style={[styles.qtyBtn, { borderColor: '#ef4444' }]}
+                            onPress={() => setQcRejectedQty(String(Math.max(1, rej - 1)))}>
+                            <Text style={[styles.qtyBtnText, { color: '#ef4444' }]}>−</Text>
+                          </TouchableOpacity>
+                          <TextInput
+                            style={[styles.qtyInput, { borderColor: '#ef4444' }]}
+                            keyboardType="numeric"
+                            value={qcRejectedQty}
+                            onChangeText={setQcRejectedQty}
+                          />
+                          <TouchableOpacity
+                            style={[styles.qtyBtn, { borderColor: '#ef4444' }]}
+                            onPress={() => setQcRejectedQty(String(Math.min(avail, rej + 1)))}>
+                            <Text style={[styles.qtyBtnText, { color: '#ef4444' }]}>+</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <Text style={styles.qtyRemainingText}>
+                          Remaining in QC after rejection: <Text style={{ fontWeight: '700' }}>{Math.max(0, avail - rej)} pcs</Text>
+                        </Text>
+
+                        <Text style={[styles.label, { marginTop: 10 }]}>Rejection Defect Reason</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={qcReason}
+                          onChangeText={setQcReason}
+                          placeholder="e.g. Dimensional non-conformance, crack, porosity"
+                        />
+                      </View>
+                    )}
+
+                    {/* REWORK QUANTITY CONTROLS */}
+                    {qcResult === 'rework' && (
+                      <View style={{ marginTop: 10 }}>
+                        <Text style={[styles.label, { color: '#f59e0b', fontWeight: '800' }]}>
+                          Rework Quantity (1 to {avail})
+                        </Text>
+                        <View style={styles.qtyStepperRow}>
+                          <TouchableOpacity
+                            style={[styles.qtyBtn, { borderColor: '#f59e0b' }]}
+                            onPress={() => setQcReworkQty(String(Math.max(1, rew - 1)))}>
+                            <Text style={[styles.qtyBtnText, { color: '#f59e0b' }]}>−</Text>
+                          </TouchableOpacity>
+                          <TextInput
+                            style={[styles.qtyInput, { borderColor: '#f59e0b' }]}
+                            keyboardType="numeric"
+                            value={qcReworkQty}
+                            onChangeText={setQcReworkQty}
+                          />
+                          <TouchableOpacity
+                            style={[styles.qtyBtn, { borderColor: '#f59e0b' }]}
+                            onPress={() => setQcReworkQty(String(Math.min(avail, rew + 1)))}>
+                            <Text style={[styles.qtyBtnText, { color: '#f59e0b' }]}>+</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <Text style={styles.qtyRemainingText}>
+                          Remaining in QC after rework: <Text style={{ fontWeight: '700' }}>{Math.max(0, avail - rew)} pcs</Text>
+                        </Text>
+
+                        <Text style={[styles.label, { marginTop: 10 }]}>Rework Instructions / Defect Reason</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={qcReason}
+                          onChangeText={setQcReason}
+                          placeholder="e.g. Hole re-tapping, surface de-burring required"
+                        />
+                      </View>
+                    )}
+
+                    <Text style={[styles.label, { marginTop: 10 }]}>Remarks / Inspection Notes</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={qcRemarks}
+                      onChangeText={setQcRemarks}
+                      placeholder="Optional remarks"
+                    />
+
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                      <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]} onPress={() => setShowQcModal(false)}>
+                        <Text style={styles.buttonText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.button,
+                          {
+                            flex: 1,
+                            backgroundColor: qcResult === 'rejected' ? '#ef4444' : qcResult === 'rework' ? '#f59e0b' : '#10b981',
+                            opacity: (qcResult === 'approved' && !isSplitValid) ? 0.6 : 1.0,
+                          }
+                        ]}
+                        disabled={qcResult === 'approved' && !isSplitValid}
+                        onPress={submitQcInspection}>
+                        <Text style={styles.buttonText}>Confirm {qcResult.toUpperCase()}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })()}
+            </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* BULK QC APPROVAL DESTINATION MODAL (Issue 3 & 5) */}
+      {/* BULK QC APPROVAL DESTINATION MODAL (Prominent PAINT & ASSEMBLY Labels) */}
       <Modal visible={showBulkQcDestinationModal} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
@@ -2648,32 +2863,50 @@ function App() {
               Select where the {selectedItemIds.size} approved parts should proceed ({unitSideTab}):
             </Text>
 
-            <View style={{ gap: 10, marginTop: 14 }}>
+            <View style={{ gap: 12, marginTop: 14 }}>
+              {/* PAINT BUTTON WITH PROMINENT TEXT LABEL */}
               <TouchableOpacity
-                style={[styles.routeCard, { borderColor: '#7c3aed', padding: 14 }]}
+                style={[
+                  styles.routeCard,
+                  { borderColor: '#7c3aed', borderWidth: 2, backgroundColor: '#f5f3ff', padding: 16 }
+                ]}
                 onPress={() => {
                   const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
                   handleBulkQcInspect(parts, 'approved', 'PAINT');
                 }}>
-                <Text style={[styles.routeCardTitle, { color: '#7c3aed', fontSize: 14 }]}>
-                  1. ROUTE ALL TO PAINT SHOP
-                </Text>
-                <Text style={styles.routeCardDesc}>
-                  Pushes all selected parts into the Paint department queue.
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <Text style={{ color: '#7c3aed', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>
+                    PAINT
+                  </Text>
+                  <View style={{ backgroundColor: '#7c3aed', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                    <Text style={{ color: '#ffffff', fontSize: 11, fontWeight: '800' }}>PAINT SHOP</Text>
+                  </View>
+                </View>
+                <Text style={[styles.routeCardDesc, { color: '#6d28d9' }]}>
+                  Routes all selected parts into the Paint department queue for coating.
                 </Text>
               </TouchableOpacity>
 
+              {/* ASSEMBLY BUTTON WITH PROMINENT TEXT LABEL */}
               <TouchableOpacity
-                style={[styles.routeCard, { borderColor: '#0d9488', padding: 14 }]}
+                style={[
+                  styles.routeCard,
+                  { borderColor: '#0d9488', borderWidth: 2, backgroundColor: '#f0fdfa', padding: 16 }
+                ]}
                 onPress={() => {
                   const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
                   handleBulkQcInspect(parts, 'approved', 'ASSEMBLY');
                 }}>
-                <Text style={[styles.routeCardTitle, { color: '#0d9488', fontSize: 14 }]}>
-                  2. ROUTE DIRECTLY TO ASSEMBLY
-                </Text>
-                <Text style={styles.routeCardDesc}>
-                  Bypasses the paint station directly into the Assembly queue.
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <Text style={{ color: '#0d9488', fontSize: 18, fontWeight: '900', letterSpacing: 0.5 }}>
+                    ASSEMBLY
+                  </Text>
+                  <View style={{ backgroundColor: '#0d9488', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                    <Text style={{ color: '#ffffff', fontSize: 11, fontWeight: '800' }}>DIRECT ASSEMBLY</Text>
+                  </View>
+                </View>
+                <Text style={[styles.routeCardDesc, { color: '#0f766e' }]}>
+                  Bypasses paint station and moves parts directly to Assembly line.
                 </Text>
               </TouchableOpacity>
             </View>
@@ -2687,40 +2920,214 @@ function App() {
         </View>
       </Modal>
 
-      {/* PAINT COMPLETION MODAL */}
+      {/* PAINT COMPLETION MODAL (With Quantity Input) */}
       <Modal visible={showPaintModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>Complete Painting Operation</Text>
             <Text style={styles.itemPartNo}>{selectedPaintItem?.bom_item?.standard_part_no || `Item #${selectedPaintItem?.id}`}</Text>
-            <Text style={styles.itemSubText}>
-              Qty: {selectedPaintItem?.approved_quantity || selectedPaintItem?.quantity || 1} pcs ({selectedPaintItem?.side || 'COMMON'})
-            </Text>
+            
+            {(() => {
+              const avail = selectedPaintItem?.available_paint_quantity || selectedPaintItem?.approved_quantity || selectedPaintItem?.quantity || 1;
+              const pQty = parseInt(paintQty, 10) || 0;
 
-            <Text style={[styles.label, { marginTop: 10 }]}>Paint Type / Color Code</Text>
-            <TextInput
-              style={styles.input}
-              value={paintType}
-              onChangeText={setPaintType}
-              placeholder="e.g. RAL 7035 Powder Coat"
-            />
+              return (
+                <View>
+                  <View style={styles.qtySummaryBox}>
+                    <Text style={styles.qtySummaryText}>
+                      Available to Paint: <Text style={{ fontWeight: '800', color: '#7c3aed' }}>{avail} pcs</Text> ({selectedPaintItem?.side || 'COMMON'})
+                    </Text>
+                  </View>
 
-            <Text style={styles.label}>Process Notes / Remarks</Text>
-            <TextInput
-              style={styles.input}
-              value={paintRemarks}
-              onChangeText={setPaintRemarks}
-              placeholder="Optional notes"
-            />
+                  <Text style={[styles.label, { marginTop: 10, color: '#7c3aed', fontWeight: '800' }]}>
+                    Painted Quantity (1 to {avail})
+                  </Text>
+                  <View style={styles.qtyStepperRow}>
+                    <TouchableOpacity
+                      style={[styles.qtyBtn, { borderColor: '#7c3aed' }]}
+                      onPress={() => setPaintQty(String(Math.max(1, pQty - 1)))}>
+                      <Text style={[styles.qtyBtnText, { color: '#7c3aed' }]}>−</Text>
+                    </TouchableOpacity>
+                    <TextInput
+                      style={[styles.qtyInput, { borderColor: '#7c3aed' }]}
+                      keyboardType="numeric"
+                      value={paintQty}
+                      onChangeText={setPaintQty}
+                    />
+                    <TouchableOpacity
+                      style={[styles.qtyBtn, { borderColor: '#7c3aed' }]}
+                      onPress={() => setPaintQty(String(Math.min(avail, pQty + 1)))}>
+                      <Text style={[styles.qtyBtnText, { color: '#7c3aed' }]}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.qtyRemainingText}>
+                    Remaining in Paint after action: <Text style={{ fontWeight: '700' }}>{Math.max(0, avail - pQty)} pcs</Text>
+                  </Text>
 
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-              <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]} onPress={() => setShowPaintModal(false)}>
-                <Text style={styles.buttonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#0284c7' }]} onPress={submitPaintCompletion}>
-                <Text style={styles.buttonText}>Push to Assembly</Text>
-              </TouchableOpacity>
-            </View>
+                  <Text style={[styles.label, { marginTop: 10 }]}>Paint Type / Color Code</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={paintType}
+                    onChangeText={setPaintType}
+                    placeholder="e.g. RAL 7035 Powder Coat"
+                  />
+
+                  <Text style={styles.label}>Process Notes / Remarks</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={paintRemarks}
+                    onChangeText={setPaintRemarks}
+                    placeholder="Optional notes"
+                  />
+
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                    <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]} onPress={() => setShowPaintModal(false)}>
+                      <Text style={styles.buttonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#7c3aed' }]} onPress={submitPaintCompletion}>
+                      <Text style={styles.buttonText}>Push to Assembly</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
+
+      {/* REWORK COMPLETION MODAL (With Quantity Input) */}
+      <Modal visible={showReworkModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Complete Rework Operation</Text>
+            <Text style={styles.itemPartNo}>{selectedReworkItem?.bom_item?.standard_part_no || `Rework #${selectedReworkItem?.id}`}</Text>
+            
+            {(() => {
+              const avail = selectedReworkItem?.quantity || 1;
+              const rQty = parseInt(reworkQty, 10) || 0;
+
+              return (
+                <View>
+                  <View style={styles.qtySummaryBox}>
+                    <Text style={styles.qtySummaryText}>
+                      Available in Rework: <Text style={{ fontWeight: '800', color: '#f59e0b' }}>{avail} pcs</Text> ({selectedReworkItem?.side || 'COMMON'})
+                    </Text>
+                  </View>
+
+                  <Text style={[styles.label, { marginTop: 10, color: '#f59e0b', fontWeight: '800' }]}>
+                    Completed Quantity (1 to {avail})
+                  </Text>
+                  <View style={styles.qtyStepperRow}>
+                    <TouchableOpacity
+                      style={[styles.qtyBtn, { borderColor: '#f59e0b' }]}
+                      onPress={() => setReworkQty(String(Math.max(1, rQty - 1)))}>
+                      <Text style={[styles.qtyBtnText, { color: '#f59e0b' }]}>−</Text>
+                    </TouchableOpacity>
+                    <TextInput
+                      style={[styles.qtyInput, { borderColor: '#f59e0b' }]}
+                      keyboardType="numeric"
+                      value={reworkQty}
+                      onChangeText={setReworkQty}
+                    />
+                    <TouchableOpacity
+                      style={[styles.qtyBtn, { borderColor: '#f59e0b' }]}
+                      onPress={() => setReworkQty(String(Math.min(avail, rQty + 1)))}>
+                      <Text style={[styles.qtyBtnText, { color: '#f59e0b' }]}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.qtyRemainingText}>
+                    Remaining in Rework after action: <Text style={{ fontWeight: '700' }}>{Math.max(0, avail - rQty)} pcs</Text>
+                  </Text>
+
+                  <Text style={[styles.label, { marginTop: 12 }]}>Work Performed / Completion Remarks</Text>
+                  <TextInput
+                    style={[styles.input, { minHeight: 70, textAlignVertical: 'top' }]}
+                    value={reworkNotes}
+                    onChangeText={setReworkNotes}
+                    multiline
+                    numberOfLines={3}
+                    placeholder="Describe corrective actions taken (e.g. dimensional grinding, surface re-finishing)..."
+                  />
+
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                    <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]} onPress={() => setShowReworkModal(false)}>
+                      <Text style={styles.buttonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#10b981' }]} onPress={submitReworkCompletion}>
+                      <Text style={styles.buttonText}>Return to QC</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ASSEMBLY COMPLETION MODAL (With Quantity Input) */}
+      <Modal visible={showAssemblyModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Complete Assembly Operation</Text>
+            <Text style={styles.itemPartNo}>{selectedAssemblyItem?.standard_part_no || `Part #${selectedAssemblyItem?.id}`}</Text>
+            
+            {(() => {
+              const sideStat = selectedAssemblyItem?.side_stats?.[unitSideTab] || {};
+              const avail = sideStat.assembly_ready || 1;
+              const aQty = parseInt(assemblyQty, 10) || 0;
+
+              return (
+                <View>
+                  <View style={styles.qtySummaryBox}>
+                    <Text style={styles.qtySummaryText}>
+                      Available for Assembly: <Text style={{ fontWeight: '800', color: '#0d9488' }}>{avail} pcs</Text> ({unitSideTab})
+                    </Text>
+                  </View>
+
+                  <Text style={[styles.label, { marginTop: 10, color: '#0d9488', fontWeight: '800' }]}>
+                    Assembled Quantity (1 to {avail})
+                  </Text>
+                  <View style={styles.qtyStepperRow}>
+                    <TouchableOpacity
+                      style={[styles.qtyBtn, { borderColor: '#0d9488' }]}
+                      onPress={() => setAssemblyQty(String(Math.max(1, aQty - 1)))}>
+                      <Text style={[styles.qtyBtnText, { color: '#0d9488' }]}>−</Text>
+                    </TouchableOpacity>
+                    <TextInput
+                      style={[styles.qtyInput, { borderColor: '#0d9488' }]}
+                      keyboardType="numeric"
+                      value={assemblyQty}
+                      onChangeText={setAssemblyQty}
+                    />
+                    <TouchableOpacity
+                      style={[styles.qtyBtn, { borderColor: '#0d9488' }]}
+                      onPress={() => setAssemblyQty(String(Math.min(avail, aQty + 1)))}>
+                      <Text style={[styles.qtyBtnText, { color: '#0d9488' }]}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.qtyRemainingText}>
+                    Remaining in Assembly queue: <Text style={{ fontWeight: '700' }}>{Math.max(0, avail - aQty)} pcs</Text>
+                  </Text>
+
+                  <Text style={[styles.label, { marginTop: 10 }]}>Assembly Process Remarks</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={assemblyRemarks}
+                    onChangeText={setAssemblyRemarks}
+                    placeholder="Optional assembly notes"
+                  />
+
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                    <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]} onPress={() => setShowAssemblyModal(false)}>
+                      <Text style={styles.buttonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#0d9488' }]} onPress={submitAssemblyCompletion}>
+                      <Text style={styles.buttonText}>Mark Assembled</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })()}
           </View>
         </View>
       </Modal>
@@ -2751,38 +3158,6 @@ function App() {
                   handleBulkPaintComplete(parts);
                 }}>
                 <Text style={styles.buttonText}>Complete Paint ({selectedItemIds.size})</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* REWORK COMPLETION MODAL */}
-      <Modal visible={showReworkModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Complete Rework Operation</Text>
-            <Text style={styles.itemPartNo}>{selectedReworkItem?.bom_item?.standard_part_no || `Rework #${selectedReworkItem?.id}`}</Text>
-            <Text style={styles.itemSubText}>
-              Qty: {selectedReworkItem?.quantity || 1} pcs ({selectedReworkItem?.side || 'COMMON'})
-            </Text>
-
-            <Text style={[styles.label, { marginTop: 12 }]}>Work Performed / Completion Remarks</Text>
-            <TextInput
-              style={[styles.input, { minHeight: 70, textAlignVertical: 'top' }]}
-              value={reworkNotes}
-              onChangeText={setReworkNotes}
-              multiline
-              numberOfLines={3}
-              placeholder="Describe corrective actions taken (e.g. dimensional grinding, surface re-finishing)..."
-            />
-
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
-              <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]} onPress={() => setShowReworkModal(false)}>
-                <Text style={styles.buttonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#10b981' }]} onPress={submitReworkCompletion}>
-                <Text style={styles.buttonText}>Return to QC</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -3679,5 +4054,82 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#64748b',
     textAlign: 'center',
+  },
+  // Universal Quantity Stepper & Split Validation Styles
+  qtyStepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  qtyBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#2563eb',
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qtyBtnText: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#2563eb',
+  },
+  qtyInput: {
+    flex: 1,
+    height: 42,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#2563eb',
+    backgroundColor: '#ffffff',
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  qtySummaryBox: {
+    backgroundColor: '#f1f5f9',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  qtySummaryText: {
+    fontSize: 12,
+    color: '#475569',
+  },
+  qtyRemainingText: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 4,
+  },
+  validationSuccessBox: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#10b981',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  validationSuccessText: {
+    color: '#047857',
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  validationErrorBox: {
+    backgroundColor: '#fef2f2',
+    borderColor: '#ef4444',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  validationErrorText: {
+    color: '#b91c1c',
+    fontSize: 11.5,
+    fontWeight: '700',
   },
 });
