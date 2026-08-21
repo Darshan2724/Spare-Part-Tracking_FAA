@@ -125,21 +125,49 @@ class ReworkController extends Controller
         });
     }
 
-    public function complete(Request $request, int $id)
+    public function complete(Request $request, int $id = 0)
     {
-        $request->user()?->hasAnyRole(['ADMIN', 'REWORK']) ?: abort(403, 'Unauthorized. Rework operational permission required.');
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'QC', 'REWORK']) ?: abort(403, 'Unauthorized. Rework operational permission required.');
 
         $request->validate([
+            'rework_record_id' => ['nullable', 'integer'],
+            'bom_item_id' => ['nullable', 'integer'],
+            'side' => ['nullable', 'in:RH,LH,COMMON'],
             'quantity' => ['nullable', 'integer', 'min:1'],
             'completion_notes' => ['nullable', 'string', 'max:1000'],
             'remarks' => ['nullable', 'string', 'max:1000'],
         ]);
 
         return DB::transaction(function () use ($request, $id) {
-            $record = ReworkRecord::where('id', $id)
-                ->lockForUpdate()
-                ->with(['bomItem', 'qcInspection.receiptItem'])
-                ->firstOrFail();
+            $record = null;
+            if ($id > 0) {
+                $record = ReworkRecord::where('id', $id)
+                    ->lockForUpdate()
+                    ->with(['bomItem.project', 'qcInspection.receiptItem'])
+                    ->first();
+            }
+
+            if (!$record && $request->filled('rework_record_id')) {
+                $record = ReworkRecord::where('id', $request->input('rework_record_id'))
+                    ->lockForUpdate()
+                    ->with(['bomItem.project', 'qcInspection.receiptItem'])
+                    ->first();
+            }
+
+            if (!$record && $request->filled('bom_item_id')) {
+                $q = ReworkRecord::where('bom_item_id', $request->input('bom_item_id'))
+                    ->whereIn('status', ['pending', 'in_progress'])
+                    ->lockForUpdate()
+                    ->with(['bomItem.project', 'qcInspection.receiptItem']);
+                if ($request->filled('side')) {
+                    $q->where('side', $request->input('side'));
+                }
+                $record = $q->first();
+            }
+
+            if (!$record) {
+                return response()->json(['success' => false, 'message' => 'Rework record is not in an active state or has already been completed.'], 422);
+            }
 
             if (!in_array($record->status, ['pending', 'in_progress'])) {
                 return response()->json([
@@ -164,7 +192,7 @@ class ReworkController extends Controller
                 $remainingQty = $availableQty - $completedQty;
                 $remainingRecord = $record->replicate();
                 $remainingRecord->quantity = $remainingQty;
-                $remainingRecord->status = 'in_progress';
+                $remainingRecord->status = 'pending';
                 $remainingRecord->save();
 
                 $record->quantity = $completedQty;
@@ -173,15 +201,35 @@ class ReworkController extends Controller
             $notes = $request->input('completion_notes') ?? $request->input('remarks') ?? 'Rework completed.';
 
             $record->update([
-                'status' => 'returned_to_qc',
+                'status' => 'completed',
                 'completion_notes' => $notes,
                 'completed_at' => now(),
             ]);
 
-            // Re-enter QC Queue by returning receipt item status to 'sent_to_qc'
-            if ($record->qcInspection?->receiptItem) {
-                $record->qcInspection->receiptItem->update([
-                    'status' => 'sent_to_qc',
+            // Re-enter QC Inspection bay by transitioning or creating ReceiptItem with 'qc_received'
+            $receiptItem = $record->qcInspection?->receiptItem;
+            if ($receiptItem) {
+                $recQty = (int) $receiptItem->received_quantity;
+                if ($recQty > $completedQty) {
+                    $receiptItem->update(['received_quantity' => $recQty - $completedQty]);
+                    $returnedItem = $receiptItem->replicate();
+                    $returnedItem->received_quantity = $completedQty;
+                    $returnedItem->status = 'qc_received';
+                    $returnedItem->qc_received_at = now();
+                    $returnedItem->save();
+                } else {
+                    $receiptItem->update([
+                        'status' => 'qc_received',
+                        'qc_received_at' => now(),
+                    ]);
+                }
+            } else {
+                ReceiptItem::create([
+                    'bom_item_id' => $record->bom_item_id,
+                    'side' => $record->side,
+                    'received_quantity' => $completedQty,
+                    'status' => 'qc_received',
+                    'qc_received_at' => now(),
                 ]);
             }
 
@@ -193,15 +241,19 @@ class ReworkController extends Controller
                 'event_type' => 'rework_completed',
                 'side' => $record->side,
                 'quantity' => $completedQty,
-                'previous_state' => 'in_progress',
-                'new_state' => 'returned_to_qc',
-                'remarks' => "Rework cycle #{$record->cycle_number} completed: {$notes}. Returned {$completedQty} units to QC queue for re-inspection.",
+                'previous_state' => 'rework',
+                'new_state' => 'qc_received',
+                'remarks' => "Rework cycle #{$record->cycle_number} completed: {$notes}. Returned {$completedQty} units to QC Quality Inspection bay for re-inspection.",
             ]);
+
+            try {
+                broadcast(new \App\Events\PhysicalArrivalCompleted($receiptItem ?? $record))->toOthers();
+            } catch (\Throwable $e) {}
 
             return response()->json([
                 'success' => true,
                 'processed_quantity' => $completedQty,
-                'message' => 'Rework completed successfully and returned to QC for re-inspection.',
+                'message' => "Rework completed successfully ({$completedQty} pcs) and returned to QC for re-inspection.",
                 'record' => $record,
             ]);
         });
@@ -209,7 +261,7 @@ class ReworkController extends Controller
 
     public function bulkAction(Request $request)
     {
-        $request->user()?->hasAnyRole(['ADMIN', 'REWORK']) ?: abort(403, 'Unauthorized. Rework operational permission required.');
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'QC', 'REWORK']) ?: abort(403, 'Unauthorized. Rework operational permission required.');
 
         $request->validate([
             'rework_record_ids' => ['required', 'array', 'min:1'],
@@ -225,7 +277,7 @@ class ReworkController extends Controller
 
             $records = ReworkRecord::whereIn('id', $ids)
                 ->lockForUpdate()
-                ->with(['bomItem', 'qcInspection.receiptItem'])
+                ->with(['bomItem.project', 'qcInspection.receiptItem'])
                 ->get();
 
             if ($records->isEmpty()) {
@@ -233,51 +285,54 @@ class ReworkController extends Controller
             }
 
             $processedCount = 0;
+            $processedTotalQty = 0;
             foreach ($records as $record) {
                 if ($action === 'start') {
                     if ($record->status === 'pending') {
                         $record->update([
                             'status' => 'in_progress',
-                            'assigned_to' => $request->user()->id,
                             'started_at' => now(),
-                        ]);
-                        WorkflowEvent::create([
-                            'bom_item_id' => $record->bom_item_id,
-                            'project_id' => $record->bomItem->project_id,
-                            'user_id' => $request->user()->id,
-                            'event_type' => 'rework_started',
-                            'side' => $record->side,
-                            'quantity' => $record->quantity,
-                            'previous_state' => 'pending',
-                            'new_state' => 'in_progress',
-                            'remarks' => "Bulk rework cycle #{$record->cycle_number} started.",
                         ]);
                         $processedCount++;
                     }
                 } elseif ($action === 'complete') {
                     if (in_array($record->status, ['pending', 'in_progress'])) {
+                        $qty = (int) $record->quantity;
                         $record->update([
-                            'status' => 'returned_to_qc',
+                            'status' => 'completed',
                             'completion_notes' => $notes,
                             'completed_at' => now(),
                         ]);
+
                         if ($record->qcInspection?->receiptItem) {
                             $record->qcInspection->receiptItem->update([
-                                'status' => 'sent_to_qc',
+                                'status' => 'qc_received',
+                                'qc_received_at' => now(),
+                            ]);
+                        } else {
+                            ReceiptItem::create([
+                                'bom_item_id' => $record->bom_item_id,
+                                'side' => $record->side,
+                                'received_quantity' => $qty,
+                                'status' => 'qc_received',
+                                'qc_received_at' => now(),
                             ]);
                         }
+
                         WorkflowEvent::create([
                             'bom_item_id' => $record->bom_item_id,
                             'project_id' => $record->bomItem->project_id,
                             'user_id' => $request->user()->id,
                             'event_type' => 'rework_completed',
                             'side' => $record->side,
-                            'quantity' => $record->quantity,
-                            'previous_state' => $record->status,
-                            'new_state' => 'returned_to_qc',
-                            'remarks' => "Bulk rework cycle #{$record->cycle_number} completed: {$notes}.",
+                            'quantity' => $qty,
+                            'previous_state' => 'rework',
+                            'new_state' => 'qc_received',
+                            'remarks' => "Bulk rework completed: {$notes}. Returned {$qty} units to QC for re-inspection.",
                         ]);
+
                         $processedCount++;
+                        $processedTotalQty += $qty;
                     }
                 }
             }
@@ -285,7 +340,8 @@ class ReworkController extends Controller
             return response()->json([
                 'success' => true,
                 'processed_count' => $processedCount,
-                'message' => "Successfully processed {$action} for {$processedCount} rework records."
+                'processed_quantity' => $processedTotalQty,
+                'message' => "Bulk rework {$action} processed successfully for {$processedCount} records ({$processedTotalQty} pcs).",
             ]);
         });
     }

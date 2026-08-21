@@ -109,6 +109,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::post('/items', [ReworkController::class, 'store']);
             Route::post('/items/{id}/start', [ReworkController::class, 'start']);
             Route::post('/items/{id}/complete', [ReworkController::class, 'complete']);
+            Route::post('/complete', [ReworkController::class, 'complete']);
             Route::post('/bulk-action', [ReworkController::class, 'bulkAction']);
         });
 
