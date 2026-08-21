@@ -865,22 +865,13 @@ function App() {
   };
 
   // --- REWORK ACTIONS ---
-  const handleStartRework = async (itemId, partNo = '') => {
-    try {
-      await apiClient.post(`/rework/items/${itemId}/start`);
-      showToast(`Rework Started: ${partNo || 'Item'}`);
-      loadData('rework', false);
-    } catch (err) {
-      Alert.alert('Error', err.response?.data?.message || 'Could not start rework.');
-    }
-  };
-
   const openReworkModal = (reworkRecord, bomItem) => {
     setSelectedReworkItem({
       ...reworkRecord,
       bom_item: bomItem,
     });
-    setReworkQty(String(reworkRecord.quantity || 1));
+    const avail = reworkRecord.quantity || 1;
+    setReworkQty(String(avail));
     setReworkNotes('');
     setShowReworkModal(true);
   };
@@ -894,14 +885,28 @@ function App() {
       return;
     }
 
+    const payloadId = selectedReworkItem.id;
+    const payloadBomId = selectedReworkItem.bom_item_id || selectedReworkItem.bom_item?.id;
+    const payloadSide = selectedReworkItem.side || unitSideTab || 'COMMON';
+
     try {
-      await apiClient.post(`/rework/items/${selectedReworkItem.id}/complete`, {
-        quantity: qty,
-        completion_notes: reworkNotes || 'Rework completed.',
-        remarks: reworkNotes || 'Rework completed.',
-      });
+      if (payloadId) {
+        await apiClient.post(`/rework/items/${payloadId}/complete`, {
+          quantity: qty,
+          completion_notes: reworkNotes || 'Rework completed.',
+          remarks: reworkNotes || 'Rework completed.',
+        });
+      } else {
+        await apiClient.post('/rework/complete', {
+          bom_item_id: payloadBomId,
+          side: payloadSide,
+          quantity: qty,
+          completion_notes: reworkNotes || 'Rework completed.',
+          remarks: reworkNotes || 'Rework completed.',
+        });
+      }
       setShowReworkModal(false);
-      showToast(`Rework Completed: ${qty} pcs of ${selectedReworkItem.bom_item?.standard_part_no || 'Item'}`);
+      showToast(`Rework Completed: ${qty} pcs returned to QC Quality Inspection.`);
       loadData('rework', false);
     } catch (err) {
       Alert.alert('Error', err.response?.data?.message || 'Could not complete rework.');
@@ -2150,41 +2155,34 @@ function App() {
                               );
                             })()}
 
-                            {/* Rework Actions (Strictly side-isolated) */}
+                            {/* Rework Actions (Strictly side-isolated, Single Action: COMPLETE REWORK) */}
                             {activeTab === 'rework' && !isSelectionMode && (() => {
                               const sideStat = item.side_stats?.[unitSideTab] || {};
                               const rewPending = sideStat.rework_pending || 0;
                               const rewProg = sideStat.rework_in_progress || 0;
+                              const rewActive = (sideStat.parts_in_rework || 0) || (rewPending + rewProg);
                               const rewComp = sideStat.rework_completed || 0;
                               const sideReworks = sideStat.rework_records || (item.rework_records || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
 
                               return (
                                 <View style={{ marginTop: 6 }}>
-                                  {rewPending > 0 ? (
+                                  {rewActive > 0 ? (
                                     <TouchableOpacity
                                       style={[styles.actionBtn, { backgroundColor: '#f59e0b' }]}
                                       onPress={() => {
-                                        const rew = sideReworks.find(r => r.status === 'pending') || { id: item.id };
-                                        handleStartRework(rew.id, item.standard_part_no);
+                                        const rew = sideReworks.find(r => ['pending', 'in_progress'].includes(r.status)) || {
+                                          id: null,
+                                          quantity: rewActive,
+                                          bom_item_id: item.id,
+                                          side: unitSideTab,
+                                        };
+                                        openReworkModal({ ...rew, bom_item_id: item.id, quantity: rewActive }, item);
                                       }}>
-                                      <Text style={styles.actionBtnText}>START REWORK ({rewPending} pcs)</Text>
+                                      <Text style={styles.actionBtnText}>COMPLETE REWORK ({rewActive} pcs)</Text>
                                     </TouchableOpacity>
-                                  ) : null}
-
-                                  {rewProg > 0 ? (
-                                    <TouchableOpacity
-                                      style={[styles.actionBtn, { backgroundColor: '#10b981', marginTop: 4 }]}
-                                      onPress={() => {
-                                        const rew = sideReworks.find(r => r.status === 'in_progress') || { id: item.id };
-                                        openReworkModal(rew, item);
-                                      }}>
-                                      <Text style={styles.actionBtnText}>COMPLETE REWORK ({rewProg} pcs)</Text>
-                                    </TouchableOpacity>
-                                  ) : null}
-
-                                  {rewPending === 0 && rewProg === 0 && (
+                                  ) : (
                                     <Text style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
-                                      {rewComp > 0 ? `✓ ${rewComp} pcs Rework Completed` : '✓ No Active Rework'}
+                                      {rewComp > 0 ? `✓ ${rewComp} pcs Rework Completed (Returned to QC)` : '✓ No Active Rework'}
                                     </Text>
                                   )}
                                 </View>
@@ -3030,6 +3028,81 @@ function App() {
               onPress={() => setShowBulkQcDestinationModal(false)}>
               <Text style={styles.buttonText}>Cancel</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* REWORK COMPLETION MODAL (Strict Quantity Processing & Transition to QC) */}
+      <Modal visible={showReworkModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { maxHeight: '90%' }]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalTitle}>Complete Rework Operation</Text>
+              <Text style={styles.itemPartNo}>{selectedReworkItem?.bom_item?.standard_part_no || `Item #${selectedReworkItem?.id}`}</Text>
+              
+              {(() => {
+                const avail = selectedReworkItem?.quantity || 1;
+                const rQty = parseInt(reworkQty, 10) || 0;
+
+                return (
+                  <View>
+                    <View style={[styles.qtySummaryBox, { backgroundColor: '#fffbeb', borderColor: '#fde68a' }]}>
+                      <Text style={[styles.qtySummaryText, { color: '#92400e' }]}>
+                        Active Rework Quantity: <Text style={{ fontWeight: '800', color: '#b45309' }}>{avail} pcs</Text> ({selectedReworkItem?.side || unitSideTab})
+                      </Text>
+                    </View>
+
+                    <Text style={[styles.label, { marginTop: 10, color: '#b45309', fontWeight: '800' }]}>
+                      Completed Quantity to Return to QC (1 to {avail})
+                    </Text>
+                    <View style={styles.qtyStepperRow}>
+                      <TouchableOpacity
+                        style={[styles.qtyBtn, { borderColor: '#f59e0b' }]}
+                        onPress={() => setReworkQty(String(Math.max(1, rQty - 1)))}>
+                        <Text style={[styles.qtyBtnText, { color: '#f59e0b' }]}>−</Text>
+                      </TouchableOpacity>
+                      <TextInput
+                        style={[styles.qtyInput, { borderColor: '#f59e0b' }]}
+                        keyboardType="numeric"
+                        value={reworkQty}
+                        onChangeText={setReworkQty}
+                      />
+                      <TouchableOpacity
+                        style={[styles.qtyBtn, { borderColor: '#f59e0b' }]}
+                        onPress={() => setReworkQty(String(Math.min(avail, rQty + 1)))}>
+                        <Text style={[styles.qtyBtnText, { color: '#f59e0b' }]}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.qtyRemainingText}>
+                      Remaining in Rework queue: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{Math.max(0, avail - rQty)} pcs</Text>
+                    </Text>
+
+                    <Text style={[styles.label, { marginTop: 10 }]}>Corrective Action / Completion Notes</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={reworkNotes}
+                      onChangeText={setReworkNotes}
+                      placeholder="e.g. Surface polished, threads re-tapped, dimensions verified"
+                    />
+
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                      <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]} onPress={() => setShowReworkModal(false)}>
+                        <Text style={styles.buttonText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.button,
+                          { flex: 1, backgroundColor: '#f59e0b', opacity: (rQty <= 0 || rQty > avail) ? 0.6 : 1.0 }
+                        ]}
+                        disabled={rQty <= 0 || rQty > avail}
+                        onPress={submitReworkCompletion}>
+                        <Text style={styles.buttonText}>Return to QC ({rQty})</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })()}
+            </ScrollView>
           </View>
         </View>
       </Modal>
