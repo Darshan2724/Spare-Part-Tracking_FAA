@@ -265,6 +265,13 @@ class KpiDrilldownService
                 $asmCompletedQty = (int) $sideAsm->sum('quantity');
                 $asmActiveQty = max(0, $asmTotalIncoming - $asmCompletedQty);
 
+                $sideChar = match (strtoupper($curSide)) {
+                    'RH', 'R' => 'R',
+                    'LH', 'L' => 'L',
+                    default => '',
+                };
+                $excelPartNumber = "{$item->jig_no}{$item->unit_no}{$item->standard_part_no}{$sideChar}";
+
                 $baseRow = [
                     'project_id' => $item->project_id,
                     'project_code' => $item->project?->project_code ?: 'N/A',
@@ -275,6 +282,7 @@ class KpiDrilldownService
                     'item_no' => $item->item_no,
                     'side' => $curSide,
                     'combined_identifier' => "{$item->jig_no} / {$item->unit_no} / {$item->standard_part_no} / {$curSide}",
+                    'excel_part_number' => $excelPartNumber,
                     'supplier' => $item->supplier?->name ?? $item->supplier_name_raw ?? 'Standard',
                 ];
 

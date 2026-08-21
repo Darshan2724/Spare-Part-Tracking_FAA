@@ -168,4 +168,35 @@ class KpiDrilldownTest extends TestCase
         $response->assertStatus(200);
         $response->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     }
+
+    public function test_kpi_drilldown_excel_part_number_format()
+    {
+        $user = $this->getAdminUser();
+        $this->actingAs($user, 'sanctum');
+
+        $exportService = new \App\Services\ExportService();
+        $req = new \Illuminate\Http\Request(['kpi' => 'total_parts']);
+        $req->setUserResolver(fn() => $user);
+
+        $payload = $exportService->exportKpiDrilldownData($req);
+
+        // Verify Excel column headers: strictly "Project", "Part Number", "Status", "Quantity"
+        $this->assertCount(4, $payload['columns']);
+        $labels = array_column($payload['columns'], 'label');
+        $this->assertEquals(['Project', 'Part Number', 'Status', 'Quantity'], $labels);
+
+        // Verify row format: contains concatenated Jig + Unit + Part + R/L (e.g. 169961@00020#R00R)
+        if (!empty($payload['rows'])) {
+            $firstRow = is_array($payload['rows']) ? reset($payload['rows']) : $payload['rows']->first();
+            $this->assertNotEmpty($firstRow['excel_part_number']);
+            // Verify no spaces/slashes in excel_part_number
+            $this->assertStringNotContainsString(' / ', $firstRow['excel_part_number']);
+            // Verify side is formatted as R or L
+            if ($firstRow['side'] === 'RH') {
+                $this->assertStringEndsWith('R', $firstRow['excel_part_number']);
+            } elseif ($firstRow['side'] === 'LH') {
+                $this->assertStringEndsWith('L', $firstRow['excel_part_number']);
+            }
+        }
+    }
 }

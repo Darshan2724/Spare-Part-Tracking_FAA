@@ -131,6 +131,17 @@ class ExportService
         $timestamp = now()->format('Ymd_His');
         $filename = "SpareTrack_{$kpiKey}_{$scopeClean}_{$timestamp}";
 
+        // Configure Excel columns: for part-level, use single "Part Number" column (Jig+Unit+Part+R/L) as requested
+        $columns = $drilldown['columns'];
+        if (($drilldown['kpi_type'] ?? 'part') === 'part') {
+            $columns = [
+                ['label' => 'Project', 'key' => 'project_code'],
+                ['label' => 'Part Number', 'key' => 'excel_part_number'],
+                ['label' => 'Status', 'key' => 'status'],
+                ['label' => 'Quantity', 'key' => 'quantity', 'align' => 'center'],
+            ];
+        }
+
         return [
             'title' => "{$kpiDisplayName} — Detailed KPI Breakdown",
             'section_name' => substr("KPI_{$kpiKey}", 0, 30),
@@ -139,7 +150,7 @@ class ExportService
             'generated_at' => now()->format('d-M-Y H:i:s T'),
             'generated_by' => $request->user()?->name ?? 'FAITH AUTOMATION User',
             'filename' => $filename,
-            'columns' => $drilldown['columns'],
+            'columns' => $columns,
             'rows' => $drilldown['all_data'] ?? $drilldown['data'],
         ];
     }
