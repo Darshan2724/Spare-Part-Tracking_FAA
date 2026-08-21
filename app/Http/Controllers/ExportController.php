@@ -64,4 +64,36 @@ class ExportController extends Controller
 
         return $this->exportService->generateSuppliersExcel($data);
     }
+
+    /**
+     * Export Endpoint for Individual Dashboard Data Blocks
+     */
+    public function exportBlock(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC', 'REWORK', 'PAINT', 'ASSEMBLY', 'PURCHASE']) ?: abort(403);
+
+        $block = $request->input('block');
+        if (!$block) {
+            return response()->json(['message' => 'Block parameter is required.'], 422);
+        }
+
+        // Reuse the exact canonical data logic powering block details in the Dashboard
+        $dashboardController = app(\App\Http\Controllers\DashboardController::class);
+        $blockDataResponse = $dashboardController->blockDetails($request);
+        $blockData = $blockDataResponse->getData(true);
+
+        return $this->exportService->generateBlockExcel($blockData, $request);
+    }
+
+    /**
+     * Export Endpoint for Complete Manufacturing & Parts Report Section
+     */
+    public function exportReport(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC', 'REWORK', 'PAINT', 'ASSEMBLY', 'PURCHASE']) ?: abort(403);
+
+        $data = $this->exportService->exportReportData($request);
+
+        return $this->exportService->generateReportExcel($data);
+    }
 }

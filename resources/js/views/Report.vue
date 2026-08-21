@@ -8,6 +8,11 @@
           <p class="text-muted mb-0">Manufacturing &amp; Parts Tracking Reports</p>
         </div>
         <div class="d-flex gap-2">
+          <button @click="exportReportExcel" class="btn btn-outline-success btn-sm text-nowrap d-flex align-items-center gap-1" :disabled="isExportingReport">
+            <i v-if="isExportingReport" class="fas fa-spinner fa-spin"></i>
+            <i v-else class="fas fa-file-excel text-success"></i>
+            <span>Export Excel</span>
+          </button>
           <button @click="fetchData" class="btn btn-outline-primary btn-sm text-nowrap" :disabled="loading">
             <i class="fas fa-sync-alt me-1" :class="{ 'fa-spin': loading }"></i> Refresh Live Data
           </button>
@@ -980,6 +985,45 @@ const handleModalExport = async (format) => {
     alert('Failed to export Parts Movement Detail.');
   } finally {
     isExportingModal.value = false;
+  }
+};
+
+const isExportingReport = ref(false);
+
+const exportReportExcel = async () => {
+  if (isExportingReport.value) return;
+  isExportingReport.value = true;
+  try {
+    const params = new URLSearchParams(
+      Object.entries(filters.value).filter(([_, v]) => v !== '')
+    );
+    const res = await axios.post(`/api/v1/export/report?${params.toString()}`, {}, {
+      responseType: 'blob'
+    });
+
+    const contentDisposition = res.headers['content-disposition'];
+    let filename = 'SpareTrack_Report.xlsx';
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename="?([^"]+)"?/);
+      if (match && match[1]) filename = match[1];
+    }
+
+    const blob = new Blob([res.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error('Report export failed:', e);
+    alert('Failed to export Manufacturing & Parts Report to Excel.');
+  } finally {
+    isExportingReport.value = false;
   }
 };
 

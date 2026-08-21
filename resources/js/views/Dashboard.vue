@@ -55,11 +55,20 @@
       <div v-if="!filters.project_id" class="row g-3 mb-3">
         <!-- 1. Active Projects -->
         <div class="col-12 col-md-4">
-          <div class="card border-0 shadow-sm bg-primary text-white h-100">
+          <div 
+            class="card border-0 shadow-sm bg-primary text-white h-100 block-card"
+            :class="{ 'active-block-ring': activeBlock === 'active_projects' }"
+            @click="toggleBlock('active_projects')"
+            title="Click to view Active Projects details"
+          >
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold small">Active Projects</div>
                 <h2 class="fw-bold mb-0 display-6">{{ metrics.active_projects ?? metrics.total_projects ?? 0 }}</h2>
+                <small class="text-white-50 extra-small d-flex align-items-center gap-1 mt-1">
+                  <i class="fas" :class="activeBlock === 'active_projects' ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                  <span>{{ activeBlock === 'active_projects' ? 'Hide details' : 'Click for details' }}</span>
+                </small>
               </div>
               <i class="fas fa-folder-open fa-2x text-white-50"></i>
             </div>
@@ -68,11 +77,21 @@
 
         <!-- 2. Completed Projects -->
         <div class="col-12 col-md-4">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #0d9488;">
+          <div 
+            class="card border-0 shadow-sm text-white h-100 block-card"
+            style="background-color: #0d9488;"
+            :class="{ 'active-block-ring': activeBlock === 'completed_projects' }"
+            @click="toggleBlock('completed_projects')"
+            title="Click to view Completed Projects details"
+          >
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold small">Completed Projects</div>
                 <h2 class="fw-bold mb-0 display-6">{{ metrics.completed_projects || 0 }}</h2>
+                <small class="text-white-50 extra-small d-flex align-items-center gap-1 mt-1">
+                  <i class="fas" :class="activeBlock === 'completed_projects' ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                  <span>{{ activeBlock === 'completed_projects' ? 'Hide details' : 'Click for details' }}</span>
+                </small>
               </div>
               <i class="fas fa-check-circle fa-2x text-white-50"></i>
             </div>
@@ -81,13 +100,113 @@
 
         <!-- 3. Delayed Projects -->
         <div class="col-12 col-md-4">
-          <div class="card border-0 shadow-sm bg-danger text-white h-100">
+          <div 
+            class="card border-0 shadow-sm bg-danger text-white h-100 block-card"
+            :class="{ 'active-block-ring': activeBlock === 'delayed_projects' }"
+            @click="toggleBlock('delayed_projects')"
+            title="Click to view Delayed Projects details"
+          >
             <div class="card-body p-3 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold small">Delayed Projects</div>
                 <h2 class="fw-bold mb-0 display-6">{{ metrics.delayed_projects || 0 }}</h2>
+                <small class="text-white-50 extra-small d-flex align-items-center gap-1 mt-1">
+                  <i class="fas" :class="activeBlock === 'delayed_projects' ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                  <span>{{ activeBlock === 'delayed_projects' ? 'Hide details' : 'Click for details' }}</span>
+                </small>
               </div>
               <i class="fas fa-exclamation-triangle fa-2x text-white-50"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- EXPANDABLE PANEL: ROW 1 DETAILS -->
+        <div v-if="['active_projects', 'completed_projects', 'delayed_projects'].includes(activeBlock)" class="col-12 mt-2">
+          <div class="card border shadow-sm rounded-3 bg-white text-dark">
+            <div class="card-header bg-light py-2 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2 border-bottom">
+              <div class="d-flex align-items-center gap-2">
+                <span class="badge" :class="getBlockBadgeClass(activeBlock)">{{ getBlockLabel(activeBlock) }}</span>
+                <h6 class="fw-bold mb-0 text-dark">{{ blockDetailsData?.title || 'Details' }}</h6>
+                <span class="badge bg-secondary rounded-pill">{{ blockDetailsData?.total_records || 0 }} records</span>
+                <span v-if="blockDetailsData?.total_quantity !== undefined" class="badge bg-primary rounded-pill">Total Qty: {{ blockDetailsData?.total_quantity }} pcs</span>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <button 
+                  class="btn btn-sm btn-outline-success d-flex align-items-center gap-1 py-1 px-2" 
+                  @click="exportBlockExcel(activeBlock)" 
+                  :disabled="isExportingBlock === activeBlock || blockLoading"
+                  title="Export this block's data to Excel"
+                >
+                  <i v-if="isExportingBlock === activeBlock" class="fas fa-spinner fa-spin"></i>
+                  <i v-else class="fas fa-file-excel text-success"></i>
+                  <span class="d-none d-sm-inline">Export Excel</span>
+                </button>
+                <div class="input-group input-group-sm" style="width: 200px;">
+                  <span class="input-group-text bg-white border-end-0"><i class="fas fa-search text-muted"></i></span>
+                  <input 
+                    type="text" 
+                    v-model="blockSearch" 
+                    class="form-control border-start-0 ps-0" 
+                    placeholder="Search projects..."
+                  >
+                  <button v-if="blockSearch" class="btn btn-outline-secondary border" @click="blockSearch = ''">
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+                <button class="btn btn-sm btn-outline-secondary py-1 px-2" @click="activeBlock = null" title="Close Details">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+            </div>
+
+            <div class="card-body p-0">
+              <div v-if="blockLoading" class="text-center py-4">
+                <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                <span class="text-muted small">Loading block details from database...</span>
+              </div>
+              
+              <div v-else-if="!filteredBlockItems.length" class="text-center py-4 text-muted">
+                <i class="fas fa-inbox fa-2x mb-2 text-secondary opacity-50 d-block"></i>
+                <p class="mb-0 small" v-if="blockSearch">No records matching "{{ blockSearch }}".</p>
+                <p class="mb-0 small" v-else>{{ getEmptyStateMessage(activeBlock) }}</p>
+              </div>
+
+              <div v-else class="table-responsive" style="max-height: 380px; overflow-y: auto;">
+                <table class="table table-sm table-hover table-striped mb-0 align-middle">
+                  <thead class="table-dark sticky-top" style="z-index: 1;">
+                    <tr>
+                      <th class="ps-3" style="width: 40px;">#</th>
+                      <th v-for="col in blockDetailsData?.columns" :key="col.key" :class="col.align ? `text-${col.align}` : ''">
+                        {{ col.label }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(item, idx) in filteredBlockItems" :key="item.id || idx">
+                      <td class="ps-3 text-muted small">{{ idx + 1 }}</td>
+                      <td v-for="col in blockDetailsData?.columns" :key="col.key" :class="col.align ? `text-${col.align}` : ''">
+                        <span v-if="col.key === 'status'" class="badge" :class="getStatusBadgeClass(item[col.key])">
+                          {{ item[col.key] }}
+                        </span>
+                        <span v-else-if="col.key === 'code'" class="fw-bold text-primary font-monospace">
+                          {{ item[col.key] }}
+                        </span>
+                        <span v-else-if="['required', 'received', 'pending', 'total_parts'].includes(col.key)" class="fw-bold">
+                          {{ item[col.key] }}
+                        </span>
+                        <span v-else>
+                          {{ item[col.key] ?? '—' }}
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div v-if="filteredBlockItems.length" class="card-footer bg-light py-1 px-3 d-flex justify-content-between align-items-center small text-muted">
+              <span>Showing <strong>{{ filteredBlockItems.length }}</strong> of <strong>{{ blockDetailsData?.total_records || 0 }}</strong> records</span>
+              <span v-if="blockDetailsData?.total_quantity !== undefined">Total Accounted: <strong>{{ filteredTotalQuantity }} pcs</strong></span>
             </div>
           </div>
         </div>
@@ -133,61 +252,105 @@
 
       <!-- ROW 2: Parts and Operational Workflow Status Overview (8 Compact Cards) -->
       <div class="row g-2 mb-4">
-        <!-- 1. Total Parts -->
+        <!-- 4. Total Parts -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #4f46e5;">
+          <div 
+            class="card border-0 shadow-sm text-white h-100 block-card"
+            style="background-color: #4f46e5;"
+            :class="{ 'active-block-ring': activeBlock === 'total_parts' }"
+            @click="toggleBlock('total_parts')"
+            title="Click to view Total Parts list"
+          >
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Total Parts</div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.total_parts ?? metrics.total_required ?? 0 }}</h3>
+                <small class="text-white-50 extra-small d-flex align-items-center gap-1 mt-1">
+                  <i class="fas" :class="activeBlock === 'total_parts' ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                  <span>{{ activeBlock === 'total_parts' ? 'Hide' : 'Details' }}</span>
+                </small>
               </div>
               <i class="fas fa-cubes text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
 
-        <!-- 2. Total Parts Received -->
+        <!-- 5. Total Parts Received -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm bg-success text-white h-100">
+          <div 
+            class="card border-0 shadow-sm bg-success text-white h-100 block-card"
+            :class="{ 'active-block-ring': activeBlock === 'total_parts_received' }"
+            @click="toggleBlock('total_parts_received')"
+            title="Click to view Total Parts Received"
+          >
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Total Parts Received</div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.total_parts_received ?? metrics.total_received ?? 0 }}</h3>
+                <small class="text-white-50 extra-small d-flex align-items-center gap-1 mt-1">
+                  <i class="fas" :class="activeBlock === 'total_parts_received' ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                  <span>{{ activeBlock === 'total_parts_received' ? 'Hide' : 'Details' }}</span>
+                </small>
               </div>
               <i class="fas fa-boxes text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
 
-        <!-- 3. Parts Pending -->
+        <!-- 6. Parts Pending -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm bg-dark text-white h-100">
+          <div 
+            class="card border-0 shadow-sm bg-dark text-white h-100 block-card"
+            :class="{ 'active-block-ring': activeBlock === 'parts_pending' }"
+            @click="toggleBlock('parts_pending')"
+            title="Click to view Parts Pending"
+          >
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Parts Pending</div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_pending ?? metrics.total_pending ?? metrics.pending_store ?? 0 }}</h3>
+                <small class="text-white-50 extra-small d-flex align-items-center gap-1 mt-1">
+                  <i class="fas" :class="activeBlock === 'parts_pending' ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                  <span>{{ activeBlock === 'parts_pending' ? 'Hide' : 'Details' }}</span>
+                </small>
               </div>
               <i class="fas fa-truck-loading text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
 
-        <!-- 4. Store -->
+        <!-- 7. Store -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #d97706;">
+          <div 
+            class="card border-0 shadow-sm text-white h-100 block-card"
+            style="background-color: #d97706;"
+            :class="{ 'active-block-ring': activeBlock === 'store' }"
+            @click="toggleBlock('store')"
+            title="Click to view Store Intake parts"
+          >
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Store</div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_store || 0 }}</h3>
+                <small class="text-white-50 extra-small d-flex align-items-center gap-1 mt-1">
+                  <i class="fas" :class="activeBlock === 'store' ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                  <span>{{ activeBlock === 'store' ? 'Hide' : 'Details' }}</span>
+                </small>
               </div>
               <i class="fas fa-warehouse text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
 
-        <!-- 5. QC (with separate Rejected secondary badge) -->
+        <!-- 8. QC (with separate Rejected secondary badge) -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #0284c7;">
+          <div 
+            class="card border-0 shadow-sm text-white h-100 block-card"
+            style="background-color: #0284c7;"
+            :class="{ 'active-block-ring': activeBlock === 'qc' }"
+            @click="toggleBlock('qc')"
+            title="Click to view QC Queue parts"
+          >
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
@@ -197,41 +360,71 @@
                   </span>
                 </div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_qc ?? metrics.awaiting_qc ?? 0 }}</h3>
+                <small class="text-white-50 extra-small d-flex align-items-center gap-1 mt-1">
+                  <i class="fas" :class="activeBlock === 'qc' ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                  <span>{{ activeBlock === 'qc' ? 'Hide' : 'Details' }}</span>
+                </small>
               </div>
               <i class="fas fa-clipboard-check text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
 
-        <!-- 6. Rework -->
+        <!-- 9. Rework -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #ea580c;">
+          <div 
+            class="card border-0 shadow-sm text-white h-100 block-card"
+            style="background-color: #ea580c;"
+            :class="{ 'active-block-ring': activeBlock === 'rework' }"
+            @click="toggleBlock('rework')"
+            title="Click to view Rework parts"
+          >
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Rework</div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_rework || 0 }}</h3>
+                <small class="text-white-50 extra-small d-flex align-items-center gap-1 mt-1">
+                  <i class="fas" :class="activeBlock === 'rework' ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                  <span>{{ activeBlock === 'rework' ? 'Hide' : 'Details' }}</span>
+                </small>
               </div>
               <i class="fas fa-tools text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
 
-        <!-- 7. Paint -->
+        <!-- 10. Paint -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #7c3aed;">
+          <div 
+            class="card border-0 shadow-sm text-white h-100 block-card"
+            style="background-color: #7c3aed;"
+            :class="{ 'active-block-ring': activeBlock === 'paint' }"
+            @click="toggleBlock('paint')"
+            title="Click to view Paint Shop parts"
+          >
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Paint</div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_paint || 0 }}</h3>
+                <small class="text-white-50 extra-small d-flex align-items-center gap-1 mt-1">
+                  <i class="fas" :class="activeBlock === 'paint' ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                  <span>{{ activeBlock === 'paint' ? 'Hide' : 'Details' }}</span>
+                </small>
               </div>
               <i class="fas fa-paint-roller text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
 
-        <!-- 8. Assembly (with separate Completed secondary badge) -->
+        <!-- 11. Assembly (with separate Completed secondary badge) -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100" style="background-color: #db2777;">
+          <div 
+            class="card border-0 shadow-sm text-white h-100 block-card"
+            style="background-color: #db2777;"
+            :class="{ 'active-block-ring': activeBlock === 'assembly' }"
+            @click="toggleBlock('assembly')"
+            title="Click to view Assembly parts"
+          >
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
@@ -241,8 +434,112 @@
                   </span>
                 </div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_assembly || metrics.assembly_ready || 0 }}</h3>
+                <small class="text-white-50 extra-small d-flex align-items-center gap-1 mt-1">
+                  <i class="fas" :class="activeBlock === 'assembly' ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                  <span>{{ activeBlock === 'assembly' ? 'Hide' : 'Details' }}</span>
+                </small>
               </div>
               <i class="fas fa-cogs text-white-50 fs-5"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- EXPANDABLE PANEL: ROW 2 DETAILS -->
+        <div v-if="['total_parts', 'total_parts_received', 'parts_pending', 'store', 'qc', 'rework', 'paint', 'assembly'].includes(activeBlock)" class="col-12 mt-2">
+          <div class="card border shadow-sm rounded-3 bg-white text-dark">
+            <div class="card-header bg-light py-2 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2 border-bottom">
+              <div class="d-flex align-items-center gap-2">
+                <span class="badge" :class="getBlockBadgeClass(activeBlock)">{{ getBlockLabel(activeBlock) }}</span>
+                <h6 class="fw-bold mb-0 text-dark">{{ blockDetailsData?.title || 'Details' }}</h6>
+                <span class="badge bg-secondary rounded-pill">{{ blockDetailsData?.total_records || 0 }} records</span>
+                <span v-if="blockDetailsData?.total_quantity !== undefined" class="badge bg-primary rounded-pill">Total Qty: {{ blockDetailsData?.total_quantity }} pcs</span>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <button 
+                  class="btn btn-sm btn-outline-success d-flex align-items-center gap-1 py-1 px-2" 
+                  @click="exportBlockExcel(activeBlock)" 
+                  :disabled="isExportingBlock === activeBlock || blockLoading"
+                  title="Export this block's data to Excel"
+                >
+                  <i v-if="isExportingBlock === activeBlock" class="fas fa-spinner fa-spin"></i>
+                  <i v-else class="fas fa-file-excel text-success"></i>
+                  <span class="d-none d-sm-inline">Export Excel</span>
+                </button>
+                <div class="input-group input-group-sm" style="width: 200px;">
+                  <span class="input-group-text bg-white border-end-0"><i class="fas fa-search text-muted"></i></span>
+                  <input 
+                    type="text" 
+                    v-model="blockSearch" 
+                    class="form-control border-start-0 ps-0" 
+                    placeholder="Search parts / item..."
+                  >
+                  <button v-if="blockSearch" class="btn btn-outline-secondary border" @click="blockSearch = ''">
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+                <button class="btn btn-sm btn-outline-secondary py-1 px-2" @click="activeBlock = null" title="Close Details">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+            </div>
+
+            <div class="card-body p-0">
+              <div v-if="blockLoading" class="text-center py-4">
+                <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                <span class="text-muted small">Loading block details from database...</span>
+              </div>
+              
+              <div v-else-if="!filteredBlockItems.length" class="text-center py-4 text-muted">
+                <i class="fas fa-inbox fa-2x mb-2 text-secondary opacity-50 d-block"></i>
+                <p class="mb-0 small" v-if="blockSearch">No records matching "{{ blockSearch }}".</p>
+                <p class="mb-0 small" v-else>{{ getEmptyStateMessage(activeBlock) }}</p>
+              </div>
+
+              <div v-else class="table-responsive" style="max-height: 380px; overflow-y: auto;">
+                <table class="table table-sm table-hover table-striped mb-0 align-middle">
+                  <thead class="table-dark sticky-top" style="z-index: 1;">
+                    <tr>
+                      <th class="ps-3" style="width: 40px;">#</th>
+                      <th v-for="col in blockDetailsData?.columns" :key="col.key" :class="col.align ? `text-${col.align}` : ''">
+                        {{ col.label }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(item, idx) in filteredBlockItems" :key="item.id || idx">
+                      <td class="ps-3 text-muted small">{{ idx + 1 }}</td>
+                      <td v-for="col in blockDetailsData?.columns" :key="col.key" :class="col.align ? `text-${col.align}` : ''">
+                        <span v-if="col.key === 'part_number'" class="fw-bold text-dark font-monospace text-nowrap px-1 rounded bg-light border" style="font-size: 0.78rem;">
+                          {{ item[col.key] }}
+                        </span>
+                        <span v-else-if="col.key === 'status'" class="badge" :class="getStatusBadgeClass(item[col.key])">
+                          {{ item[col.key] }}
+                        </span>
+                        <span v-else-if="col.key === 'side'" class="badge" :class="item.side === 'LH' ? 'bg-info text-dark' : (item.side === 'RH' ? 'bg-primary' : 'bg-secondary')">
+                          {{ item[col.key] }}
+                        </span>
+                        <span v-else-if="col.key === 'part_no'" class="fw-bold text-primary font-monospace">
+                          {{ item[col.key] }}
+                        </span>
+                        <span v-else-if="col.key === 'quantity'" class="fw-bold text-success">
+                          {{ item[col.key] }}
+                        </span>
+                        <span v-else-if="['required', 'received', 'pending', 'total_parts'].includes(col.key)" class="fw-bold">
+                          {{ item[col.key] }}
+                        </span>
+                        <span v-else>
+                          {{ item[col.key] ?? '—' }}
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div v-if="filteredBlockItems.length" class="card-footer bg-light py-1 px-3 d-flex justify-content-between align-items-center small text-muted">
+              <span>Showing <strong>{{ filteredBlockItems.length }}</strong> of <strong>{{ blockDetailsData?.total_records || 0 }}</strong> records</span>
+              <span v-if="blockDetailsData?.total_quantity !== undefined">Total Accounted: <strong>{{ filteredTotalQuantity }} pcs</strong></span>
             </div>
           </div>
         </div>
@@ -736,7 +1033,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import axios from 'axios';
@@ -759,6 +1056,145 @@ const filters = ref({
 });
 
 const isExporting = ref(null);
+const isExportingBlock = ref(null);
+
+const exportBlockExcel = async (blockKey) => {
+  if (!blockKey || isExportingBlock.value) return;
+  isExportingBlock.value = blockKey;
+  try {
+    const params = new URLSearchParams({
+      block: blockKey,
+      project_id: filters.value.project_id || '',
+    });
+    const response = await axios.post(`/api/v1/export/block?${params.toString()}`, {}, {
+      responseType: 'blob'
+    });
+
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = `SpareTrack_${blockKey}.xlsx`;
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename="?([^"]+)"?/);
+      if (match && match[1]) filename = match[1];
+    }
+
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Failed to export block data to Excel:', err);
+    alert('Failed to generate block Excel export. Please try again.');
+  } finally {
+    isExportingBlock.value = null;
+  }
+};
+
+// Interactive 11 Data Blocks State
+const activeBlock = ref(null);
+const blockLoading = ref(false);
+const blockDetailsData = ref(null);
+const blockSearch = ref('');
+
+const toggleBlock = async (blockKey) => {
+  if (activeBlock.value === blockKey) {
+    activeBlock.value = null;
+    blockDetailsData.value = null;
+    return;
+  }
+  activeBlock.value = blockKey;
+  blockSearch.value = '';
+  await loadBlockDetails(blockKey);
+};
+
+const loadBlockDetails = async (blockKey, isSilent = false) => {
+  if (!blockKey) return;
+  if (!isSilent) blockLoading.value = true;
+  try {
+    const params = new URLSearchParams({
+      block: blockKey,
+      project_id: filters.value.project_id || '',
+    });
+    const res = await axios.get(`/api/v1/dashboard/block-details?${params.toString()}`);
+    blockDetailsData.value = res.data || {};
+  } catch (e) {
+    console.error('Failed to load block details:', e);
+  } finally {
+    if (!isSilent) blockLoading.value = false;
+  }
+};
+
+const filteredBlockItems = computed(() => {
+  const items = blockDetailsData.value?.items || [];
+  const q = (blockSearch.value || '').toLowerCase().trim();
+  if (!q) return items;
+  return items.filter(item => {
+    return Object.values(item).some(val => 
+      String(val || '').toLowerCase().includes(q)
+    );
+  });
+});
+
+const filteredTotalQuantity = computed(() => {
+  if (blockSearch.value && filteredBlockItems.value.length) {
+    return filteredBlockItems.value.reduce((acc, it) => acc + (Number(it.quantity ?? it.required ?? 0)), 0);
+  }
+  return blockDetailsData.value?.total_quantity ?? 0;
+});
+
+const getBlockBadgeClass = (block) => {
+  switch (block) {
+    case 'active_projects': return 'bg-primary text-white';
+    case 'completed_projects': return 'bg-teal text-white';
+    case 'delayed_projects': return 'bg-danger text-white';
+    case 'total_parts': return 'bg-indigo text-white';
+    case 'total_parts_received': return 'bg-success text-white';
+    case 'parts_pending': return 'bg-dark text-white';
+    case 'store': return 'bg-warning text-dark';
+    case 'qc': return 'bg-info text-dark';
+    case 'rework': return 'bg-orange text-white';
+    case 'paint': return 'bg-purple text-white';
+    case 'assembly': return 'bg-pink text-white';
+    default: return 'bg-secondary text-white';
+  }
+};
+
+const getBlockLabel = (block) => {
+  switch (block) {
+    case 'active_projects': return 'Active Projects';
+    case 'completed_projects': return 'Completed Projects';
+    case 'delayed_projects': return 'Delayed Projects';
+    case 'total_parts': return 'Total Parts';
+    case 'total_parts_received': return 'Parts Received';
+    case 'parts_pending': return 'Parts Pending';
+    case 'store': return 'Store Intake';
+    case 'qc': return 'QC Inspection';
+    case 'rework': return 'Rework Queue';
+    case 'paint': return 'Paint Shop';
+    case 'assembly': return 'Assembly';
+    default: return 'Block Details';
+  }
+};
+
+const getEmptyStateMessage = (block) => {
+  switch (block) {
+    case 'active_projects': return 'No active projects found.';
+    case 'completed_projects': return 'No completed projects found.';
+    case 'delayed_projects': return 'No delayed projects found. All projects are active within healthy timelines.';
+    case 'total_parts': return 'No BOM parts found for this scope.';
+    case 'total_parts_received': return 'No parts have been received in-plant yet.';
+    case 'parts_pending': return 'No pending parts — all required BOM items have been fully received!';
+    case 'store': return 'No parts are currently in Store.';
+    case 'qc': return 'No parts are currently in QC.';
+    case 'rework': return 'No parts are currently in Rework.';
+    case 'paint': return 'No parts are currently in Paint.';
+    case 'assembly': return 'No parts are currently in Assembly.';
+    default: return 'No records found.';
+  }
+};
 
 const exportDashboard = async (format) => {
   if (isExporting.value) return;
@@ -869,6 +1305,9 @@ const onProjectFilterChange = () => {
   fetchData();
   if (filters.value.project_id) {
     fetchProjectHierarchy();
+  }
+  if (activeBlock.value) {
+    loadBlockDetails(activeBlock.value);
   }
 };
 
@@ -982,6 +1421,10 @@ const fetchData = async () => {
       await nextTick();
       renderTopProjectsChart();
       renderHealthChart();
+    }
+
+    if (activeBlock.value) {
+      await loadBlockDetails(activeBlock.value, true);
     }
   } catch (err) {
     console.error('Failed to load dashboard data:', err);
@@ -1161,6 +1604,12 @@ onUnmounted(() => {
 .border-teal {
   border-color: #0d9488 !important;
 }
+.bg-indigo {
+  background-color: #4f46e5 !important;
+}
+.bg-orange {
+  background-color: #ea580c !important;
+}
 .border-start-4 {
   border-left-width: 4px !important;
 }
@@ -1177,5 +1626,19 @@ onUnmounted(() => {
 }
 .transition-all {
   transition: all 0.2s ease-in-out;
+}
+.block-card {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, outline 0.15s ease;
+}
+.block-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+}
+.active-block-ring {
+  outline: 3px solid #ffffff;
+  outline-offset: -2px;
+  box-shadow: 0 0.5rem 1.25rem rgba(0, 0, 0, 0.25) !important;
+  transform: translateY(-2px);
 }
 </style>

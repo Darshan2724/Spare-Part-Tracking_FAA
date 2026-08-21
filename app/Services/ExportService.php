@@ -9,6 +9,7 @@ use App\Services\QuantityCalculationService;
 use App\Services\HierarchyService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
@@ -110,32 +111,40 @@ class ExportService
         $projectsProgress = $this->quantityService->calculateProjectsProgress($filters);
         $hierarchy = $this->hierarchyService->getDepartmentHierarchy('manager', $projectId);
 
-        // 2. Format Top Projects Near Completion list
+        // 2. Format Top Projects Near Completion list matching exact dashboard fields
         $topProjectsList = [];
         if (!empty($topProjectsRaw['projects'])) {
             foreach ($topProjectsRaw['projects'] as $p) {
+                $req = $p['required_qty'] ?? $p['total_required'] ?? 0;
+                $rec = $p['received_qty'] ?? $p['total_received'] ?? 0;
+                $pend = $p['pending_qty'] ?? $p['total_pending'] ?? max(0, $req - $rec);
+                $pct = $p['completion_pct'] ?? $p['progress_percent'] ?? ($req > 0 ? min(100, round(($rec / $req) * 100, 1)) : 0);
                 $topProjectsList[] = [
                     'code' => $p['project_code'] ?? $p['name'] ?? '',
                     'name' => $p['name'] ?? '',
                     'customer' => $p['customer'] ?? '—',
-                    'required' => $p['total_required'] ?? 0,
-                    'received' => $p['total_received'] ?? 0,
-                    'pending' => $p['total_pending'] ?? 0,
-                    'percentage' => $p['completion_pct'] ?? 0,
-                    'status' => ($p['completion_pct'] >= 85) ? 'Near Completion' : (($p['completion_pct'] >= 50) ? 'On Track' : 'In Progress'),
+                    'required' => $req,
+                    'received' => $rec,
+                    'pending' => $pend,
+                    'percentage' => $pct,
+                    'status' => ($pct >= 85) ? 'Near Completion' : (($pct >= 50) ? 'On Track' : 'In Progress'),
                 ];
             }
         } elseif (!empty($topProjectsRaw['labels'])) {
             for ($i = 0; $i < count($topProjectsRaw['labels']); $i++) {
+                $req = $topProjectsRaw['required'][$i] ?? 0;
+                $rec = $topProjectsRaw['received'][$i] ?? 0;
+                $pend = $topProjectsRaw['pending'][$i] ?? 0;
+                $pct = $topProjectsRaw['percentages'][$i] ?? 0;
                 $topProjectsList[] = [
                     'code' => $topProjectsRaw['labels'][$i] ?? '',
                     'name' => $topProjectsRaw['names'][$i] ?? $topProjectsRaw['labels'][$i] ?? '',
                     'customer' => '—',
-                    'required' => $topProjectsRaw['required'][$i] ?? 0,
-                    'received' => $topProjectsRaw['received'][$i] ?? 0,
-                    'pending' => $topProjectsRaw['pending'][$i] ?? 0,
-                    'percentage' => $topProjectsRaw['percentages'][$i] ?? 0,
-                    'status' => ($topProjectsRaw['percentages'][$i] >= 85) ? 'Near Completion' : (($topProjectsRaw['percentages'][$i] >= 50) ? 'On Track' : 'In Progress'),
+                    'required' => $req,
+                    'received' => $rec,
+                    'pending' => $pend,
+                    'percentage' => $pct,
+                    'status' => ($pct >= 85) ? 'Near Completion' : (($pct >= 50) ? 'On Track' : 'In Progress'),
                 ];
             }
         }
@@ -166,7 +175,6 @@ class ExportService
                 ->with(['supplier', 'requirements'])
                 ->where('project_id', $projectId)
                 ->orderBy('standard_part_no')
-                ->limit(100)
                 ->get();
 
             foreach ($partsQuery as $pt) {
@@ -183,6 +191,125 @@ class ExportService
             }
         }
 
+        // 6. Complete Normalized Summary (Guarantees 100% exact parity with Dashboard metrics)
+        $totalParts = $summary['total_parts'] ?? $summary['total_required'] ?? 0;
+        $totalReceived = $summary['total_parts_received'] ?? $summary['total_received'] ?? 0;
+        $totalPending = $summary['parts_pending'] ?? $summary['total_pending'] ?? max(0, $totalParts - $totalReceived);
+        $completionPct = $summary['completion_pct'] ?? ($totalParts > 0 ? min(100, round(($totalReceived / $totalParts) * 100, 1)) : 0);
+        $partsInStore = $summary['parts_in_store'] ?? 0;
+        $partsInQc = $summary['parts_in_qc'] ?? $summary['awaiting_qc'] ?? 0;
+        $qcRejected = $summary['qc_rejected'] ?? $summary['rejected_qty'] ?? 0;
+        $qcApproved = $summary['qc_approved'] ?? $summary['approved_qty'] ?? 0;
+        $partsInRework = $summary['parts_in_rework'] ?? $summary['rework_pending'] ?? 0;
+        $partsInPaint = $summary['parts_in_paint'] ?? $summary['paint_ready'] ?? 0;
+        $paintCompleted = $summary['paint_completed'] ?? $summary['paint_qty'] ?? 0;
+        $partsInAssembly = $summary['parts_in_assembly'] ?? $summary['assembly_ready'] ?? 0;
+        $assemblyCompleted = $summary['assembly_completed'] ?? $summary['assembly_qty'] ?? 0;
+        $activeProjects = $summary['active_projects'] ?? $summary['total_projects'] ?? $healthTotal;
+        $completedProjects = $summary['completed_projects'] ?? 0;
+        $delayedProjects = $summary['delayed_projects'] ?? 0;
+
+        $normalizedSummary = array_merge($summary, [
+            'active_projects' => $activeProjects,
+            'completed_projects' => $completedProjects,
+            'delayed_projects' => $delayedProjects,
+            'total_parts' => $totalParts,
+            'total_required' => $totalParts,
+            'total_bom_parts' => $totalParts,
+            'total_parts_received' => $totalReceived,
+            'total_received' => $totalReceived,
+            'parts_pending' => $totalPending,
+            'total_pending' => $totalPending,
+            'pending_store' => $totalPending,
+            'parts_in_store' => $partsInStore,
+            'parts_in_qc' => $partsInQc,
+            'qc_inspections' => $partsInQc,
+            'awaiting_qc' => $partsInQc,
+            'qc_rejected' => $qcRejected,
+            'qc_approved' => $qcApproved,
+            'parts_in_rework' => $partsInRework,
+            'rework_queue' => $partsInRework,
+            'parts_in_paint' => $partsInPaint,
+            'paint_completed' => $paintCompleted,
+            'parts_in_assembly' => $partsInAssembly,
+            'assembly_completed' => $assemblyCompleted,
+            'completion_pct' => $completionPct,
+            'total_jigs' => count($jigs),
+            'total_units' => array_sum(array_map(fn($j) => count($j['units'] ?? []), $jigs)),
+        ]);
+
+        // 7. Full Detailed Parts list with Side-Separated records and Generated Part Numbers
+        $activeProjectsQuery = Project::query();
+        if ($projectId) {
+            $activeProjectsQuery->where('id', $projectId);
+        } else {
+            $activeProjectsQuery->where('status', 'active');
+        }
+        $scopeProjectIds = $activeProjectsQuery->pluck('id')->toArray();
+
+        $bomItemsScopeQuery = BomItem::query()
+            ->with(['project', 'supplier', 'requirements'])
+            ->whereIn('project_id', $scopeProjectIds)
+            ->orderBy('project_id')
+            ->orderBy('jig_no')
+            ->orderBy('unit_no')
+            ->orderBy('standard_part_no');
+
+        $detailedParts = [];
+        foreach ($bomItemsScopeQuery->get() as $b) {
+            $jig = $b->jig_no ?? '';
+            $unitNo = $b->unit_no ?? '';
+            $partNo = $b->standard_part_no ?? '';
+            $projCode = $b->project?->project_code ?? ($b->project?->name ?? '—');
+            $supplierName = $b->supplier?->name ?? $b->supplier_name_raw ?? '—';
+
+            if ($b->requirements->isNotEmpty()) {
+                foreach ($b->requirements as $req) {
+                    $side = $req->side ?: 'COMMON';
+                    $reqQty = (int) $req->required_quantity;
+                    $recQty = (int) $req->received_quantity;
+                    $pendQty = (int) ($req->pending_quantity > 0 ? $req->pending_quantity : max(0, $reqQty - $recQty));
+                    $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                    $detailedParts[] = [
+                        'project_code' => $projCode,
+                        'jig' => $jig ?: '—',
+                        'unit_no' => $unitNo ?: '—',
+                        'part_no' => $partNo ?: '—',
+                        'item_no' => $b->item_no ?? '—',
+                        'side' => $side,
+                        'qty' => $reqQty,
+                        'part_number' => $partNumber,
+                        'quantity' => $reqQty,
+                        'received_qty' => $recQty,
+                        'pending_qty' => $pendQty,
+                        'supplier' => $supplierName,
+                    ];
+                }
+            } else {
+                $side = $b->side ?: 'COMMON';
+                $reqQty = (int) ($b->total_required ?? 0);
+                $recQty = (int) ($b->total_received ?? 0);
+                $pendQty = (int) ($b->total_pending ?? max(0, $reqQty - $recQty));
+                $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                $detailedParts[] = [
+                    'project_code' => $projCode,
+                    'jig' => $jig ?: '—',
+                    'unit_no' => $unitNo ?: '—',
+                    'part_no' => $partNo ?: '—',
+                    'item_no' => $b->item_no ?? '—',
+                    'side' => $side,
+                    'qty' => $reqQty,
+                    'part_number' => $partNumber,
+                    'quantity' => $reqQty,
+                    'received_qty' => $recQty,
+                    'pending_qty' => $pendQty,
+                    'supplier' => $supplierName,
+                ];
+            }
+        }
+
         $timestamp = now()->format('Ymd_His');
         $cleanScope = preg_replace('/[^A-Za-z0-9_\-]/', '_', $scopeLabel);
         $filename = "SpareTrack_Dashboard_{$cleanScope}_{$timestamp}";
@@ -193,8 +320,8 @@ class ExportService
             'project_name' => $projectName,
             'project_code' => $projectCode,
             'scope_label' => $scopeLabel,
-            'active_projects_count' => $healthTotal,
-            'summary' => $summary,
+            'active_projects_count' => $activeProjects,
+            'summary' => $normalizedSummary,
             'top_projects_list' => $topProjectsList,
             'health_counts' => $healthCounts,
             'health_pcts' => $healthPcts,
@@ -202,6 +329,7 @@ class ExportService
             'projects_progress' => $projectsProgress,
             'jigs' => $jigs,
             'parts_sample' => $partsSample,
+            'detailed_parts' => $detailedParts,
             'generated_at' => now()->format('d-M-Y H:i:s T'),
             'generated_by' => $request->user()?->name ?? 'FAITH AUTOMATION User',
             'filename' => $filename,
@@ -489,6 +617,44 @@ class ExportService
         $sheet1->getStyle('A16:E' . ($leftRow - 1))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
         $sheet1->getStyle('G16:H' . ($rightRow - 1))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
 
+        // Detailed Parts Section on Sheet 1 (Horizontal structure matching requirements)
+        if (!empty($data['detailed_parts'])) {
+            $startDetailRow = max($leftRow, $rightRow) + 2;
+            $sheet1->setCellValue("A{$startDetailRow}", 'DETAILED PARTS BREAKDOWN (SIDE-SEPARATED WITH GENERATED PART NUMBER & QUANTITY)');
+            $sheet1->mergeCells("A{$startDetailRow}:H{$startDetailRow}");
+            $sheet1->getStyle("A{$startDetailRow}")->getFont()->setBold(true)->setSize(10)->setColor(new Color('0F172A'));
+
+            $detailHdrRow = $startDetailRow + 1;
+            $sheet1->setCellValue("A{$detailHdrRow}", 'Project Code');
+            $sheet1->setCellValue("B{$detailHdrRow}", 'Jig');
+            $sheet1->setCellValue("C{$detailHdrRow}", 'Unit No.');
+            $sheet1->setCellValue("D{$detailHdrRow}", 'Part No.');
+            $sheet1->setCellValue("E{$detailHdrRow}", 'Side');
+            $sheet1->setCellValue("F{$detailHdrRow}", 'Qty');
+            $sheet1->setCellValue("G{$detailHdrRow}", 'Part Number');
+            $sheet1->setCellValue("H{$detailHdrRow}", 'Quantity');
+            $sheet1->getStyle("A{$detailHdrRow}:H{$detailHdrRow}")->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(8.5);
+            $sheet1->getStyle("A{$detailHdrRow}:H{$detailHdrRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
+
+            $curDetRow = $detailHdrRow + 1;
+            foreach ($data['detailed_parts'] as $dp) {
+                $sheet1->setCellValueExplicit("A{$curDetRow}", (string) $dp['project_code'], DataType::TYPE_STRING);
+                $sheet1->setCellValueExplicit("B{$curDetRow}", (string) $dp['jig'], DataType::TYPE_STRING);
+                $sheet1->setCellValueExplicit("C{$curDetRow}", (string) $dp['unit_no'], DataType::TYPE_STRING);
+                $sheet1->setCellValueExplicit("D{$curDetRow}", (string) $dp['part_no'], DataType::TYPE_STRING);
+                $sheet1->setCellValue("E{$curDetRow}", $dp['side']);
+                $sheet1->setCellValue("F{$curDetRow}", $dp['qty']);
+                $sheet1->setCellValueExplicit("G{$curDetRow}", (string) $dp['part_number'], DataType::TYPE_STRING);
+                $sheet1->setCellValue("H{$curDetRow}", $dp['quantity']);
+
+                if ($curDetRow % 2 === 0) {
+                    $sheet1->getStyle("A{$curDetRow}:H{$curDetRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF8FAFC');
+                }
+                $curDetRow++;
+            }
+            $sheet1->getStyle("A{$detailHdrRow}:H" . max($curDetRow - 1, $detailHdrRow))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
+        }
+
         foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as $col) {
             $sheet1->getColumnDimension($col)->setAutoSize(true);
         }
@@ -660,46 +826,55 @@ class ExportService
         }
 
         // -------------------------------------------------------------
-        // SHEET 5: PART INVENTORY DETAIL (If Single Project Selected)
+        // SHEET 5: DETAILED PARTS (SIDE-SEPARATED + GENERATED PART NUMBER)
         // -------------------------------------------------------------
-        if (!empty($data['parts_sample']) && count($data['parts_sample']) > 0) {
+        if (!empty($data['detailed_parts']) && count($data['detailed_parts']) > 0) {
             $sheet5 = $spreadsheet->createSheet();
-            $sheet5->setTitle('Part Inventory Detail');
+            $sheet5->setTitle('Detailed Parts');
 
-            $sheet5->setCellValue('A1', 'PART INVENTORY — ' . $data['scope_label']);
-            $sheet5->mergeCells('A1:H1');
+            $sheet5->setCellValue('A1', 'DETAILED PARTS INVENTORY (SIDE-SEPARATED WITH GENERATED PART NUMBER) — ' . $data['scope_label']);
+            $sheet5->mergeCells('A1:L1');
             $sheet5->getStyle('A1')->getFont()->setBold(true)->setSize(12)->setColor(new Color('0F172A'));
 
-            $sheet5->setCellValue('A3', 'Standard Part No');
-            $sheet5->setCellValue('B3', 'Item No');
-            $sheet5->setCellValue('C3', 'Supplier');
-            $sheet5->setCellValue('D3', 'Side');
-            $sheet5->setCellValue('E3', 'Required Qty');
-            $sheet5->setCellValue('F3', 'Received Qty');
-            $sheet5->setCellValue('G3', 'Pending Qty');
-            $sheet5->setCellValue('H3', 'Status');
-            $sheet5->getStyle('A3:H3')->getFont()->setBold(true)->setColor(new Color('FFFFFF'));
-            $sheet5->getStyle('A3:H3')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
+            $sheet5->setCellValue('A3', '#');
+            $sheet5->setCellValue('B3', 'Project Code');
+            $sheet5->setCellValue('C3', 'Jig');
+            $sheet5->setCellValue('D3', 'Unit No.');
+            $sheet5->setCellValue('E3', 'Part No.');
+            $sheet5->setCellValue('F3', 'Side');
+            $sheet5->setCellValue('G3', 'Qty');
+            $sheet5->setCellValue('H3', 'Part Number');
+            $sheet5->setCellValue('I3', 'Quantity');
+            $sheet5->setCellValue('J3', 'Supplier');
+            $sheet5->setCellValue('K3', 'Received Qty');
+            $sheet5->setCellValue('L3', 'Pending Qty');
+            $sheet5->getStyle('A3:L3')->getFont()->setBold(true)->setColor(new Color('FFFFFF'));
+            $sheet5->getStyle('A3:L3')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
 
             $ptRow = 4;
-            foreach ($data['parts_sample'] as $pt) {
-                $sheet5->setCellValue('A' . $ptRow, $pt['standard_part_no']);
-                $sheet5->setCellValue('B' . $ptRow, $pt['item_no'] ?? '—');
-                $sheet5->setCellValue('C' . $ptRow, $pt['supplier'] ?? '—');
-                $sheet5->setCellValue('D' . $ptRow, $pt['side'] ?? 'COMMON');
-                $sheet5->setCellValue('E' . $ptRow, $pt['required_qty'] ?? 0);
-                $sheet5->setCellValue('F' . $ptRow, $pt['received_qty'] ?? 0);
-                $sheet5->setCellValue('G' . $ptRow, $pt['pending_qty'] ?? 0);
-                $sheet5->setCellValue('H' . $ptRow, $pt['status_badge'] ?? 'Store');
+            $idx = 1;
+            foreach ($data['detailed_parts'] as $dp) {
+                $sheet5->setCellValue('A' . $ptRow, $idx++);
+                $sheet5->setCellValueExplicit('B' . $ptRow, (string) $dp['project_code'], DataType::TYPE_STRING);
+                $sheet5->setCellValueExplicit('C' . $ptRow, (string) $dp['jig'], DataType::TYPE_STRING);
+                $sheet5->setCellValueExplicit('D' . $ptRow, (string) $dp['unit_no'], DataType::TYPE_STRING);
+                $sheet5->setCellValueExplicit('E' . $ptRow, (string) $dp['part_no'], DataType::TYPE_STRING);
+                $sheet5->setCellValue('F' . $ptRow, $dp['side']);
+                $sheet5->setCellValue('G' . $ptRow, $dp['qty']);
+                $sheet5->setCellValueExplicit('H' . $ptRow, (string) $dp['part_number'], DataType::TYPE_STRING);
+                $sheet5->setCellValue('I' . $ptRow, $dp['quantity']);
+                $sheet5->setCellValue('J' . $ptRow, $dp['supplier'] ?? '—');
+                $sheet5->setCellValue('K' . $ptRow, $dp['received_qty'] ?? 0);
+                $sheet5->setCellValue('L' . $ptRow, $dp['pending_qty'] ?? 0);
 
                 if ($ptRow % 2 === 0) {
-                    $sheet5->getStyle("A{$ptRow}:H{$ptRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF8FAFC');
+                    $sheet5->getStyle("A{$ptRow}:L{$ptRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF8FAFC');
                 }
                 $ptRow++;
             }
-            $sheet5->getStyle("A3:H" . max($ptRow - 1, 3))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
+            $sheet5->getStyle("A3:L" . max($ptRow - 1, 3))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
 
-            foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as $col) {
+            foreach (range('A', 'L') as $col) {
                 $sheet5->getColumnDimension($col)->setAutoSize(true);
             }
         }
@@ -971,5 +1146,536 @@ class ExportService
 
         $filename = $data['filename'] . '.pdf';
         return $pdf->download($filename);
+    }
+
+    /**
+     * Generate Individual Block Excel Workbook from canonical block data.
+     */
+    public function generateBlockExcel(array $blockData, Request $request): StreamedResponse
+    {
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+
+        $blockTitle = $blockData['title'] ?? 'Block Details';
+        $blockKey = $blockData['block'] ?? 'block';
+        $sheetTitle = substr(preg_replace('/[^A-Za-z0-9 _-]/', '', $blockTitle), 0, 30) ?: 'Block Details';
+        $sheet->setTitle($sheetTitle);
+
+        $projectId = $request->input('project_id');
+        $scopeLabel = 'All Active Projects';
+        $projectCode = null;
+        if ($projectId) {
+            $p = Project::find($projectId);
+            if ($p) {
+                $scopeLabel = "{$p->project_code} - {$p->name}";
+                $projectCode = $p->project_code;
+            }
+        }
+
+        $generatedAt = now()->format('d-M-Y H:i:s T');
+        $generatedBy = $request->user()?->name ?? 'FAITH AUTOMATION User';
+        $totalRecords = $blockData['total_records'] ?? count($blockData['items'] ?? []);
+        $totalQuantity = $blockData['total_quantity'] ?? null;
+
+        // 1. Company Banner
+        $sheet->setCellValue('A1', 'FAITH AUTOMATION — SpareTrack Industrial Tracking System');
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14)->setColor(new Color('0F172A'));
+
+        // 2. Subtitle / Scope
+        $sheet->setCellValue('A2', "BLOCK EXPORT: {$blockTitle} | SCOPE: {$scopeLabel}");
+        $sheet->getStyle('A2')->getFont()->setBold(true)->setSize(10)->setColor(new Color('2563EB'));
+
+        // 3. Metadata
+        $metaText = "Generated: {$generatedAt} | Generated By: {$generatedBy} | Total Records: {$totalRecords}";
+        if ($totalQuantity !== null) {
+            $metaText .= " | Total Quantity: {$totalQuantity} pcs";
+        }
+        $sheet->setCellValue('A3', $metaText);
+        $sheet->getStyle('A3')->getFont()->setSize(8.5)->setColor(new Color('64748B'));
+
+        // 4. Columns Header
+        $columns = $blockData['columns'] ?? [];
+        $colLetters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O'];
+
+        $sheet->setCellValue('A5', '#');
+        $cIdx = 1;
+        foreach ($columns as $col) {
+            $letter = $colLetters[$cIdx] ?? 'Z';
+            $sheet->setCellValue("{$letter}5", $col['label']);
+            $cIdx++;
+        }
+        $lastColLetter = $colLetters[$cIdx - 1] ?? 'A';
+
+        $sheet->getStyle("A5:{$lastColLetter}5")->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(9);
+        $sheet->getStyle("A5:{$lastColLetter}5")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
+        $sheet->getStyle("A5:{$lastColLetter}5")->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
+
+        // 5. Data Rows
+        $rowIdx = 6;
+        $items = $blockData['items'] ?? [];
+        $itemNum = 1;
+
+        foreach ($items as $item) {
+            $sheet->setCellValue("A{$rowIdx}", $itemNum++);
+            $sheet->getStyle("A{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $cIdx = 1;
+            foreach ($columns as $col) {
+                $letter = $colLetters[$cIdx] ?? 'Z';
+                $key = $col['key'];
+                $val = $item[$key] ?? '—';
+
+                if (in_array($key, ['part_number', 'part_no', 'item_no', 'project', 'jig_unit', 'code', 'date', 'time', 'status'])) {
+                    $sheet->setCellValueExplicit("{$letter}{$rowIdx}", (string) $val, DataType::TYPE_STRING);
+                } else {
+                    $sheet->setCellValue("{$letter}{$rowIdx}", $val);
+                }
+
+                if (!empty($col['align']) && $col['align'] === 'center') {
+                    $sheet->getStyle("{$letter}{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                } elseif (!empty($col['align']) && $col['align'] === 'right') {
+                    $sheet->getStyle("{$letter}{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+                }
+
+                $cIdx++;
+            }
+
+            if ($rowIdx % 2 === 0) {
+                $sheet->getStyle("A{$rowIdx}:{$lastColLetter}{$rowIdx}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF8FAFC');
+            }
+            $rowIdx++;
+        }
+
+        // 6. Summary Footer Row
+        $summaryRow = $rowIdx;
+        $sheet->setCellValue("A{$summaryRow}", "TOTAL RECORDS: {$totalRecords}" . ($totalQuantity !== null ? " | TOTAL QUANTITY: {$totalQuantity} pcs" : ''));
+        $sheet->mergeCells("A{$summaryRow}:{$lastColLetter}{$summaryRow}");
+        $sheet->getStyle("A{$summaryRow}")->getFont()->setBold(true)->setSize(9.5)->setColor(new Color('0F172A'));
+        $sheet->getStyle("A{$summaryRow}:{$lastColLetter}{$summaryRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF1F5F9');
+
+        // Borders
+        $sheet->getStyle("A5:{$lastColLetter}{$summaryRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
+
+        // AutoSize columns
+        for ($i = 0; $i < $cIdx; $i++) {
+            $sheet->getColumnDimension($colLetters[$i])->setAutoSize(true);
+        }
+
+        $cleanBlock = str_replace(' ', '_', ucwords(str_replace('_', ' ', $blockKey)));
+        $scopeTag = $projectCode ?: 'All_Projects';
+        $timestamp = now()->format('Ymd_His');
+        $filename = "SpareTrack_{$cleanBlock}_{$scopeTag}_{$timestamp}.xlsx";
+
+        $writer = new Xlsx($spreadsheet);
+
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Cache-Control' => 'max-age=0',
+        ]);
+    }
+
+    /**
+     * Aggregate complete report dataset for Manufacturing & Parts Report section.
+     */
+    public function exportReportData(Request $request): array
+    {
+        $dashboardController = app(\App\Http\Controllers\DashboardController::class);
+
+        $projectId = $request->input('project_id');
+        $sideFilter = $request->input('side');
+        $scopeLabel = 'All Active Projects';
+        $projectCode = null;
+
+        if ($projectId) {
+            $p = Project::find($projectId);
+            if ($p) {
+                $scopeLabel = "{$p->project_code} - {$p->name}";
+                $projectCode = $p->project_code;
+            }
+        }
+
+        // 1. Priority Map & Units
+        $priorityResponse = $dashboardController->priorityMap($request);
+        $priorityData = $priorityResponse->getData(true);
+        $priorityUnits = $priorityData['units'] ?? [];
+        $prioritySummary = $priorityData['summary_counts'] ?? [];
+
+        // 2. Detailed Parts list for the project / scope with Side separation & Generated Part Numbers
+        $activeProjectsQuery = Project::query();
+        if ($projectId) {
+            $activeProjectsQuery->where('id', $projectId);
+        } else {
+            $activeProjectsQuery->where('status', 'active');
+        }
+        $scopeProjectIds = $activeProjectsQuery->pluck('id')->toArray();
+
+        $bomQuery = BomItem::query()
+            ->with(['project', 'supplier', 'requirements'])
+            ->whereIn('project_id', $scopeProjectIds)
+            ->orderBy('project_id')
+            ->orderBy('jig_no')
+            ->orderBy('unit_no')
+            ->orderBy('standard_part_no');
+
+        $detailedParts = [];
+        foreach ($bomQuery->get() as $b) {
+            $jig = $b->jig_no ?? '';
+            $unitNo = $b->unit_no ?? '';
+            $partNo = $b->standard_part_no ?? '';
+            $projCode = $b->project?->project_code ?? ($b->project?->name ?? '—');
+            $supplierName = $b->supplier?->name ?? $b->supplier_name_raw ?? '—';
+
+            if ($b->requirements->isNotEmpty()) {
+                foreach ($b->requirements as $req) {
+                    $side = $req->side ?: 'COMMON';
+                    if ($sideFilter && $side !== $sideFilter) {
+                        continue;
+                    }
+                    $reqQty = (int) $req->required_quantity;
+                    $recQty = (int) $req->received_quantity;
+                    $pendQty = (int) ($req->pending_quantity > 0 ? $req->pending_quantity : max(0, $reqQty - $recQty));
+                    $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                    $detailedParts[] = [
+                        'project_code' => $projCode,
+                        'jig' => $jig ?: '—',
+                        'unit_no' => $unitNo ?: '—',
+                        'part_no' => $partNo ?: '—',
+                        'item_no' => $b->item_no ?? '—',
+                        'side' => $side,
+                        'qty' => $reqQty,
+                        'part_number' => $partNumber,
+                        'quantity' => $reqQty,
+                        'received_qty' => $recQty,
+                        'pending_qty' => $pendQty,
+                        'supplier' => $supplierName,
+                    ];
+                }
+            } else {
+                $side = $b->side ?: 'COMMON';
+                if ($sideFilter && $side !== $sideFilter) {
+                    continue;
+                }
+                $reqQty = (int) ($b->total_required ?? 0);
+                $recQty = (int) ($b->total_received ?? 0);
+                $pendQty = (int) ($b->total_pending ?? max(0, $reqQty - $recQty));
+                $partNumber = trim($jig) . trim($unitNo) . trim($partNo) . trim($side);
+
+                $detailedParts[] = [
+                    'project_code' => $projCode,
+                    'jig' => $jig ?: '—',
+                    'unit_no' => $unitNo ?: '—',
+                    'part_no' => $partNo ?: '—',
+                    'item_no' => $b->item_no ?? '—',
+                    'side' => $side,
+                    'qty' => $reqQty,
+                    'part_number' => $partNumber,
+                    'quantity' => $reqQty,
+                    'received_qty' => $recQty,
+                    'pending_qty' => $pendQty,
+                    'supplier' => $supplierName,
+                ];
+            }
+        }
+
+        // 3. Daily Department Movement Matrix
+        $movementResponse = $dashboardController->dailyMovement($request);
+        $movementData = $movementResponse->getData(true);
+        $dailyMatrix = $movementData['matrix'] ?? [];
+        $dailyTotals = $movementData['totals'] ?? [];
+
+        // 4. Analytics & Quality Data
+        $analyticsResponse = $dashboardController->managementAnalytics($request);
+        $analyticsData = $analyticsResponse->getData(true);
+
+        return [
+            'scope_label' => $scopeLabel,
+            'project_code' => $projectCode,
+            'generated_at' => now()->format('d-M-Y H:i:s T'),
+            'generated_by' => $request->user()?->name ?? 'FAITH AUTOMATION User',
+            'priority_units' => $priorityUnits,
+            'priority_summary' => $prioritySummary,
+            'detailed_parts' => $detailedParts,
+            'daily_matrix' => $dailyMatrix,
+            'daily_totals' => $dailyTotals,
+            'analytics' => $analyticsData,
+        ];
+    }
+
+    /**
+     * Generate Structured Multi-Sheet Excel Workbook for Report Section.
+     */
+    public function generateReportExcel(array $data): StreamedResponse
+    {
+        $spreadsheet = new Spreadsheet();
+
+        $analytics = $data['analytics'] ?? [];
+        $pri = $analytics['project_readiness_index'] ?? [];
+        $pcr = $analytics['conversion_rate'] ?? [];
+        $qcp = $analytics['quality_cost_pressure'] ?? [];
+
+        // -------------------------------------------------------------
+        // SHEET 1: REPORT SUMMARY & DETAILED PARTS
+        // -------------------------------------------------------------
+        $sheet1 = $spreadsheet->getActiveSheet();
+        $sheet1->setTitle('Report Summary & Parts');
+
+        // Header
+        $sheet1->setCellValue('A1', 'FAITH AUTOMATION — Manufacturing & Parts Tracking Report');
+        $sheet1->getStyle('A1')->getFont()->setBold(true)->setSize(14)->setColor(new Color('0F172A'));
+
+        $sheet1->setCellValue('A2', "SCOPE: {$data['scope_label']} | GENERATED: {$data['generated_at']} | USER: {$data['generated_by']}");
+        $sheet1->getStyle('A2')->getFont()->setSize(9)->setColor(new Color('64748B'));
+
+        // Executive Report KPI Summary Row
+        $readinessScore = $pri['readiness_score'] ?? 0;
+        $yieldScore = $pcr['overall_yield_pct'] ?? 0;
+        $pressureScore = $qcp['pressure_score'] ?? 0;
+        $pressureSeverity = $qcp['severity'] ?? 'LOW';
+
+        $sheet1->setCellValue('A4', 'EXECUTIVE REPORT METRICS:');
+        $sheet1->setCellValue('B4', "Project Readiness: {$readinessScore}%");
+        $sheet1->setCellValue('D4', "Production Yield: {$yieldScore}%");
+        $sheet1->setCellValue('F4', "Quality Pressure: {$pressureScore}/100 ({$pressureSeverity} Risk)");
+        $sheet1->getStyle('A4:F4')->getFont()->setBold(true)->setSize(9)->setColor(new Color('1E293B'));
+        $sheet1->getStyle('A4:M4')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF1F5F9');
+
+        // Table Header
+        $sheet1->setCellValue('A6', '#');
+        $sheet1->setCellValue('B6', 'Project Code');
+        $sheet1->setCellValue('C6', 'Jig');
+        $sheet1->setCellValue('D6', 'Unit No.');
+        $sheet1->setCellValue('E6', 'Part No.');
+        $sheet1->setCellValue('F6', 'Item No.');
+        $sheet1->setCellValue('G6', 'Side');
+        $sheet1->setCellValue('H6', 'Qty');
+        $sheet1->setCellValue('I6', 'Part Number');
+        $sheet1->setCellValue('J6', 'Quantity');
+        $sheet1->setCellValue('K6', 'Received Qty');
+        $sheet1->setCellValue('L6', 'Pending Qty');
+        $sheet1->setCellValue('M6', 'Supplier');
+
+        $sheet1->getStyle('A6:M6')->getFont()->setBold(true)->setColor(new Color('FFFFFF'))->setSize(9);
+        $sheet1->getStyle('A6:M6')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
+        $sheet1->getStyle('A6:M6')->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
+
+        $rowIdx = 7;
+        $itemNum = 1;
+        $totalPieces = 0;
+        foreach ($data['detailed_parts'] as $dp) {
+            $sheet1->setCellValue("A{$rowIdx}", $itemNum++);
+            $sheet1->getStyle("A{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+
+            $sheet1->setCellValueExplicit("B{$rowIdx}", (string) $dp['project_code'], DataType::TYPE_STRING);
+            $sheet1->setCellValueExplicit("C{$rowIdx}", (string) $dp['jig'], DataType::TYPE_STRING);
+            $sheet1->setCellValueExplicit("D{$rowIdx}", (string) $dp['unit_no'], DataType::TYPE_STRING);
+            $sheet1->setCellValueExplicit("E{$rowIdx}", (string) $dp['part_no'], DataType::TYPE_STRING);
+            $sheet1->setCellValueExplicit("F{$rowIdx}", (string) $dp['item_no'], DataType::TYPE_STRING);
+            $sheet1->setCellValue("G{$rowIdx}", $dp['side']);
+            $sheet1->getStyle("G{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            $sheet1->setCellValue("H{$rowIdx}", $dp['qty']);
+            $sheet1->getStyle("H{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            $sheet1->setCellValueExplicit("I{$rowIdx}", (string) $dp['part_number'], DataType::TYPE_STRING);
+            $sheet1->setCellValue("J{$rowIdx}", $dp['quantity']);
+            $sheet1->getStyle("J{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            $sheet1->setCellValue("K{$rowIdx}", $dp['received_qty']);
+            $sheet1->getStyle("K{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            $sheet1->setCellValue("L{$rowIdx}", $dp['pending_qty']);
+            $sheet1->getStyle("L{$rowIdx}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            $sheet1->setCellValue("M{$rowIdx}", $dp['supplier']);
+
+            $totalPieces += (int) $dp['quantity'];
+
+            if ($rowIdx % 2 === 0) {
+                $sheet1->getStyle("A{$rowIdx}:M{$rowIdx}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF8FAFC');
+            }
+            $rowIdx++;
+        }
+
+        $totalRecords = count($data['detailed_parts']);
+        $sheet1->setCellValue("A{$rowIdx}", "TOTAL RECORDS: {$totalRecords} | TOTAL QUANTITY: {$totalPieces} pcs");
+        $sheet1->mergeCells("A{$rowIdx}:M{$rowIdx}");
+        $sheet1->getStyle("A{$rowIdx}")->getFont()->setBold(true)->setSize(9.5)->setColor(new Color('0F172A'));
+        $sheet1->getStyle("A{$rowIdx}:M{$rowIdx}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF1F5F9');
+
+        $sheet1->getStyle("A6:M{$rowIdx}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
+
+        foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'] as $col) {
+            $sheet1->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // -------------------------------------------------------------
+        // SHEET 2: PARTS PRIORITY MAP
+        // -------------------------------------------------------------
+        $sheet2 = $spreadsheet->createSheet();
+        $sheet2->setTitle('Parts Priority Map');
+
+        $sheet2->setCellValue('A1', 'PARTS PRIORITY MAP & UNIT COMPLETION');
+        $sheet2->getStyle('A1')->getFont()->setBold(true)->setSize(12)->setColor(new Color('0F172A'));
+
+        $sheet2->setCellValue('A3', '#');
+        $sheet2->setCellValue('B3', 'Project Code');
+        $sheet2->setCellValue('C3', 'Jig Name');
+        $sheet2->setCellValue('D3', 'Unit No');
+        $sheet2->setCellValue('E3', 'Total Required');
+        $sheet2->setCellValue('F3', 'Total Received');
+        $sheet2->setCellValue('G3', 'Pending Quantity');
+        $sheet2->setCellValue('H3', 'Completion %');
+        $sheet2->setCellValue('I3', 'Priority Tier');
+
+        $sheet2->getStyle('A3:I3')->getFont()->setBold(true)->setColor(new Color('FFFFFF'));
+        $sheet2->getStyle('A3:I3')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
+
+        $pRow = 4;
+        $uIdx = 1;
+        $priorityUnits = $data['priority_units'] ?? [];
+        foreach ($priorityUnits as $u) {
+            $sheet2->setCellValue("A{$pRow}", $uIdx++);
+            $sheet2->getStyle("A{$pRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+            $sheet2->setCellValueExplicit("B{$pRow}", (string) ($u['project_code'] ?? '—'), DataType::TYPE_STRING);
+            $sheet2->setCellValueExplicit("C{$pRow}", (string) ($u['jig_name'] ?? '—'), DataType::TYPE_STRING);
+            $sheet2->setCellValueExplicit("D{$pRow}", (string) ($u['unit_no'] ?? '—'), DataType::TYPE_STRING);
+            $sheet2->setCellValue("E{$pRow}", $u['total_required'] ?? 0);
+            $sheet2->setCellValue("F{$pRow}", $u['total_received'] ?? 0);
+            $sheet2->setCellValue("G{$pRow}", $u['pending_quantity'] ?? 0);
+            $sheet2->setCellValue("H{$pRow}", ($u['completion_pct'] ?? 0) / 100);
+            $sheet2->getStyle("H{$pRow}")->getNumberFormat()->setFormatCode('0.0%');
+            $sheet2->setCellValue("I{$pRow}", $u['priority_tier'] ?? 'LOW');
+
+            if ($pRow % 2 === 0) {
+                $sheet2->getStyle("A{$pRow}:I{$pRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF8FAFC');
+            }
+            $pRow++;
+        }
+
+        $sheet2->getStyle("A3:I" . max($pRow - 1, 3))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
+        foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'] as $col) {
+            $sheet2->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // -------------------------------------------------------------
+        // SHEET 3: DAILY DEPARTMENT MOVEMENTS MATRIX
+        // -------------------------------------------------------------
+        $sheet3 = $spreadsheet->createSheet();
+        $sheet3->setTitle('Daily Movements Matrix');
+
+        $sheet3->setCellValue('A1', 'DAILY DEPARTMENT PARTS MOVEMENT MATRIX');
+        $sheet3->getStyle('A1')->getFont()->setBold(true)->setSize(12)->setColor(new Color('0F172A'));
+
+        $sheet3->setCellValue('A3', 'Date');
+        $sheet3->setCellValue('B3', 'Store Received');
+        $sheet3->setCellValue('C3', 'QC Inspected');
+        $sheet3->setCellValue('D3', 'Rework Queue');
+        $sheet3->setCellValue('E3', 'Paint Shop');
+        $sheet3->setCellValue('F3', 'Assembly Shop');
+        $sheet3->setCellValue('G3', 'Daily Total Parts');
+
+        $sheet3->getStyle('A3:G3')->getFont()->setBold(true)->setColor(new Color('FFFFFF'));
+        $sheet3->getStyle('A3:G3')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
+
+        $mRow = 4;
+        foreach ($data['daily_matrix'] as $row) {
+            $sheet3->setCellValue("A{$mRow}", $row['formatted_date'] ?? $row['date']);
+            $sheet3->setCellValue("B{$mRow}", $row['store_received'] ?? 0);
+            $sheet3->setCellValue("C{$mRow}", $row['qc_inspected'] ?? 0);
+            $sheet3->setCellValue("D{$mRow}", $row['rework'] ?? 0);
+            $sheet3->setCellValue("E{$mRow}", $row['paint'] ?? 0);
+            $sheet3->setCellValue("F{$mRow}", $row['assembly'] ?? 0);
+            $sheet3->setCellValue("G{$mRow}", $row['total_day'] ?? 0);
+
+            if ($mRow % 2 === 0) {
+                $sheet3->getStyle("A{$mRow}:G{$mRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF8FAFC');
+            }
+            $mRow++;
+        }
+
+        $totals = $data['daily_totals'] ?? [];
+        $sheet3->setCellValue("A{$mRow}", 'TOTAL FOR DISPLAYED PERIOD');
+        $sheet3->setCellValue("B{$mRow}", $totals['store_received'] ?? 0);
+        $sheet3->setCellValue("C{$mRow}", $totals['qc_inspected'] ?? 0);
+        $sheet3->setCellValue("D{$mRow}", $totals['rework'] ?? 0);
+        $sheet3->setCellValue("E{$mRow}", $totals['paint'] ?? 0);
+        $sheet3->setCellValue("F{$mRow}", $totals['assembly'] ?? 0);
+        $sheet3->setCellValue("G{$mRow}", $totals['grand_total'] ?? 0);
+        $sheet3->getStyle("A{$mRow}:G{$mRow}")->getFont()->setBold(true);
+        $sheet3->getStyle("A{$mRow}:G{$mRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFEF08A');
+
+        $sheet3->getStyle("A3:G{$mRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
+
+        foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G'] as $col) {
+            $sheet3->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // -------------------------------------------------------------
+        // SHEET 4: PRODUCTION & QUALITY ANALYTICS
+        // -------------------------------------------------------------
+        $sheet4 = $spreadsheet->createSheet();
+        $sheet4->setTitle('Production Analytics');
+
+        $sheet4->setCellValue('A1', 'PROJECT & PRODUCTION QUALITY ANALYTICS');
+        $sheet4->getStyle('A1')->getFont()->setBold(true)->setSize(12)->setColor(new Color('0F172A'));
+
+        // Section 1: PRI
+        $sheet4->setCellValue('A3', '1. PROJECT READINESS INDEX (PRI)');
+        $sheet4->getStyle('A3')->getFont()->setBold(true)->setColor(new Color('2563EB'));
+        $sheet4->setCellValue('A4', 'Overall Readiness Score:');
+        $sheet4->setCellValue('B4', ($pri['readiness_score'] ?? 0) . '%');
+        $sheet4->setCellValue('A5', 'Stage Breakdown:');
+
+        $stgRow = 6;
+        foreach ($pri['breakdown'] ?? [] as $stg) {
+            $sheet4->setCellValue("A{$stgRow}", $stg['stage'] ?? '');
+            $sheet4->setCellValue("B{$stgRow}", ($stg['count'] ?? 0) . ' pcs');
+            $sheet4->setCellValue("C{$stgRow}", ($stg['percent'] ?? 0) . '%');
+            $stgRow++;
+        }
+
+        // Section 2: PCR
+        $pcrStart = $stgRow + 1;
+        $sheet4->setCellValue("A{$pcrStart}", '2. PRODUCTION CONVERSION RATE (PCR)');
+        $sheet4->getStyle("A{$pcrStart}")->getFont()->setBold(true)->setColor(new Color('16A34A'));
+        $sheet4->setCellValue("A" . ($pcrStart + 1), 'Store Intake:');
+        $sheet4->setCellValue("B" . ($pcrStart + 1), ($pcr['store_intake'] ?? 0) . ' pcs');
+        $sheet4->setCellValue("A" . ($pcrStart + 2), 'QC Approved:');
+        $sheet4->setCellValue("B" . ($pcrStart + 2), ($pcr['qc_approved'] ?? 0) . ' pcs (' . ($pcr['qc_conversion_pct'] ?? 0) . '%)');
+        $sheet4->setCellValue("A" . ($pcrStart + 3), 'Paint Throughput:');
+        $sheet4->setCellValue("B" . ($pcrStart + 3), ($pcr['paint_completed'] ?? 0) . ' pcs (' . ($pcr['paint_conversion_pct'] ?? 0) . '%)');
+        $sheet4->setCellValue("A" . ($pcrStart + 4), 'Final Assembly:');
+        $sheet4->setCellValue("B" . ($pcrStart + 4), ($pcr['final_assembled'] ?? 0) . ' pcs (' . ($pcr['assembly_conversion_pct'] ?? 0) . '%)');
+        $sheet4->setCellValue("A" . ($pcrStart + 5), 'Overall Yield:');
+        $sheet4->setCellValue("B" . ($pcrStart + 5), ($pcr['overall_yield_pct'] ?? 0) . '%');
+
+        // Section 3: Quality Cost Pressure
+        $qcpStart = $pcrStart + 7;
+        $sheet4->setCellValue("A{$qcpStart}", '3. QUALITY COST PRESSURE SCORE');
+        $sheet4->getStyle("A{$qcpStart}")->getFont()->setBold(true)->setColor(new Color('D97706'));
+        $sheet4->setCellValue("A" . ($qcpStart + 1), 'Pressure Score:');
+        $sheet4->setCellValue("B" . ($qcpStart + 1), ($qcp['pressure_score'] ?? 0) . ' / 100 (' . ($qcp['severity'] ?? 'LOW') . ' RISK)');
+        $sheet4->setCellValue("A" . ($qcpStart + 2), 'Scrap Rejections:');
+        $sheet4->setCellValue("B" . ($qcpStart + 2), ($qcp['scrap_rejections'] ?? 0) . ' pieces in reorder queue');
+        $sheet4->setCellValue("A" . ($qcpStart + 3), 'Rework Work Orders:');
+        $sheet4->setCellValue("B" . ($qcpStart + 3), ($qcp['rework_events'] ?? 0) . ' work orders');
+
+        foreach (['A', 'B', 'C', 'D'] as $col) {
+            $sheet4->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // IMPORTANT: Ensure Sheet 1 (Report Summary & Parts) is ALWAYS the open active sheet in Excel
+        $spreadsheet->setActiveSheetIndex(0);
+
+        $scopeTag = $data['project_code'] ?: 'All_Projects';
+        $timestamp = now()->format('Ymd_His');
+        $filename = "SpareTrack_Report_{$scopeTag}_{$timestamp}.xlsx";
+
+        $writer = new Xlsx($spreadsheet);
+
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Cache-Control' => 'max-age=0',
+        ]);
     }
 }

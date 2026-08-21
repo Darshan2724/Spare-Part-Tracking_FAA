@@ -200,6 +200,7 @@
         .badge-danger    { background-color: #ef4444; color: #fff; }
         .badge-warning   { background-color: #f59e0b; color: #fff; }
         .badge-secondary { background-color: #64748b; color: #fff; }
+        .badge-info      { background-color: #0284c7; color: #fff; }
         .badge-dark      { background-color: #0f172a; color: #fff; }
 
         .footer-table {
@@ -213,10 +214,14 @@
             font-size: 7.5px;
             color: #64748b;
         }
-        .text-center { text-align: center; }
-        .text-right  { text-align: right; }
-        .fw-bold     { font-weight: bold; }
-        .page-break  { page-break-after: always; }
+        .text-center     { text-align: center; }
+        .text-right      { text-align: right; }
+        .text-muted      { color: #64748b; }
+        .text-success    { color: #16a34a; }
+        .text-danger     { color: #dc2626; }
+        .fw-bold         { font-weight: bold; }
+        .font-monospace  { font-family: 'Courier New', Courier, monospace; font-size: 8px; }
+        .page-break      { page-break-after: always; }
     </style>
 </head>
 <body>
@@ -540,6 +545,66 @@
                 </tbody>
             </table>
         @endif
+    @endif
+
+    <!-- ========================================================================= -->
+    <!-- DETAILED PARTS BREAKDOWN (SIDE-SEPARATED + GENERATED PART NUMBER)         -->
+    <!-- ========================================================================= -->
+    @if(!empty($detailed_parts) && count($detailed_parts) > 0)
+        <div class="page-break"></div>
+
+        <!-- Page Header -->
+        <table class="header-table">
+            <tr>
+                <td>
+                    <div class="brand-title">FAITH AUTOMATION — Detailed Parts Breakdown</div>
+                    <div class="report-subtitle">{{ $scope_label }} &bull; Side-Separated Records with Generated Part Number &amp; Quantity</div>
+                </td>
+                <td class="text-right">
+                    <div style="font-size: 7.5px; color: #64748b;">
+                        <strong>Total Parts:</strong> {{ count($detailed_parts) }} records ({{ array_sum(array_column($detailed_parts, 'quantity')) }} pcs) &bull; <strong>Generated:</strong> {{ $generated_at }}
+                    </div>
+                </td>
+            </tr>
+        </table>
+
+        <div class="section-heading">Detailed BOM Parts &bull; Side Separation &amp; Unique Identifiers</div>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 3%; text-align: center;">#</th>
+                    <th style="width: 10%;">Project Code</th>
+                    <th style="width: 10%;">Jig</th>
+                    <th style="width: 8%;">Unit No.</th>
+                    <th style="width: 12%;">Part No.</th>
+                    <th style="width: 6%; text-align: center;">Side</th>
+                    <th style="width: 5%; text-align: center;">Qty</th>
+                    <th style="width: 25%;">Part Number</th>
+                    <th style="width: 6%; text-align: center;">Quantity</th>
+                    <th style="width: 15%;">Supplier</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($detailed_parts as $idx => $part)
+                    <tr>
+                        <td class="text-center text-muted">{{ $idx + 1 }}</td>
+                        <td class="fw-bold" style="color: #2563eb;">{{ $part['project_code'] }}</td>
+                        <td>{{ $part['jig'] }}</td>
+                        <td>{{ $part['unit_no'] }}</td>
+                        <td class="fw-bold">{{ $part['part_no'] }}</td>
+                        <td class="text-center">
+                            <span class="badge {{ $part['side'] === 'RH' ? 'badge-primary' : ($part['side'] === 'LH' ? 'badge-info' : 'badge-secondary') }}">
+                                {{ $part['side'] }}
+                            </span>
+                        </td>
+                        <td class="text-center fw-bold">{{ $part['qty'] }}</td>
+                        <td class="font-monospace fw-bold" style="color: #0f172a;">{{ $part['part_number'] }}</td>
+                        <td class="text-center fw-bold text-success">{{ $part['quantity'] }}</td>
+                        <td class="text-muted">{{ $part['supplier'] ?? '—' }}</td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
     @endif
 
     <!-- Footer -->

@@ -355,47 +355,57 @@ class BomImportService
                 $rowErrors[] = "Row {$r}: Part No cannot be blank.";
             }
 
-            // Side normalization & validation
-            $side = $this->normalizeSide($sideRaw);
-            if ($side === null) {
-                $rowErrors[] = "Row {$r}: Invalid Side '{$sideRaw}'. Must be RH (or R), LH (or L), or COMMON.";
-            }
-
             // Qty validation
             $qty = $this->parseQuantity($qtyRaw);
             if ($qty === null || $qty <= 0) {
                 $rowErrors[] = "Row {$r}: Qty must be a positive integer (found '{$qtyRaw}').";
             }
 
-            // Duplicate detection
-            $comboKey = "{$projectCode}|{$jigNo}|{$unitNo}|{$partNo}|{$side}";
-            if (isset($seenCombinations[$comboKey])) {
-                $prevRow = $seenCombinations[$comboKey];
-                $rowErrors[] = "Row {$r}: Duplicate combination for Project '{$projectCode}', Jig '{$jigNo}', Unit '{$unitNo}', Part '{$partNo}', Side '{$side}' (first seen on Row {$prevRow}).";
-            } else {
-                $seenCombinations[$comboKey] = $r;
+            // Side normalization & validation (Supports separated LH/RH for multi-side rows)
+            $parsedSides = $qty ? $this->parseSidesAndQuantities($sideRaw, $qty) : null;
+            if ($parsedSides === null) {
+                $rowErrors[] = "Row {$r}: Invalid Side '{$sideRaw}'. Must be RH (or R), LH (or L), or COMMON.";
+            }
+
+            // Duplicate detection across split sides
+            if ($parsedSides !== null) {
+                foreach ($parsedSides as $ps) {
+                    $s = $ps['side'];
+                    $comboKey = "{$projectCode}|{$jigNo}|{$unitNo}|{$partNo}|{$s}";
+                    if (isset($seenCombinations[$comboKey])) {
+                        $prevRow = $seenCombinations[$comboKey];
+                        $rowErrors[] = "Row {$r}: Duplicate combination for Project '{$projectCode}', Jig '{$jigNo}', Unit '{$unitNo}', Part '{$partNo}', Side '{$s}' (first seen on Row {$prevRow}).";
+                    }
+                }
             }
 
             if (!empty($rowErrors)) {
                 $errors = array_merge($errors, $rowErrors);
             } else {
-                $validRows[] = [
-                    'row_number' => $r,
-                    'project_code' => $projectCode,
-                    'jig_no' => $jigNo,
-                    'unit_no' => $unitNo,
-                    'part_no' => $partNo,
-                    'side' => $side,
-                    'qty' => $qty,
-                ];
+                foreach ($parsedSides as $ps) {
+                    $s = $ps['side'];
+                    $sideQty = $ps['qty'];
+                    $comboKey = "{$projectCode}|{$jigNo}|{$unitNo}|{$partNo}|{$s}";
+                    $seenCombinations[$comboKey] = $r;
 
-                $uniqueProjects[$projectCode] = true;
-                $uniqueJigs[$jigNo] = true;
-                $uniqueUnits[$unitNo] = true;
-                $uniqueParts[$partNo] = true;
-                $sideStats[$side]['count']++;
-                $sideStats[$side]['qty'] += $qty;
-                $totalRequiredQuantity += $qty;
+                    $validRows[] = [
+                        'row_number' => $r,
+                        'project_code' => $projectCode,
+                        'jig_no' => $jigNo,
+                        'unit_no' => $unitNo,
+                        'part_no' => $partNo,
+                        'side' => $s,
+                        'qty' => $sideQty,
+                    ];
+
+                    $uniqueProjects[$projectCode] = true;
+                    $uniqueJigs[$jigNo] = true;
+                    $uniqueUnits[$unitNo] = true;
+                    $uniqueParts[$partNo] = true;
+                    $sideStats[$s]['count']++;
+                    $sideStats[$s]['qty'] += $sideQty;
+                    $totalRequiredQuantity += $sideQty;
+                }
             }
         }
 
@@ -469,6 +479,47 @@ class BomImportService
         }
         if (in_array($upper, ['C', 'COM', 'COMMON', 'BOTH'], true)) {
             return 'COMMON';
+        }
+
+        return null;
+    }
+
+    /**
+     * Parse and separate sides and allocate exact quantities without doubling.
+     */
+    protected function parseSidesAndQuantities(string $sideRaw, int $totalQty): ?array
+    {
+        $clean = strtoupper(trim($sideRaw));
+
+        // Direct single sides
+        if (in_array($clean, ['R', 'RH', 'RIGHT'], true)) {
+            return [['side' => 'RH', 'qty' => $totalQty]];
+        }
+        if (in_array($clean, ['L', 'LH', 'LEFT'], true)) {
+            return [['side' => 'LH', 'qty' => $totalQty]];
+        }
+        if (in_array($clean, ['C', 'COM', 'COMMON'], true)) {
+            return [['side' => 'COMMON', 'qty' => $totalQty]];
+        }
+
+        // Multi-side representations: "LH, RH", "LH,RH", "L, R", "L/R", "LH / RH", "RH, LH", "BOTH"
+        if (in_array($clean, ['BOTH', 'L, R', 'L,R', 'L/R', 'LH, RH', 'LH,RH', 'LH/RH', 'RH, LH', 'RH,LH', 'RH/LH', 'LH & RH', 'RH & LH', 'L & R'], true)
+            || (str_contains($clean, 'LH') && str_contains($clean, 'RH'))
+            || (str_contains($clean, 'L') && str_contains($clean, 'R') && strlen($clean) <= 6)
+        ) {
+            // Allocate total quantity without doubling: Original Quantity = Total Represented Quantity
+            if ($totalQty >= 2) {
+                $half = (int) floor($totalQty / 2);
+                $rem = $totalQty - ($half * 2);
+                return [
+                    ['side' => 'LH', 'qty' => $half + $rem],
+                    ['side' => 'RH', 'qty' => $half],
+                ];
+            } else {
+                return [
+                    ['side' => 'COMMON', 'qty' => $totalQty],
+                ];
+            }
         }
 
         return null;
