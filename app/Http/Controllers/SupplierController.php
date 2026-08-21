@@ -17,14 +17,14 @@ class SupplierController extends Controller
         if ($request->filled('search')) {
             $search = trim($request->input('search'));
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'ILIKE', "%{$search}%")
-                  ->orWhere('code', 'ILIKE', "%{$search}%")
-                  ->orWhere('contact_person', 'ILIKE', "%{$search}%")
-                  ->orWhere('email', 'ILIKE', "%{$search}%");
+                $q->where('name', 'LIKE', "%{$search}%")
+                  ->orWhere('code', 'LIKE', "%{$search}%")
+                  ->orWhere('contact_person', 'LIKE', "%{$search}%")
+                  ->orWhere('email', 'LIKE', "%{$search}%");
             });
         }
 
-        $suppliers = $query->orderBy('name')->paginate(20);
+        $suppliers = $query->orderBy('code')->orderBy('name')->paginate(50);
 
         return response()->json($suppliers);
     }
@@ -41,24 +41,37 @@ class SupplierController extends Controller
             'email' => ['nullable', 'email', 'max:255'],
             'address' => ['nullable', 'string', 'max:1000'],
             'remarks' => ['nullable', 'string', 'max:1000'],
+            'is_active' => ['nullable', 'boolean'],
         ]);
 
+        $code = trim($request->input('code') ?? '');
+        if (!$code) {
+            $count = Supplier::withTrashed()->count();
+            $code = sprintf('SUP-%03d', $count + 1);
+            while (Supplier::withTrashed()->where('code', $code)->exists()) {
+                $count++;
+                $code = sprintf('SUP-%03d', $count + 1);
+            }
+        } else {
+            $code = strtoupper($code);
+        }
+
         $supplier = Supplier::create([
-            'name' => $request->input('name'),
-            'code' => $request->input('code') ?: Str::slug($request->input('name')),
+            'name' => trim($request->input('name')),
+            'code' => $code,
             'contact_person' => $request->input('contact_person'),
             'phone' => $request->input('phone'),
             'email' => $request->input('email'),
             'address' => $request->input('address'),
             'remarks' => $request->input('remarks'),
-            'is_active' => true,
+            'is_active' => $request->has('is_active') ? $request->boolean('is_active') : true,
         ]);
 
         return response()->json([
             'success' => true,
-            'message' => 'Supplier created successfully.',
+            'message' => 'Supplier added successfully.',
             'supplier' => $supplier,
-        ]);
+        ], 201);
     }
 
     public function update(Request $request, int $id)

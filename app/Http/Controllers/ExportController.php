@@ -47,4 +47,21 @@ class ExportController extends Controller
 
         return $this->exportService->generateDashboardExcel($data);
     }
+
+    /**
+     * Export Endpoint for Supplier Management Directory
+     */
+    public function exportSuppliers(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'PURCHASE']) ?: abort(403);
+
+        $format = strtolower($request->input('format', 'excel'));
+        $data = $this->exportService->exportSuppliersData($request);
+
+        if ($format === 'pdf') {
+            return $this->exportService->generateSuppliersPdf($data);
+        }
+
+        return $this->exportService->generateSuppliersExcel($data);
+    }
 }

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Project;
 use App\Models\BomItem;
+use App\Models\Supplier;
 use App\Services\QuantityCalculationService;
 use App\Services\HierarchyService;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -642,13 +643,132 @@ class ExportService
         }
 
         // 6. Borders & Auto-column sizing
-        $tableRange = "A{$startRow}:{$lastCol}" . max($currentRow - 1, $startRow);
-        $sheet->getStyle($tableRange)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
+        $filename = $data['filename'] . '.xlsx';
+        $writer = new Xlsx($spreadsheet);
 
-        $colChar = 'A';
-        foreach ($data['columns'] as $col) {
-            $sheet->getColumnDimension($colChar)->setAutoSize(true);
-            $colChar++;
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Cache-Control' => 'max-age=0',
+        ]);
+    }
+
+    /**
+     * Build Supplier dataset for Excel and PDF exports.
+     */
+    public function exportSuppliersData(Request $request): array
+    {
+        $query = Supplier::query()->orderBy('code')->orderBy('name');
+
+        if ($request->filled('search')) {
+            $search = trim($request->input('search'));
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'LIKE', "%{$search}%")
+                  ->orWhere('code', 'LIKE', "%{$search}%")
+                  ->orWhere('contact_person', 'LIKE', "%{$search}%")
+                  ->orWhere('email', 'LIKE', "%{$search}%");
+            });
+        }
+
+        $suppliers = $query->get();
+
+        $rows = [];
+        $activeCount = 0;
+        foreach ($suppliers as $s) {
+            if ($s->is_active) $activeCount++;
+            $rows[] = [
+                'code' => $s->code,
+                'name' => $s->name,
+                'contact_person' => $s->contact_person ?? '—',
+                'phone' => $s->phone ?? '—',
+                'email' => $s->email ?? '—',
+                'address' => $s->address ?? '—',
+                'is_active' => (bool) $s->is_active,
+                'status' => $s->is_active ? 'Active' : 'Inactive',
+            ];
+        }
+
+        $timestamp = now()->format('Ymd_His');
+        $filename = "SpareTrack_Suppliers_{$timestamp}";
+
+        return [
+            'title' => 'Supplier Management Directory',
+            'rows' => $rows,
+            'active_count' => $activeCount,
+            'generated_at' => now()->format('d-M-Y H:i:s T'),
+            'generated_by' => $request->user()?->name ?? 'FAITH AUTOMATION User',
+            'filename' => $filename,
+        ];
+    }
+
+    /**
+     * Generate Styled Excel (.xlsx) file for Suppliers.
+     */
+    public function generateSuppliersExcel(array $data): StreamedResponse
+    {
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Suppliers');
+
+        // 1. Company Brand Banner
+        $sheet->setCellValue('A1', 'FAITH AUTOMATION — Industrial Spare Parts Tracking System');
+        $sheet->mergeCells('A1:G1');
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14)->setColor(new Color('0F172A'));
+        $sheet->getRowDimension(1)->setRowHeight(24);
+
+        // 2. Subtitle
+        $sheet->setCellValue('A2', 'SpareTrack — Supplier Management Registry');
+        $sheet->mergeCells('A2:G2');
+        $sheet->getStyle('A2')->getFont()->setBold(true)->setSize(11)->setColor(new Color('2563EB'));
+
+        // 3. Metadata Box
+        $sheet->setCellValue('A3', 'Total Suppliers: ' . count($data['rows']) . '   |   Generated: ' . $data['generated_at'] . '   |   By: ' . $data['generated_by']);
+        $sheet->mergeCells('A3:G3');
+        $sheet->getStyle('A3')->getFont()->setItalic(true)->setSize(9)->setColor(new Color('64748B'));
+        $sheet->getRowDimension(3)->setRowHeight(18);
+
+        // 4. Headers
+        $headers = [
+            'A5' => 'Supplier Code',
+            'B5' => 'Supplier Name',
+            'C5' => 'Contact Person',
+            'D5' => 'Phone',
+            'E5' => 'Email',
+            'F5' => 'Status',
+            'G5' => 'Address',
+        ];
+
+        foreach ($headers as $cell => $text) {
+            $sheet->setCellValue($cell, $text);
+        }
+
+        $sheet->getStyle('A5:G5')->getFont()->setBold(true)->setColor(new Color('FFFFFF'));
+        $sheet->getStyle('A5:G5')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF0F172A');
+        $sheet->getStyle('A5:G5')->getAlignment()->setVertical(Alignment::VERTICAL_CENTER);
+        $sheet->getRowDimension(5)->setRowHeight(22);
+
+        // 5. Data Rows
+        $rowIdx = 6;
+        foreach ($data['rows'] as $row) {
+            $sheet->setCellValue('A' . $rowIdx, $row['code']);
+            $sheet->setCellValue('B' . $rowIdx, $row['name']);
+            $sheet->setCellValue('C' . $rowIdx, $row['contact_person']);
+            $sheet->setCellValue('D' . $rowIdx, $row['phone']);
+            $sheet->setCellValue('E' . $rowIdx, $row['email']);
+            $sheet->setCellValue('F' . $rowIdx, $row['status']);
+            $sheet->setCellValue('G' . $rowIdx, $row['address']);
+
+            if ($rowIdx % 2 === 0) {
+                $sheet->getStyle("A{$rowIdx}:G{$rowIdx}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF8FAFC');
+            }
+            $rowIdx++;
+        }
+
+        $sheet->getStyle("A5:G" . max($rowIdx - 1, 5))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FFCBD5E1');
+
+        foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G'] as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
         }
 
         $filename = $data['filename'] . '.xlsx';
@@ -660,5 +780,22 @@ class ExportService
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Cache-Control' => 'max-age=0',
         ]);
+    }
+
+    /**
+     * Generate Styled Landscape PDF download for Suppliers using DomPDF.
+     */
+    public function generateSuppliersPdf(array $data)
+    {
+        $pdf = Pdf::loadView('exports.suppliers_pdf', $data)
+            ->setPaper('a4', 'landscape')
+            ->setOptions([
+                'isHtml5ParserEnabled' => true,
+                'isRemoteEnabled' => true,
+                'defaultFont' => 'sans-serif',
+            ]);
+
+        $filename = $data['filename'] . '.pdf';
+        return $pdf->download($filename);
     }
 }
