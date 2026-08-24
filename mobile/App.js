@@ -306,6 +306,20 @@ function App() {
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [unitSideTab, setUnitSideTab] = useState('LH'); // 'LH' | 'RH'
 
+  // In-Memory Tab Data Cache for Instant Zero-Delay Tab Switching
+  const mobileCacheRef = useRef(new Map());
+  const invalidateMobileCache = (prefix = '') => {
+    if (!prefix) {
+      mobileCacheRef.current.clear();
+      return;
+    }
+    for (const key of Array.from(mobileCacheRef.current.keys())) {
+      if (key.includes(prefix) || key.startsWith(prefix)) {
+        mobileCacheRef.current.delete(key);
+      }
+    }
+  };
+
   const getItemSelectionKey = (item, side = unitSideTab) => `${item.id}_${side}`;
 
   const toggleSelection = (item, side = unitSideTab) => {
@@ -484,10 +498,34 @@ function App() {
     return [];
   };
 
-  const loadData = async (tab = activeTab, showSpinner = true, customSearch = null) => {
-    if (showSpinner) setLoading(true);
+  const loadData = async (tab = activeTab, showSpinner = true, customSearch = null, forceFresh = false) => {
+    const activeSearch = customSearch !== null ? customSearch : (tabSearches[getCurrentSearchKey(tab, storeSubTab, qcSubTab)] || '');
+    const cacheKey = `${tab}_${storeSubTab}_${qcSubTab}_${selectedProject || ''}_${selectedSide || ''}_${activeSearch}`;
+
+    // 1. Check in-memory cache for instant zero-delay render
+    const cachedEntry = mobileCacheRef.current.get(cacheKey);
+    if (cachedEntry && !forceFresh) {
+      if (tab === 'dashboard') {
+        setSummary(cachedEntry);
+      } else if (tab === 'store' && storeSubTab === 'history') {
+        setHistoryItems(cachedEntry);
+      } else if (tab === 'store' && storeSubTab === 'returned') {
+        setReturnedItems(cachedEntry);
+      } else if (tab === 'purchase') {
+        setItems(cachedEntry);
+      } else {
+        if (cachedEntry.projects) setProjects(cachedEntry.projects);
+        if (cachedEntry.is_hierarchical) {
+          setHierarchyJigs(cachedEntry.jigs || []);
+          setHierarchyProject(cachedEntry.project || null);
+        }
+      }
+      if (showSpinner) setLoading(false);
+    } else if (showSpinner) {
+      setLoading(true);
+    }
+
     try {
-      const activeSearch = customSearch !== null ? customSearch : (tabSearches[getCurrentSearchKey(tab, storeSubTab, qcSubTab)] || '');
       const params = { per_page: 100 };
       if (activeSearch) params.search = activeSearch;
       if (selectedSide) params.side = selectedSide;
@@ -495,20 +533,29 @@ function App() {
 
       if (tab === 'dashboard') {
         const res = await apiClient.get('/dashboard/summary', { params });
-        setSummary(res.data.summary || res.data);
+        const data = res.data.summary || res.data;
+        mobileCacheRef.current.set(cacheKey, data);
+        setSummary(data);
       } else if (tab === 'store' && storeSubTab === 'history') {
         const res = await apiClient.get('/store/history', { params });
-        setHistoryItems(extractArray(res.data));
+        const data = extractArray(res.data);
+        mobileCacheRef.current.set(cacheKey, data);
+        setHistoryItems(data);
       } else if (tab === 'store' && storeSubTab === 'returned') {
         const res = await apiClient.get('/store/returned', { params });
-        setReturnedItems(extractArray(res.data));
+        const data = extractArray(res.data);
+        mobileCacheRef.current.set(cacheKey, data);
+        setReturnedItems(data);
       } else if (tab === 'purchase') {
         const res = await apiClient.get('/purchase/items', { params });
-        setItems(extractArray(res.data));
+        const data = extractArray(res.data);
+        mobileCacheRef.current.set(cacheKey, data);
+        setItems(data);
       } else {
         // Operational department hierarchy: store, qc, rework, paint, assembly
         const hierarchyEndpoint = `/${tab}/hierarchy`;
         const res = await apiClient.get(hierarchyEndpoint, { params: { project_id: selectedProject, side: selectedSide, search: activeSearch } });
+        mobileCacheRef.current.set(cacheKey, res.data);
         if (res.data.projects) setProjects(res.data.projects);
         if (res.data.is_hierarchical) {
           const updatedJigs = res.data.jigs || [];
@@ -665,7 +712,10 @@ function App() {
 
       setShowReceiveModal(false);
       showToast(`Received ${qty} pcs (${receiveSide}) for ${selectedItemForReceive.standard_part_no}`);
-      loadData('store', false);
+      invalidateMobileCache('store');
+      invalidateMobileCache('dashboard');
+      invalidateMobileCache('qc');
+      loadData('store', false, null, true);
     } catch (err) {
       Alert.alert('Receive Failed', err.response?.data?.message || 'Could not record store receipt.');
     } finally {
@@ -677,7 +727,9 @@ function App() {
     try {
       await apiClient.post(`/store/items/${itemId}/send-to-qc`);
       showToast('Item dispatched to QC queue');
-      loadData('store', false);
+      invalidateMobileCache('store');
+      invalidateMobileCache('qc');
+      loadData('store', false, null, true);
     } catch (err) {
       Alert.alert('Error', err.response?.data?.message || 'Failed to dispatch item to QC.');
     }
@@ -696,7 +748,10 @@ function App() {
             try {
               const res = await apiClient.post(`/store/items/${historyItem.id}/revert`);
               showToast(res.data.message || 'Stock receipt successfully undone.');
-              loadData('store', false);
+              invalidateMobileCache('store');
+              invalidateMobileCache('dashboard');
+              invalidateMobileCache('qc');
+              loadData('store', false, null, true);
             } catch (err) {
               Alert.alert('Revert Failed', err.response?.data?.message || 'Could not revert stock receipt.');
             }
@@ -859,7 +914,12 @@ function App() {
 
       setShowQcModal(false);
       showToast(`QC ${qcResult.toUpperCase()}: ${selectedQcItem.bom_item?.standard_part_no || 'Item'} (${payloadSide})`);
-      loadData('qc', false);
+      invalidateMobileCache('qc');
+      invalidateMobileCache('dashboard');
+      invalidateMobileCache('paint');
+      invalidateMobileCache('rework');
+      invalidateMobileCache('assembly');
+      loadData('qc', false, null, true);
     } catch (err) {
       Alert.alert('Inspection Failed', err.response?.data?.message || 'Could not record QC inspection.');
     }
@@ -908,7 +968,10 @@ function App() {
       }
       setShowReworkModal(false);
       showToast(`Rework Completed: ${qty} pcs returned to QC Quality Inspection.`);
-      loadData('rework', false);
+      invalidateMobileCache('rework');
+      invalidateMobileCache('qc');
+      invalidateMobileCache('dashboard');
+      loadData('rework', false, null, true);
     } catch (err) {
       Alert.alert('Error', err.response?.data?.message || 'Could not complete rework.');
     }
@@ -930,7 +993,9 @@ function App() {
                 remarks: `Processed via Mobile Store App as ${action}`,
               });
               showToast(`Processed as ${action}: ${item.bom_item?.standard_part_no || 'Item'}`);
-              loadData('store', false);
+              invalidateMobileCache('store');
+              invalidateMobileCache('dashboard');
+              loadData('store', false, null, true);
             } catch (err) {
               Alert.alert('Error', err.response?.data?.message || 'Failed to process returned item.');
             }
@@ -971,7 +1036,10 @@ function App() {
       await apiClient.post('/paint/items', payload);
       setShowPaintModal(false);
       showToast(`Paint Completed: ${qty} pcs of ${selectedPaintItem.bom_item?.standard_part_no || 'Part'}`);
-      loadData('paint', false);
+      invalidateMobileCache('paint');
+      invalidateMobileCache('assembly');
+      invalidateMobileCache('dashboard');
+      loadData('paint', false, null, true);
     } catch (err) {
       Alert.alert('Action Failed', err.response?.data?.message || 'Could not complete paint process.');
     }
@@ -1019,7 +1087,9 @@ function App() {
       const res = await apiClient.post('/assembly/items', payload);
       setShowAssemblyModal(false);
       showToast(res.data?.message || `Assembly Completed: ${qty} pcs of ${part.standard_part_no} (${unitSideTab})`);
-      await loadData('assembly', false);
+      invalidateMobileCache('assembly');
+      invalidateMobileCache('dashboard');
+      await loadData('assembly', false, null, true);
     } catch (err) {
       Alert.alert('Action Failed', err.response?.data?.message || err.message || 'Could not complete assembly.');
     } finally {

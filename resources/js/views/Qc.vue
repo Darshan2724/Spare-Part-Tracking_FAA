@@ -589,9 +589,11 @@
 <script setup>
 import { onMounted, ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
+import { useAppCacheStore } from '@/stores/cache';
 import axios from 'axios';
 
 const authStore = useAuthStore();
+const cacheStore = useAppCacheStore();
 const projects = ref([]);
 const jigs = ref([]);
 const activeProject = ref(null);
@@ -651,17 +653,18 @@ const inspectForm = ref({
 
 let searchDebounce = null;
 
-const loadHierarchy = async () => {
-  try {
-    const params = new URLSearchParams();
-    if (projectId.value) params.append('project_id', projectId.value);
-    if (selectedSide.value) params.append('side', selectedSide.value);
+const loadHierarchy = async (forceFresh = false) => {
+  const params = new URLSearchParams();
+  if (projectId.value) params.append('project_id', projectId.value);
+  if (selectedSide.value) params.append('side', selectedSide.value);
 
-    const response = await axios.get(`/api/v1/qc/hierarchy?${params.toString()}`);
-    if (response.data.is_hierarchical) {
-      activeProject.value = response.data.project;
-      jigs.value = response.data.jigs || [];
-      projects.value = response.data.projects || [];
+  const cacheKey = `qc_hierarchy_${params.toString()}`;
+
+  const applyData = (data) => {
+    if (data.is_hierarchical) {
+      activeProject.value = data.project;
+      jigs.value = data.jigs || [];
+      projects.value = data.projects || [];
 
       // Preserve selected JIG & Unit pointers
       if (selectedJig.value) {
@@ -673,12 +676,23 @@ const loadHierarchy = async () => {
         }
       }
     } else {
-      projects.value = response.data.projects || [];
+      projects.value = data.projects || [];
       jigs.value = [];
       activeProject.value = null;
       selectedJig.value = null;
       selectedUnit.value = null;
     }
+  };
+
+  const cached = cacheStore.get(cacheKey);
+  if (cached && !forceFresh) {
+    applyData(cached.data);
+  }
+
+  try {
+    const response = await axios.get(`/api/v1/qc/hierarchy?${params.toString()}`);
+    cacheStore.set(cacheKey, response.data, 60000);
+    applyData(response.data);
   } catch (err) {
     error.value = 'Unable to load QC hierarchy.';
   }
@@ -687,7 +701,7 @@ const loadHierarchy = async () => {
 const onProjectChange = () => {
   selectedJig.value = null;
   selectedUnit.value = null;
-  loadHierarchy();
+  loadHierarchy(true);
 };
 
 const goBackOneLevel = () => {
@@ -750,11 +764,15 @@ const confirmArrival = async () => {
     });
     successMessage.value = response.data.message || 'QC physical arrival confirmed.';
     
+    cacheStore.invalidate('qc');
+    cacheStore.invalidate('dashboard');
+    cacheStore.invalidate('store');
+
     const modalEl = document.getElementById('arrivalModal');
     const modal = bootstrap.Modal.getInstance(modalEl);
     if (modal) modal.hide();
 
-    loadHierarchy();
+    await loadHierarchy(true);
     if (searchQuery.value) onSearchInput();
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to confirm QC arrival.';
@@ -851,14 +869,20 @@ const submitInspection = async () => {
 
     successMessage.value = response.data.message || 'QC Inspection recorded successfully.';
     
+    cacheStore.invalidate('qc');
+    cacheStore.invalidate('dashboard');
+    cacheStore.invalidate('paint');
+    cacheStore.invalidate('rework');
+    cacheStore.invalidate('assembly');
+
     const modalEl = document.getElementById('qcModal');
     const modal = bootstrap.Modal.getInstance(modalEl);
     if (modal) modal.hide();
 
-    loadHierarchy();
+    await loadHierarchy(true);
     if (searchQuery.value) onSearchInput();
   } catch (err) {
-    error.value = err.response?.data?.message || 'Unable to record QC inspection.';
+    error.value = err.response?.data?.message || 'Failed to record QC inspection.';
   } finally {
     submitting.value = false;
   }

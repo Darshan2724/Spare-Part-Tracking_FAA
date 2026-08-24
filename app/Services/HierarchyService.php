@@ -33,8 +33,11 @@ class HierarchyService
         $activeProjects = $projects->where('status', 'active')->values();
         $completedProjects = $projects->where('status', 'completed')->values();
 
-        $projectsList = $projects->map(function ($proj) use ($department, $filters) {
-            return $this->getProjectOverviewStats($proj, $department, $filters);
+        $bulkMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $filters['side'] ?? null, $filters);
+
+        $projectsList = $projects->map(function ($proj) use ($department, $bulkMetrics) {
+            $m = $bulkMetrics->get($proj->id) ?? [];
+            return $this->formatProjectOverviewStatsFromMetrics($proj, $department, $m);
         });
 
         if (!$projectId) {
@@ -545,27 +548,24 @@ class HierarchyService
     }
 
     /**
-     * Get high level progress stats for Project level cards
+     * Get high level progress stats for Project level cards from pre-calculated metrics
      */
-    protected function getProjectOverviewStats(Project $proj, string $department, array $filters = []): array
+    public function formatProjectOverviewStatsFromMetrics(Project $proj, string $department, array $m): array
     {
-        $side = $filters['side'] ?? null;
-        $m = $this->quantityService->calculateProjectMetrics($proj, $side, $filters);
-
-        $reqSum = $m['required_qty'];
-        $recSum = $m['received_qty'];
-        $appSum = $m['approved_qty'];
-        $paintCompSum = $m['paint_qty'];
-        $asmCompSum = $m['assembly_qty'];
-        $rewActiveSum = $m['rework_qty'];
+        $reqSum = $m['required_qty'] ?? $m['total_required'] ?? 0;
+        $recSum = $m['received_qty'] ?? $m['total_received'] ?? 0;
+        $appSum = $m['approved_qty'] ?? $m['qc_approved'] ?? 0;
+        $paintCompSum = $m['paint_qty'] ?? $m['paint_completed'] ?? 0;
+        $asmCompSum = $m['assembly_qty'] ?? $m['assembly_completed'] ?? 0;
+        $rewActiveSum = $m['rework_qty'] ?? $m['parts_in_rework'] ?? 0;
         $rewCompSum = $m['rework_completed'] ?? 0;
-        $qcPendingSum = $m['awaiting_qc'];
+        $qcPendingSum = $m['awaiting_qc'] ?? $m['parts_in_qc'] ?? 0;
 
-        $paintReadySum = $m['paint_ready'];
-        $asmReadySum = $m['assembly_ready'];
+        $paintReadySum = $m['paint_ready'] ?? $m['parts_in_paint'] ?? 0;
+        $asmReadySum = $m['assembly_ready'] ?? $m['parts_in_assembly'] ?? 0;
 
         $eligibleCount = match ($department) {
-            'store' => $m['pending_qty'],
+            'store' => $m['pending_qty'] ?? max(0, $reqSum - $recSum),
             'qc' => $qcPendingSum,
             'rework' => $rewActiveSum,
             'paint' => $paintReadySum,
@@ -595,7 +595,7 @@ class HierarchyService
             'received_qty' => $recSum,
             'raw_received' => $m['raw_received'] ?? $recSum,
             'excess_received' => $m['excess_received'] ?? 0,
-            'pending_qty' => $m['pending_qty'],
+            'pending_qty' => $m['pending_qty'] ?? max(0, $reqSum - $recSum),
             'approved_qty' => $appSum,
             'paint_qty' => $paintCompSum,
             'assembly_qty' => $asmCompSum,
@@ -605,6 +605,16 @@ class HierarchyService
             'completion_pct' => min(100, $progressPercent),
             'is_complete' => ($progressPercent >= 100),
         ];
+    }
+
+    /**
+     * Get high level progress stats for Project level cards
+     */
+    protected function getProjectOverviewStats(Project $proj, string $department, array $filters = []): array
+    {
+        $side = $filters['side'] ?? null;
+        $m = $this->quantityService->calculateProjectMetrics($proj, $side, $filters);
+        return $this->formatProjectOverviewStatsFromMetrics($proj, $department, $m);
     }
 
     protected function initZeroMetrics(): array

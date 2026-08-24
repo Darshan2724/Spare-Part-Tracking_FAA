@@ -84,11 +84,20 @@ class DashboardController extends Controller
             'supplier_id' => $supplierId,
         ];
 
-        // Authoritative canonical calculations
-        $canonicalSummary = $this->quantityService->calculateDashboardSummary($filters);
-        $canonicalProjectsProgress = $this->quantityService->calculateProjectsProgress($filters);
-        $topProjectsNearCompletion = $this->quantityService->getTopProjectsNearCompletion($filters);
-        $healthDistribution = $this->quantityService->calculateProjectHealthDistribution($filters);
+        // 1. Authoritative canonical calculations via single bulk computation
+        $projectsQuery = Project::query();
+        if ($projectId) {
+            $projectsQuery->where('id', $projectId);
+        } else {
+            $projectsQuery->where('status', 'active');
+        }
+        $projects = $projectsQuery->get();
+
+        $bulkMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $side, $filters);
+        $canonicalSummary = $this->quantityService->calculateDashboardSummary($filters, $bulkMetrics);
+        $canonicalProjectsProgress = $this->quantityService->calculateProjectsProgress($filters, $bulkMetrics);
+        $topProjectsNearCompletion = $this->quantityService->getTopProjectsNearCompletion($filters, 10, $canonicalProjectsProgress);
+        $healthDistribution = $this->quantityService->calculateProjectHealthDistribution($filters, $bulkMetrics);
 
         // Query builders for contextual widgets
         $recQuery = ReceiptItem::query()->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES);
@@ -172,15 +181,34 @@ class DashboardController extends Controller
             ->limit(10)
             ->get();
 
-        // Supplier Quality & Delivery Metrics
-        $supplierPerformance = Supplier::where('is_active', true)
-            ->with(['bomItems.receiptItems', 'bomItems.qcInspections'])
+        // Supplier Quality & Delivery Metrics via single-pass aggregate queries
+        $supplierReceipts = ReceiptItem::join('bom_items', 'bom_items.id', '=', 'receipt_items.bom_item_id')
+            ->whereNotNull('bom_items.supplier_id')
+            ->whereIn('receipt_items.status', QuantityCalculationService::VALID_RECEIPT_STATUSES)
+            ->select('bom_items.supplier_id', DB::raw('SUM(receipt_items.received_quantity) as total_received'))
+            ->groupBy('bom_items.supplier_id')
+            ->pluck('total_received', 'bom_items.supplier_id');
+
+        $supplierQc = QcInspection::join('bom_items', 'bom_items.id', '=', 'qc_inspections.bom_item_id')
+            ->whereNotNull('bom_items.supplier_id')
+            ->select(
+                'bom_items.supplier_id',
+                DB::raw('SUM(qc_inspections.approved_quantity) as total_approved'),
+                DB::raw('SUM(qc_inspections.rejected_quantity) as total_rejected'),
+                DB::raw('SUM(qc_inspections.rework_quantity) as total_rework')
+            )
+            ->groupBy('bom_items.supplier_id')
             ->get()
-            ->map(function ($sup) {
-                $recCount = $sup->bomItems->flatMap->receiptItems->sum('received_quantity');
-                $appCount = $sup->bomItems->flatMap->qcInspections->sum('approved_quantity');
-                $rejCount = $sup->bomItems->flatMap->qcInspections->sum('rejected_quantity');
-                $rewCount = $sup->bomItems->flatMap->qcInspections->sum('rework_quantity');
+            ->keyBy('supplier_id');
+
+        $supplierPerformance = Supplier::where('is_active', true)
+            ->get()
+            ->map(function ($sup) use ($supplierReceipts, $supplierQc) {
+                $recCount = (int) ($supplierReceipts->get($sup->id) ?? 0);
+                $qc = $supplierQc->get($sup->id);
+                $appCount = (int) ($qc?->total_approved ?? 0);
+                $rejCount = (int) ($qc?->total_rejected ?? 0);
+                $rewCount = (int) ($qc?->total_rework ?? 0);
                 $totalInspected = $appCount + $rejCount + $rewCount;
                 $passRate = $totalInspected > 0 ? round(($appCount / $totalInspected) * 100, 1) : 100;
                 return [

@@ -88,19 +88,21 @@ class StoreController extends Controller
             return $item;
         });
 
-        $projects = Project::orderBy('name')->get()->map(function ($proj) {
-            $m = $this->quantityService->calculateProjectMetrics($proj);
+        $rawProjects = Project::orderBy('name')->get();
+        $bulkMetrics = $this->quantityService->calculateBulkProjectsMetrics($rawProjects);
+        $projects = $rawProjects->map(function ($proj) use ($bulkMetrics) {
+            $m = $bulkMetrics->get($proj->id) ?? [];
             return [
                 'id' => $proj->id,
                 'project_code' => $proj->project_code,
                 'name' => $proj->name,
-                'total_required' => $m['required_qty'],
-                'total_received' => $m['received_qty'],
-                'raw_received' => $m['raw_received'],
-                'excess_received' => $m['excess_received'],
-                'pending_qty' => $m['pending_qty'],
-                'completion_pct' => $m['completion_pct'],
-                'is_complete' => $m['is_complete'],
+                'total_required' => $m['required_qty'] ?? 0,
+                'total_received' => $m['received_qty'] ?? 0,
+                'raw_received' => $m['raw_received'] ?? 0,
+                'excess_received' => $m['excess_received'] ?? 0,
+                'pending_qty' => $m['pending_qty'] ?? 0,
+                'completion_pct' => $m['completion_pct'] ?? 0,
+                'is_complete' => $m['is_complete'] ?? false,
             ];
         });
 

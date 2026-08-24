@@ -711,11 +711,13 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue';
+import { useAppCacheStore } from '@/stores/cache';
 import axios from 'axios';
 import { Chart, registerables } from 'chart.js';
 
 Chart.register(...registerables);
 
+const cacheStore = useAppCacheStore();
 const loading = ref(false);
 
 const filters = ref({
@@ -976,16 +978,14 @@ const fetchPriorityMap = async () => {
   }
 };
 
-const fetchReportData = async () => {
-  loading.value = true;
-  try {
-    const params = new URLSearchParams(
-      Object.entries(filters.value).filter(([_, v]) => v !== '')
-    ).toString();
+const fetchReportData = async (forceFresh = false) => {
+  const params = new URLSearchParams(
+    Object.entries(filters.value).filter(([_, v]) => v !== '')
+  ).toString();
 
-    const anaRes = await axios.get(`/api/v1/dashboard/analytics?${params}`);
-    const ana = anaRes.data || {};
+  const cacheKey = `reports_analytics_${params}`;
 
+  const applyAnalytics = (ana) => {
     readinessScore.value = ana.project_readiness_index?.readiness_score || 0;
     readinessBreakdown.value = ana.project_readiness_index?.breakdown || [];
     conversionData.value = ana.conversion_rate || {};
@@ -993,13 +993,29 @@ const fetchReportData = async () => {
     supplierFillAccuracy.value = ana.supplier_fill_accuracy || [];
     qualityCostPressure.value = ana.quality_cost_pressure || {};
 
+    nextTick(() => {
+      renderVelocityChart();
+    });
+  };
+
+  const cached = cacheStore.get(cacheKey);
+  if (cached && !forceFresh) {
+    applyAnalytics(cached.data);
+    loading.value = false;
+  } else {
+    loading.value = true;
+  }
+
+  try {
+    const anaRes = await axios.get(`/api/v1/dashboard/analytics?${params}`);
+    const ana = anaRes.data || {};
+    cacheStore.set(cacheKey, ana, 60000);
+    applyAnalytics(ana);
+
     await Promise.all([
       fetchDailyMovement(),
       fetchPriorityMap(),
     ]);
-
-    await nextTick();
-    renderVelocityChart();
   } catch (err) {
     console.error('Failed to load reports data:', err);
   } finally {
