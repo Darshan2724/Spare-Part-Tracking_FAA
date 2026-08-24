@@ -142,6 +142,12 @@ class PaintController extends Controller
                 'remarks' => "Painting completed for {$requestedQty} units. Type: " . ($request->input('paint_type') ?? 'Standard'),
             ]);
 
+            try {
+                broadcast(new \App\Events\PaintUpdated($record, $inspection->bomItem->project_id, $request->input('side'), $requestedQty))->toOthers();
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Realtime broadcast for PaintUpdated failed: " . $e->getMessage());
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Paint process completed successfully.',

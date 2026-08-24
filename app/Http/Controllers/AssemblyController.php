@@ -73,19 +73,18 @@ class AssemblyController extends Controller
             'remarks' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        if (!$request->filled('paint_record_id') && !$request->filled('qc_inspection_id')) {
-            return response()->json(['success' => false, 'message' => 'Either paint_record_id or qc_inspection_id must be provided.'], 422);
-        }
-
         return DB::transaction(function () use ($request) {
             $paintRecordId = $request->input('paint_record_id');
             $qcInspectionId = $request->input('qc_inspection_id');
-            $bomItemId = $request->input('bom_item_id');
+            $bomItemId = (int) $request->input('bom_item_id');
             $side = $request->input('side');
             $qty = (int) $request->input('quantity');
             $projectId = null;
             $prevState = 'assembly';
+            $paint = null;
+            $inspection = null;
 
+            // 1. Resolve source PaintRecord if provided
             if ($paintRecordId) {
                 $paint = PaintRecord::where('id', $paintRecordId)
                     ->where(function ($q) use ($side) {
@@ -94,52 +93,102 @@ class AssemblyController extends Controller
                     ->lockForUpdate()
                     ->with(['bomItem', 'qcInspection.receiptItem'])
                     ->first();
+            }
 
-                if (!$paint) {
-                    return response()->json(['success' => false, 'message' => "No eligible Paint record found for {$side} side."], 422);
-                }
-
-                $alreadyAssembled = (int) AssemblyRecord::where('paint_record_id', $paint->id)->sum('quantity');
-                $available = max(0, $paint->quantity - $alreadyAssembled);
-
-                if ($qty > $available) {
-                    return response()->json(['success' => false, 'message' => "Cannot complete {$qty} units. Only {$available} units available for assembly."], 422);
-                }
-
-                if ($available - $qty === 0) {
-                    $paint->update(['status' => 'assembled']);
-                }
-
-                if ($paint->qcInspection?->receiptItem) {
-                    $paint->qcInspection->receiptItem->update(['status' => 'assembly_completed']);
-                }
-                $projectId = $paint->bomItem->project_id;
-                $prevState = 'paint_completed';
-            } elseif ($qcInspectionId) {
+            // 2. Resolve source QcInspection (Direct Assembly) if provided
+            if (!$paint && $qcInspectionId) {
                 $inspection = QcInspection::where('id', $qcInspectionId)
                     ->where(function ($q) use ($side) {
                         $q->where('side', $side)->orWhere('side', 'COMMON');
                     })
+                    ->where('destination', 'ASSEMBLY')
+                    ->lockForUpdate()
+                    ->with(['bomItem', 'receiptItem'])
+                    ->first();
+            }
+
+            // 3. Fallback Auto-Resolution: Find active eligible PaintRecord with available balance
+            if (!$paint && !$inspection) {
+                $paint = PaintRecord::where('bom_item_id', $bomItemId)
+                    ->where(function ($q) use ($side) {
+                        $q->where('side', $side)->orWhere('side', 'COMMON');
+                    })
+                    ->whereIn('status', ['completed', 'assembled'])
+                    ->whereRaw('(quantity - (SELECT COALESCE(SUM(quantity), 0) FROM assembly_records WHERE assembly_records.paint_record_id = paint_records.id)) > 0')
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->with(['bomItem', 'qcInspection.receiptItem'])
+                    ->first();
+
+                if ($paint) {
+                    $paintRecordId = $paint->id;
+                }
+            }
+
+            // 4. Fallback Auto-Resolution: Find active eligible Direct QC Inspection with available balance
+            if (!$paint && !$inspection) {
+                $inspection = QcInspection::where('bom_item_id', $bomItemId)
+                    ->where(function ($q) use ($side) {
+                        $q->where('side', $side)->orWhere('side', 'COMMON');
+                    })
+                    ->where('destination', 'ASSEMBLY')
+                    ->where('approved_quantity', '>', 0)
+                    ->whereRaw('(approved_quantity - (SELECT COALESCE(SUM(quantity), 0) FROM assembly_records WHERE assembly_records.qc_inspection_id = qc_inspections.id)) > 0')
+                    ->orderBy('id')
                     ->lockForUpdate()
                     ->with(['bomItem', 'receiptItem'])
                     ->first();
 
-                if (!$inspection) {
-                    return response()->json(['success' => false, 'message' => "No eligible QC inspection found for {$side} side."], 422);
+                if ($inspection) {
+                    $qcInspectionId = $inspection->id;
+                }
+            }
+
+            if (!$paint && !$inspection) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "No parts ready for assembly found for this {$side} side requirement."
+                ], 422);
+            }
+
+            if ($paint) {
+                $alreadyAssembled = (int) AssemblyRecord::where('paint_record_id', $paint->id)->sum('quantity');
+                $available = max(0, $paint->quantity - $alreadyAssembled);
+
+                if ($qty > $available) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Cannot complete {$qty} units. Only {$available} units available for assembly."
+                    ], 422);
                 }
 
+                if ($available - $qty === 0) {
+                    $paint->update(['status' => 'assembled']);
+                    if ($paint->qcInspection?->receiptItem) {
+                        $paint->qcInspection->receiptItem->update(['status' => 'assembly_completed']);
+                    }
+                }
+                $projectId = $paint->bomItem->project_id;
+                $prevState = 'paint_completed';
+            } elseif ($inspection) {
                 if ($inspection->destination !== 'ASSEMBLY') {
-                    return response()->json(['success' => false, 'message' => 'This QC inspection was not routed directly to Assembly.'], 422);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'This QC inspection was not routed directly to Assembly.'
+                    ], 422);
                 }
 
                 $alreadyAssembled = (int) AssemblyRecord::where('qc_inspection_id', $inspection->id)->sum('quantity');
                 $available = max(0, $inspection->approved_quantity - $alreadyAssembled);
 
                 if ($qty > $available) {
-                    return response()->json(['success' => false, 'message' => "Cannot complete {$qty} units. Only {$available} units available for assembly."], 422);
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Cannot complete {$qty} units. Only {$available} units available for assembly."
+                    ], 422);
                 }
 
-                if ($inspection->receiptItem && ($available - $qty === 0)) {
+                if ($available - $qty === 0 && $inspection->receiptItem) {
                     $inspection->receiptItem->update(['status' => 'assembly_completed']);
                 }
                 $projectId = $inspection->bomItem->project_id;
@@ -170,12 +219,14 @@ class AssemblyController extends Controller
                 'remarks' => "Assembly completed for {$qty} units.",
             ]);
 
-            // Check if Project is 100% complete
+            // High-Performance Indexed Project 100% Completion Check
             if ($projectId) {
                 $proj = Project::find($projectId);
                 if ($proj && $proj->status === 'active') {
-                    $pMetrics = app(QuantityCalculationService::class)->calculateProjectMetrics($proj);
-                    if ($pMetrics['total_required'] > 0 && $pMetrics['assembly_completed'] >= $pMetrics['total_required']) {
+                    $totalRequired = (int) \App\Models\BomRequirement::whereHas('bomItem', fn($q) => $q->where('project_id', $projectId))->sum('required_quantity');
+                    $totalAssembled = (int) AssemblyRecord::whereHas('bomItem', fn($q) => $q->where('project_id', $projectId))->where('status', 'completed')->sum('quantity');
+
+                    if ($totalRequired > 0 && $totalAssembled >= $totalRequired) {
                         $proj->update([
                             'status' => 'completed',
                             'actual_completion_date' => now()->toDateString(),
@@ -184,10 +235,18 @@ class AssemblyController extends Controller
                 }
             }
 
+            // Realtime WebSocket Broadcast
+            try {
+                broadcast(new \App\Events\AssemblyUpdated($record, $projectId, $side, $qty, $prevState))->toOthers();
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Realtime broadcast for AssemblyUpdated failed: " . $e->getMessage());
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Assembly process completed successfully.',
                 'assembly_id' => $record->id,
+                'quantity' => $qty,
             ]);
         });
     }
@@ -210,84 +269,135 @@ class AssemblyController extends Controller
             $items = $request->input('items');
             $processedCount = 0;
             $affectedProjectIds = [];
+            $lastRecord = null;
 
             foreach ($items as $entry) {
                 $paintRecordId = $entry['paint_record_id'] ?? null;
                 $qcInspectionId = $entry['qc_inspection_id'] ?? null;
-                $bomItemId = $entry['bom_item_id'];
+                $bomItemId = (int) $entry['bom_item_id'];
                 $side = $entry['side'];
                 $qty = (int) $entry['quantity'];
                 $projectId = null;
                 $prevState = 'assembly';
+                $paint = null;
+                $inspection = null;
 
+                // 1. Resolve source PaintRecord if provided
                 if ($paintRecordId) {
                     $paint = PaintRecord::where('id', $paintRecordId)
+                        ->where(function ($q) use ($side) {
+                            $q->where('side', $side)->orWhere('side', 'COMMON');
+                        })
+                        ->lockForUpdate()
+                        ->with(['bomItem', 'qcInspection.receiptItem'])
+                        ->first();
+                }
+
+                // 2. Resolve source QcInspection if provided
+                if (!$paint && $qcInspectionId) {
+                    $inspection = QcInspection::where('id', $qcInspectionId)
+                        ->where(function ($q) use ($side) {
+                            $q->where('side', $side)->orWhere('side', 'COMMON');
+                        })
+                        ->where('destination', 'ASSEMBLY')
+                        ->lockForUpdate()
+                        ->with(['bomItem', 'receiptItem'])
+                        ->first();
+                }
+
+                // 3. Fallback Auto-Resolution: Find active eligible PaintRecord
+                if (!$paint && !$inspection) {
+                    $paint = PaintRecord::where('bom_item_id', $bomItemId)
+                        ->where(function ($q) use ($side) {
+                            $q->where('side', $side)->orWhere('side', 'COMMON');
+                        })
+                        ->whereIn('status', ['completed', 'assembled'])
+                        ->whereRaw('(quantity - (SELECT COALESCE(SUM(quantity), 0) FROM assembly_records WHERE assembly_records.paint_record_id = paint_records.id)) > 0')
+                        ->orderBy('id')
                         ->lockForUpdate()
                         ->with(['bomItem', 'qcInspection.receiptItem'])
                         ->first();
 
                     if ($paint) {
-                        $alreadyAssembled = (int) AssemblyRecord::where('paint_record_id', $paint->id)->sum('quantity');
-                        $available = max(0, $paint->quantity - $alreadyAssembled);
-                        $qtyToAssemble = min($qty, $available);
-
-                        if ($qtyToAssemble > 0) {
-                            if ($available - $qtyToAssemble === 0) {
-                                $paint->update(['status' => 'assembled']);
-                            }
-                            if ($paint->qcInspection?->receiptItem) {
-                                $paint->qcInspection->receiptItem->update(['status' => 'assembly_completed']);
-                            }
-                            $projectId = $paint->bomItem->project_id;
-                            $prevState = 'paint_completed';
-
-                            AssemblyRecord::create([
-                                'bom_item_id' => $bomItemId,
-                                'paint_record_id' => $paintRecordId,
-                                'qc_inspection_id' => null,
-                                'side' => $side,
-                                'quantity' => $qtyToAssemble,
-                                'assembled_by' => $request->user()->id,
-                                'status' => 'completed',
-                                'completed_at' => now(),
-                                'remarks' => $request->input('remarks'),
-                            ]);
-
-                            WorkflowEvent::create([
-                                'bom_item_id' => $bomItemId,
-                                'project_id' => $projectId,
-                                'user_id' => $request->user()->id,
-                                'event_type' => 'assembly_completed',
-                                'side' => $side,
-                                'quantity' => $qtyToAssemble,
-                                'previous_state' => $prevState,
-                                'new_state' => 'assembly_completed',
-                                'remarks' => "Bulk Assembly completed for {$qtyToAssemble} units.",
-                            ]);
-
-                            $processedCount++;
-                            if ($projectId) $affectedProjectIds[$projectId] = true;
-                        }
+                        $paintRecordId = $paint->id;
                     }
-                } elseif ($qcInspectionId) {
-                    $inspection = QcInspection::where('id', $qcInspectionId)
+                }
+
+                // 4. Fallback Auto-Resolution: Find active eligible Direct QC Inspection
+                if (!$paint && !$inspection) {
+                    $inspection = QcInspection::where('bom_item_id', $bomItemId)
+                        ->where(function ($q) use ($side) {
+                            $q->where('side', $side)->orWhere('side', 'COMMON');
+                        })
+                        ->where('destination', 'ASSEMBLY')
+                        ->where('approved_quantity', '>', 0)
+                        ->whereRaw('(approved_quantity - (SELECT COALESCE(SUM(quantity), 0) FROM assembly_records WHERE assembly_records.qc_inspection_id = qc_inspections.id)) > 0')
+                        ->orderBy('id')
                         ->lockForUpdate()
                         ->with(['bomItem', 'receiptItem'])
                         ->first();
 
-                    if ($inspection && $inspection->destination === 'ASSEMBLY') {
+                    if ($inspection) {
+                        $qcInspectionId = $inspection->id;
+                    }
+                }
+
+                if ($paint) {
+                    $alreadyAssembled = (int) AssemblyRecord::where('paint_record_id', $paint->id)->sum('quantity');
+                    $available = max(0, $paint->quantity - $alreadyAssembled);
+                    $qtyToAssemble = min($qty, $available);
+
+                    if ($qtyToAssemble > 0) {
+                        if ($available - $qtyToAssemble === 0) {
+                            $paint->update(['status' => 'assembled']);
+                            if ($paint->qcInspection?->receiptItem) {
+                                $paint->qcInspection->receiptItem->update(['status' => 'assembly_completed']);
+                            }
+                        }
+                        $projectId = $paint->bomItem->project_id;
+                        $prevState = 'paint_completed';
+
+                        $lastRecord = AssemblyRecord::create([
+                            'bom_item_id' => $bomItemId,
+                            'paint_record_id' => $paintRecordId,
+                            'qc_inspection_id' => null,
+                            'side' => $side,
+                            'quantity' => $qtyToAssemble,
+                            'assembled_by' => $request->user()->id,
+                            'status' => 'completed',
+                            'completed_at' => now(),
+                            'remarks' => $request->input('remarks'),
+                        ]);
+
+                        WorkflowEvent::create([
+                            'bom_item_id' => $bomItemId,
+                            'project_id' => $projectId,
+                            'user_id' => $request->user()->id,
+                            'event_type' => 'assembly_completed',
+                            'side' => $side,
+                            'quantity' => $qtyToAssemble,
+                            'previous_state' => $prevState,
+                            'new_state' => 'assembly_completed',
+                            'remarks' => "Bulk Assembly completed for {$qtyToAssemble} units.",
+                        ]);
+
+                        $processedCount++;
+                        if ($projectId) $affectedProjectIds[$projectId] = true;
+                    }
+                } elseif ($inspection) {
+                    if ($inspection->destination === 'ASSEMBLY') {
                         $alreadyAssembled = (int) AssemblyRecord::where('qc_inspection_id', $inspection->id)->sum('quantity');
                         $available = max(0, $inspection->approved_quantity - $alreadyAssembled);
                         $qtyToAssemble = min($qty, $available);
 
                         if ($qtyToAssemble > 0) {
-                            if ($inspection->receiptItem && ($available - $qtyToAssemble === 0)) {
+                            if ($available - $qtyToAssemble === 0 && $inspection->receiptItem) {
                                 $inspection->receiptItem->update(['status' => 'assembly_completed']);
                             }
                             $projectId = $inspection->bomItem->project_id;
                             $prevState = 'qc_approved';
 
-                            AssemblyRecord::create([
+                            $lastRecord = AssemblyRecord::create([
                                 'bom_item_id' => $bomItemId,
                                 'paint_record_id' => null,
                                 'qc_inspection_id' => $qcInspectionId,
@@ -318,17 +428,28 @@ class AssemblyController extends Controller
                 }
             }
 
-            // Check completion for affected projects
+            // Check completion for affected projects using indexed count
             foreach (array_keys($affectedProjectIds) as $pId) {
                 $proj = Project::find($pId);
                 if ($proj && $proj->status === 'active') {
-                    $pMetrics = app(QuantityCalculationService::class)->calculateProjectMetrics($proj);
-                    if ($pMetrics['total_required'] > 0 && $pMetrics['assembly_completed'] >= $pMetrics['total_required']) {
+                    $totalRequired = (int) \App\Models\BomRequirement::whereHas('bomItem', fn($q) => $q->where('project_id', $pId))->sum('required_quantity');
+                    $totalAssembled = (int) AssemblyRecord::whereHas('bomItem', fn($q) => $q->where('project_id', $pId))->where('status', 'completed')->sum('quantity');
+
+                    if ($totalRequired > 0 && $totalAssembled >= $totalRequired) {
                         $proj->update([
                             'status' => 'completed',
                             'actual_completion_date' => now()->toDateString(),
                         ]);
                     }
+                }
+            }
+
+            // Realtime Broadcast for bulk operation
+            if ($lastRecord) {
+                try {
+                    broadcast(new \App\Events\AssemblyUpdated($lastRecord, $lastRecord->bomItem?->project_id, $lastRecord->side, $processedCount, 'bulk_assembly'))->toOthers();
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning("Bulk Realtime broadcast for AssemblyUpdated failed: " . $e->getMessage());
                 }
             }
 
