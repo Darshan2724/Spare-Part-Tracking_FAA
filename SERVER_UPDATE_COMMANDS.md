@@ -65,11 +65,11 @@ cd "C:\Darshan Details\Internship Faith Automation\Projects\Spare Part Tracking\
 ### Method A: EAS Over-The-Air (OTA) Publish
 Publish the update directly to all installed mobile devices without rebuilding the APK:
 ```powershell
-npx eas-cli update --auto
-```
-*Or with a specific update message:*
-```powershell
-npx eas-cli update --branch main --message "Performance optimization, zero-delay tab caching, and assembly sync stability"
+# For Preview APK builds:
+npx eas-cli update --channel preview --message "Performance optimization and stability fix"
+
+# For Production APK builds:
+npx eas-cli update --channel production --message "Performance optimization and stability fix"
 ```
 
 ### Method B: Expo Go / Local Reload
