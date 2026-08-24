@@ -6,6 +6,7 @@ use App\Models\BomImportBatch;
 use App\Models\BomItem;
 use App\Models\BomRequirement;
 use App\Models\Project;
+use App\Models\ReceiptItem;
 use App\Models\Supplier;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -13,15 +14,72 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class BomImportService
 {
+    public function __construct(
+        protected ProjectIdentityResolver $projectResolver
+    ) {
+    }
+
     /**
-     * Check if the uploaded file has already been successfully imported.
+     * Check if the filename has already been successfully imported.
+     * Enforces that every BOM revision must use a different filename.
      */
-    public function checkDuplicateFile(string $path): ?array
+    public function checkDuplicateFilename(?string $filename): ?array
     {
+        if (empty($filename)) {
+            return null;
+        }
+
+        $cleanFilename = basename(str_replace('\\', '/', $filename));
+
+        $existingBatch = BomImportBatch::where('status', 'completed')
+            ->where(function ($q) use ($cleanFilename) {
+                $q->where('original_filename', $cleanFilename)
+                  ->orWhere('filename', $cleanFilename);
+            })
+            ->with(['importer', 'project'])
+            ->orderByDesc('created_at')
+            ->first();
+
+        if ($existingBatch) {
+            $importDate = $existingBatch->created_at ? $existingBatch->created_at->format('d M Y, h:i A') : 'Previously';
+            $importerName = $existingBatch->importer?->name ?? 'System Administrator';
+            $projCode = $existingBatch->project?->project_code ?? 'Project';
+
+            return [
+                'is_duplicate' => true,
+                'is_duplicate_filename' => true,
+                'error_title' => 'Duplicate Filename',
+                'batch_id' => $existingBatch->id,
+                'original_filename' => $cleanFilename,
+                'imported_at' => $importDate,
+                'imported_by' => $importerName,
+                'project_code' => $projCode,
+                'message' => 'This BOM filename has already been imported. Please rename the revised BOM and upload it again.',
+                'secondary_message' => 'Every BOM revision must use a different filename.',
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Check if the uploaded file (filename or content hash) has already been successfully imported.
+     */
+    public function checkDuplicateFile(string $path, ?string $filename = null): ?array
+    {
+        // 1. Mandatory exact filename uniqueness check
+        if ($filename) {
+            $duplicateFilename = $this->checkDuplicateFilename($filename);
+            if ($duplicateFilename) {
+                return $duplicateFilename;
+            }
+        }
+
         if (!is_file($path)) {
             return null;
         }
 
+        // 2. Exact content hash duplicate check
         $fileHash = hash_file('sha256', $path);
         $existingBatch = BomImportBatch::where('file_hash', $fileHash)
             ->where('status', 'completed')
@@ -37,13 +95,16 @@ class BomImportService
 
             return [
                 'is_duplicate' => true,
+                'is_duplicate_hash' => true,
+                'error_title' => 'Duplicate File Content',
                 'file_hash' => $fileHash,
                 'batch_id' => $existingBatch->id,
                 'original_filename' => $origName,
                 'imported_at' => $importDate,
                 'imported_by' => $importerName,
                 'project_code' => $projCode,
-                'message' => "This exact BOM file has already been imported on {$importDate} by {$importerName} (Original: '{$origName}'). The same file cannot be imported again.",
+                'message' => "This exact BOM file content has already been imported on {$importDate} by {$importerName} (under '{$origName}'). The same file cannot be imported again.",
+                'secondary_message' => 'Every BOM revision must use a different filename and contain new or revised requirements.',
             ];
         }
 
@@ -51,20 +112,22 @@ class BomImportService
     }
 
     /**
-     * Preview BOM from file path using the FA-279 New MFG BOM Standard.
+     * Preview BOM from file path with intelligent project detection and reconciliation diffing.
      */
     public function previewFromPath(string $path, ?string $filename = null): array
     {
-        $filename = $filename ?? basename($path);
+        $filename = $filename ? basename(str_replace('\\', '/', $filename)) : basename($path);
 
         // 1. Immediate duplicate check before parsing
-        $duplicateInfo = $this->checkDuplicateFile($path);
+        $duplicateInfo = $this->checkDuplicateFile($path, $filename);
         if ($duplicateInfo) {
             return [
                 'success' => false,
                 'is_duplicate' => true,
-                'error_title' => 'BOM Already Imported',
+                'is_duplicate_filename' => $duplicateInfo['is_duplicate_filename'] ?? false,
+                'error_title' => $duplicateInfo['error_title'] ?? 'Duplicate Filename',
                 'message' => $duplicateInfo['message'],
+                'secondary_message' => $duplicateInfo['secondary_message'] ?? null,
                 'duplicate_details' => $duplicateInfo,
                 'filename' => $filename,
                 'sheet' => 'N/A',
@@ -77,32 +140,332 @@ class BomImportService
 
         $extracted = $this->extractAndValidateRows($path, $filename);
 
+        if (!empty($extracted['errors'])) {
+            return [
+                'success' => false,
+                'filename' => $filename,
+                'sheet' => $extracted['sheet_name'],
+                'summary' => $extracted['summary'],
+                'rows' => $extracted['rows'],
+                'errors' => $extracted['errors'],
+                'warnings' => $extracted['warnings'],
+            ];
+        }
+
+        $rows = $extracted['rows'];
+        $reconciliation = $this->reconcileImportRows($rows, $filename);
+
         return [
             'success' => empty($extracted['errors']),
             'filename' => $filename,
             'sheet' => $extracted['sheet_name'],
             'summary' => $extracted['summary'],
-            'rows' => $extracted['rows'],
+            'reconciliation' => $reconciliation['summary'],
+            'matched_projects' => $reconciliation['matched_projects'],
+            'is_revision' => $reconciliation['is_revision'],
+            'rows' => $reconciliation['classified_rows'],
+            'conflicts' => $reconciliation['conflicts'],
             'errors' => $extracted['errors'],
-            'warnings' => $extracted['warnings'],
+            'warnings' => array_merge($extracted['warnings'], $reconciliation['warnings']),
         ];
     }
 
     /**
-     * Import BOM into PostgreSQL database using the FA-279 New MFG BOM Standard.
+     * Reconcile parsed BOM rows against database state for matched projects.
+     */
+    public function reconcileImportRows(array $rows, string $filename): array
+    {
+        $projectGroups = collect($rows)->groupBy('project_code');
+        $classifiedRows = [];
+        $conflicts = [];
+        $warnings = [];
+        $matchedProjects = [];
+        $isRevision = false;
+
+        $totalNewJigs = 0;
+        $totalNewUnits = 0;
+        $totalNewParts = 0;
+        $totalNewRequirements = 0;
+        $totalUpdatedRequirements = 0;
+        $totalUnchangedRequirements = 0;
+        $totalConflicts = 0;
+        $quantityDelta = 0;
+
+        foreach ($projectGroups as $sheetProjectCode => $projectRows) {
+            $existingProject = $this->projectResolver->resolveProject($sheetProjectCode, $filename);
+
+            if (!$existingProject) {
+                // Brand new project: all rows are NEW
+                $uniqueJigsInProject = $projectRows->pluck('jig_no')->unique()->values()->toArray();
+                $uniqueUnitsInProject = $projectRows->map(fn ($r) => $r['jig_no'] . '|' . $r['unit_no'])->unique()->count();
+                $uniquePartsInProject = $projectRows->pluck('part_no')->unique()->count();
+
+                $totalNewJigs += count($uniqueJigsInProject);
+                $totalNewUnits += $uniqueUnitsInProject;
+                $totalNewParts += $uniquePartsInProject;
+                $totalNewRequirements += $projectRows->count();
+                $quantityDelta += $projectRows->sum('qty');
+
+                $matchedProjects[] = [
+                    'project_code' => $sheetProjectCode,
+                    'is_existing' => false,
+                    'project_id' => null,
+                    'project_name' => $sheetProjectCode,
+                    'mode' => 'new_project',
+                    'new_jigs_count' => count($uniqueJigsInProject),
+                    'new_units_count' => $uniqueUnitsInProject,
+                ];
+
+                foreach ($projectRows as $row) {
+                    $classifiedRows[] = array_merge($row, [
+                        'action' => 'ADD',
+                        'status' => 'NEW',
+                        'existing_qty' => null,
+                        'incoming_qty' => $row['qty'],
+                        'qty_diff' => $row['qty'],
+                        'received_qty' => 0,
+                        'reason' => 'New requirement for new project',
+                    ]);
+                }
+                continue;
+            }
+
+            // Existing Project detected!
+            $isRevision = true;
+            $existingProjectId = $existingProject->id;
+
+            // Load existing BOM items and requirements in single query
+            $existingItems = BomItem::where('project_id', $existingProjectId)
+                ->with(['requirements'])
+                ->get();
+
+            // Load received quantities for these items from receipt_items
+            $validReceiptStatuses = ['received', 'returned_to_store', 'sent_to_qc', 'qc_received', 'qc_approved', 'qc_rejected', 'paint_completed', 'assembly_completed'];
+            $itemIds = $existingItems->pluck('id')->toArray();
+            
+            $receivedMap = [];
+            if (!empty($itemIds)) {
+                $receiptData = ReceiptItem::whereIn('bom_item_id', $itemIds)
+                    ->whereIn('status', $validReceiptStatuses)
+                    ->select('bom_item_id', 'side', DB::raw('SUM(received_quantity) as total_received'))
+                    ->groupBy('bom_item_id', 'side')
+                    ->get();
+
+                foreach ($receiptData as $rd) {
+                    $receivedMap[$rd->bom_item_id . '|' . $rd->side] = (int) $rd->total_received;
+                }
+            }
+
+            // Build fast lookup map: key = jig_no|unit_no|standard_part_no
+            $dbItemsMap = [];
+            $existingJigs = [];
+            $existingUnits = [];
+            $existingPartSet = [];
+
+            foreach ($existingItems as $item) {
+                $itemKey = $this->makeItemKey($item->jig_no, $item->unit_no, $item->standard_part_no);
+                $dbItemsMap[$itemKey] = $item;
+                $existingJigs[$item->jig_no] = true;
+                $existingUnits[$item->jig_no . '|' . $item->unit_no] = true;
+                $existingPartSet[$item->standard_part_no] = true;
+            }
+
+            $incomingNewJigs = [];
+            $incomingNewUnits = [];
+            $incomingNewParts = [];
+
+            foreach ($projectRows as $row) {
+                $itemKey = $this->makeItemKey($row['jig_no'], $row['unit_no'], $row['part_no']);
+                $side = $row['side'];
+                $incomingQty = (int) $row['qty'];
+
+                if (!isset($existingJigs[$row['jig_no']])) {
+                    $incomingNewJigs[$row['jig_no']] = true;
+                }
+                if (!isset($existingUnits[$row['jig_no'] . '|' . $row['unit_no']])) {
+                    $incomingNewUnits[$row['jig_no'] . '|' . $row['unit_no']] = true;
+                }
+                if (!isset($existingPartSet[$row['part_no']])) {
+                    $incomingNewParts[$row['part_no']] = true;
+                }
+
+                if (!isset($dbItemsMap[$itemKey])) {
+                    // Entire BOM item is new
+                    $totalNewRequirements++;
+                    $quantityDelta += $incomingQty;
+
+                    $classifiedRows[] = array_merge($row, [
+                        'action' => 'ADD',
+                        'status' => 'NEW',
+                        'existing_qty' => null,
+                        'incoming_qty' => $incomingQty,
+                        'qty_diff' => $incomingQty,
+                        'received_qty' => 0,
+                        'reason' => 'New part requirement under existing project',
+                    ]);
+                    continue;
+                }
+
+                $matchedItem = $dbItemsMap[$itemKey];
+                $existingReq = $matchedItem->requirements->firstWhere('side', $side);
+
+                if (!$existingReq) {
+                    // Existing item, but new side requirement
+                    $totalNewRequirements++;
+                    $quantityDelta += $incomingQty;
+
+                    $classifiedRows[] = array_merge($row, [
+                        'action' => 'ADD',
+                        'status' => 'NEW',
+                        'existing_qty' => null,
+                        'incoming_qty' => $incomingQty,
+                        'qty_diff' => $incomingQty,
+                        'received_qty' => 0,
+                        'reason' => "New {$side} requirement for existing part",
+                    ]);
+                    continue;
+                }
+
+                // Existing requirement found! Compare quantities
+                $existingQty = (int) $existingReq->required_quantity;
+                $receivedQty = $receivedMap[$matchedItem->id . '|' . $side] ?? 0;
+
+                if ($incomingQty === $existingQty) {
+                    // Exact duplicate row / unchanged requirement
+                    $totalUnchangedRequirements++;
+
+                    $classifiedRows[] = array_merge($row, [
+                        'action' => 'SKIP',
+                        'status' => 'UNCHANGED',
+                        'existing_qty' => $existingQty,
+                        'incoming_qty' => $incomingQty,
+                        'qty_diff' => 0,
+                        'received_qty' => $receivedQty,
+                        'reason' => 'Identical requirement and quantity already in database',
+                    ]);
+                } elseif ($incomingQty > $existingQty) {
+                    // Quantity increase: replace existing required quantity with new total
+                    $diff = $incomingQty - $existingQty;
+                    $totalUpdatedRequirements++;
+                    $quantityDelta += $diff;
+
+                    $classifiedRows[] = array_merge($row, [
+                        'action' => 'UPDATE',
+                        'status' => 'UPDATED',
+                        'existing_qty' => $existingQty,
+                        'incoming_qty' => $incomingQty,
+                        'qty_diff' => $diff,
+                        'received_qty' => $receivedQty,
+                        'reason' => "Revised total requirement increased from {$existingQty} to {$incomingQty} (+{$diff})",
+                    ]);
+                } else {
+                    // Quantity decrease ($incomingQty < $existingQty)
+                    $diff = $incomingQty - $existingQty;
+
+                    if ($incomingQty < $receivedQty) {
+                        // CONFLICT: Cannot reduce requirement below already received physical parts
+                        $totalConflicts++;
+                        $conflictObj = [
+                            'row_number' => $row['row_number'],
+                            'project_code' => $sheetProjectCode,
+                            'jig_no' => $row['jig_no'],
+                            'unit_no' => $row['unit_no'],
+                            'part_no' => $row['part_no'],
+                            'side' => $side,
+                            'existing_qty' => $existingQty,
+                            'incoming_qty' => $incomingQty,
+                            'received_qty' => $receivedQty,
+                            'reason' => "Incoming requirement ({$incomingQty}) is less than quantity already received in Store ({$receivedQty}). Reduction would corrupt physical inventory records.",
+                            'action_needed' => 'Manager review required before reducing below received count.',
+                        ];
+
+                        $conflicts[] = $conflictObj;
+
+                        $classifiedRows[] = array_merge($row, [
+                            'action' => 'CONFLICT_REVIEW',
+                            'status' => 'CONFLICT',
+                            'existing_qty' => $existingQty,
+                            'incoming_qty' => $incomingQty,
+                            'qty_diff' => $diff,
+                            'received_qty' => $receivedQty,
+                            'reason' => $conflictObj['reason'],
+                        ]);
+                    } else {
+                        // Safe quantity decrease (received <= incoming)
+                        $totalUpdatedRequirements++;
+                        $quantityDelta += $diff;
+
+                        $classifiedRows[] = array_merge($row, [
+                            'action' => 'UPDATE',
+                            'status' => 'UPDATED',
+                            'existing_qty' => $existingQty,
+                            'incoming_qty' => $incomingQty,
+                            'qty_diff' => $diff,
+                            'received_qty' => $receivedQty,
+                            'reason' => "Revised requirement reduced from {$existingQty} to {$incomingQty} ({$diff}). {$receivedQty} already received.",
+                        ]);
+                    }
+                }
+            }
+
+            $totalNewJigs += count($incomingNewJigs);
+            $totalNewUnits += count($incomingNewUnits);
+            $totalNewParts += count($incomingNewParts);
+
+            $matchedProjects[] = [
+                'project_code' => $sheetProjectCode,
+                'is_existing' => true,
+                'project_id' => $existingProject->id,
+                'project_name' => $existingProject->name,
+                'mode' => 'incremental_revision',
+                'new_jigs' => array_keys($incomingNewJigs),
+                'new_jigs_count' => count($incomingNewJigs),
+                'new_units_count' => count($incomingNewUnits),
+                'new_parts_count' => count($incomingNewParts),
+            ];
+        }
+
+        $reconciliationSummary = [
+            'is_revision' => $isRevision,
+            'new_jigs_count' => $totalNewJigs,
+            'new_units_count' => $totalNewUnits,
+            'new_parts_count' => $totalNewParts,
+            'new_requirements_count' => $totalNewRequirements,
+            'updated_requirements_count' => $totalUpdatedRequirements,
+            'unchanged_requirements_count' => $totalUnchangedRequirements,
+            'conflict_count' => $totalConflicts,
+            'quantity_delta' => $quantityDelta,
+            'can_apply' => ($totalConflicts === 0),
+        ];
+
+        return [
+            'is_revision' => $isRevision,
+            'summary' => $reconciliationSummary,
+            'matched_projects' => $matchedProjects,
+            'classified_rows' => $classifiedRows,
+            'conflicts' => $conflicts,
+            'warnings' => $warnings,
+        ];
+    }
+
+    /**
+     * Import or merge BOM into PostgreSQL database transactionally.
      */
     public function importFromPath(string $path, array $data, int $userId): array
     {
         $filename = $data['filename'] ?? basename($path);
+        $filename = basename(str_replace('\\', '/', $filename));
 
-        // 1. Strict duplicate check before transaction
-        $duplicateInfo = $this->checkDuplicateFile($path);
+        // 1. Strict duplicate filename and content check before transaction
+        $duplicateInfo = $this->checkDuplicateFile($path, $filename);
         if ($duplicateInfo) {
             return [
                 'success' => false,
                 'is_duplicate' => true,
-                'error_title' => 'BOM Already Imported',
+                'is_duplicate_filename' => $duplicateInfo['is_duplicate_filename'] ?? false,
+                'error_title' => $duplicateInfo['error_title'] ?? 'Duplicate Filename',
                 'message' => $duplicateInfo['message'],
+                'secondary_message' => $duplicateInfo['secondary_message'] ?? null,
                 'duplicate_details' => $duplicateInfo,
                 'errors' => [$duplicateInfo['message']],
                 'warnings' => [],
@@ -133,25 +496,65 @@ class BomImportService
         $fileSize = is_file($path) ? filesize($path) : null;
 
         try {
-            return DB::transaction(function () use ($rows, $filename, $userId, $extracted, $fileHash, $fileSize) {
-                $createdProjects = [];
-                $totalRequirementsCreated = 0;
-                $totalQuantityImported = 0;
+            return DB::transaction(function () use ($rows, $filename, $userId, $extracted, $fileHash, $fileSize, $path) {
+                // Double check duplicate filename inside transaction for concurrency safety
+                $txDup = $this->checkDuplicateFilename($filename);
+                if ($txDup) {
+                    return [
+                        'success' => false,
+                        'is_duplicate' => true,
+                        'is_duplicate_filename' => true,
+                        'error_title' => 'Duplicate Filename',
+                        'message' => $txDup['message'],
+                        'secondary_message' => $txDup['secondary_message'] ?? null,
+                        'duplicate_details' => $txDup,
+                        'errors' => [$txDup['message']],
+                        'warnings' => [],
+                    ];
+                }
 
-                // Group rows by project code
+                $reconciliation = $this->reconcileImportRows($rows, $filename);
+
+                // If there are blocking conflicts, abort transaction
+                if (!empty($reconciliation['conflicts'])) {
+                    $conflictCount = count($reconciliation['conflicts']);
+                    return [
+                        'success' => false,
+                        'has_conflicts' => true,
+                        'message' => "Cannot apply BOM: {$conflictCount} quantity conflicts detected against existing received stock. Management review required.",
+                        'conflicts' => $reconciliation['conflicts'],
+                        'errors' => ["{$conflictCount} conflict(s) must be resolved before applying this revision."],
+                    ];
+                }
+
                 $projectGroups = collect($rows)->groupBy('project_code');
                 $projectCodesList = $projectGroups->keys()->values()->toArray();
 
-                foreach ($projectGroups as $projectCode => $projectRows) {
-                    $project = Project::firstOrCreate(
-                        ['project_code' => $projectCode],
-                        [
-                            'name' => $projectCode,
-                            'status' => 'active',
-                            'created_by' => $userId,
-                        ]
-                    );
-                    $createdProjects[$project->id] = $project;
+                $affectedProjects = [];
+                $totalAdded = 0;
+                $totalUpdated = 0;
+                $totalSkipped = 0;
+                $totalQuantity = 0;
+                $importType = $reconciliation['is_revision'] ? 'revision' : 'initial';
+
+                foreach ($projectGroups as $sheetProjectCode => $projectRows) {
+                    $existingProject = $this->projectResolver->resolveProject($sheetProjectCode, $filename);
+
+                    if ($existingProject) {
+                        // Acquire row lock to prevent concurrency race conditions
+                        $project = Project::where('id', $existingProject->id)->lockForUpdate()->first();
+                    } else {
+                        $project = Project::firstOrCreate(
+                            ['project_code' => $sheetProjectCode],
+                            [
+                                'name' => $sheetProjectCode,
+                                'status' => 'active',
+                                'created_by' => $userId,
+                            ]
+                        );
+                    }
+
+                    $affectedProjects[$project->id] = $project;
 
                     $batch = BomImportBatch::create([
                         'project_id' => $project->id,
@@ -163,59 +566,130 @@ class BomImportService
                         'imported_by' => $userId,
                         'total_rows' => $projectRows->count(),
                         'successful_rows' => $projectRows->count(),
+                        'import_type' => $importType,
                         'status' => 'completed',
                     ]);
 
+                    // Index existing items for this project
+                    $existingBomItems = BomItem::where('project_id', $project->id)->with('requirements')->get();
+                    $itemsMap = [];
+                    foreach ($existingBomItems as $item) {
+                        $itemsMap[$this->makeItemKey($item->jig_no, $item->unit_no, $item->standard_part_no)] = $item;
+                    }
+
+                    $projectAdded = 0;
+                    $projectUpdated = 0;
+                    $projectSkipped = 0;
+
                     foreach ($projectRows as $row) {
-                        $bomItem = BomItem::firstOrCreate(
-                            [
+                        $itemKey = $this->makeItemKey($row['jig_no'], $row['unit_no'], $row['part_no']);
+                        $side = $row['side'];
+                        $incomingQty = (int) $row['qty'];
+
+                        if (!isset($itemsMap[$itemKey])) {
+                            // Genuine new BomItem
+                            $bomItem = BomItem::create([
                                 'project_id' => $project->id,
                                 'jig_no' => $row['jig_no'],
                                 'unit_no' => $row['unit_no'],
                                 'standard_part_no' => $row['part_no'],
-                            ],
-                            [
                                 'import_batch_id' => $batch->id,
                                 'proj_spec_yn' => 'Y',
-                            ]
-                        );
+                            ]);
 
-                        BomRequirement::updateOrCreate(
-                            [
+                            $bomItem->setRelation('requirements', collect());
+                            $itemsMap[$itemKey] = $bomItem;
+
+                            BomRequirement::create([
                                 'bom_item_id' => $bomItem->id,
-                                'side' => $row['side'],
-                            ],
-                            [
-                                'required_quantity' => (int) $row['qty'],
-                            ]
-                        );
+                                'side' => $side,
+                                'required_quantity' => $incomingQty,
+                            ]);
 
-                        $totalRequirementsCreated++;
-                        $totalQuantityImported += (int) $row['qty'];
+                            $projectAdded++;
+                            $totalAdded++;
+                            $totalQuantity += $incomingQty;
+                        } else {
+                            $bomItem = $itemsMap[$itemKey];
+                            $existingReq = $bomItem->requirements->firstWhere('side', $side);
+
+                            if (!$existingReq) {
+                                // Existing item, new side requirement
+                                BomRequirement::create([
+                                    'bom_item_id' => $bomItem->id,
+                                    'side' => $side,
+                                    'required_quantity' => $incomingQty,
+                                ]);
+
+                                $projectAdded++;
+                                $totalAdded++;
+                                $totalQuantity += $incomingQty;
+                            } else {
+                                $existingQty = (int) $existingReq->required_quantity;
+
+                                if ($incomingQty === $existingQty) {
+                                    // Unchanged -> skip
+                                    $projectSkipped++;
+                                    $totalSkipped++;
+                                } else {
+                                    // Quantity update (replace with incoming revised total)
+                                    $existingReq->required_quantity = $incomingQty;
+                                    $existingReq->save();
+
+                                    $projectUpdated++;
+                                    $totalUpdated++;
+                                    $totalQuantity += $incomingQty;
+                                }
+                            }
+                        }
                     }
+
+                    // Update batch with precise stats
+                    $batch->update([
+                        'added_rows_count' => $projectAdded,
+                        'updated_rows_count' => $projectUpdated,
+                        'skipped_rows_count' => $projectSkipped,
+                        'conflict_rows_count' => 0,
+                        'diff_summary' => [
+                            'new_jigs' => $reconciliation['summary']['new_jigs_count'] ?? 0,
+                            'new_units' => $reconciliation['summary']['new_units_count'] ?? 0,
+                            'new_parts' => $reconciliation['summary']['new_parts_count'] ?? 0,
+                            'quantity_delta' => $reconciliation['summary']['quantity_delta'] ?? 0,
+                        ],
+                    ]);
                 }
 
                 SystemLogService::log([
                     'severity' => 'INFO',
                     'category' => 'system_health_logs',
                     'module' => 'STORE',
-                    'message' => "BOM imported successfully: {$filename} (Hash: {$fileHash})",
+                    'message' => "BOM {$importType} applied successfully: {$filename} (Added: {$totalAdded}, Updated: {$totalUpdated}, Skipped: {$totalSkipped})",
                     'details' => [
                         'filename' => $filename,
                         'file_hash' => $fileHash,
-                        'projects' => array_values(array_map(fn ($p) => $p->project_code, $createdProjects)),
-                        'total_requirements' => $totalRequirementsCreated,
-                        'total_pieces' => $totalQuantityImported,
+                        'import_type' => $importType,
+                        'projects' => array_values(array_map(fn ($p) => $p->project_code, $affectedProjects)),
+                        'added_requirements' => $totalAdded,
+                        'updated_requirements' => $totalUpdated,
+                        'skipped_requirements' => $totalSkipped,
                         'user_id' => $userId,
                     ],
                 ]);
 
                 return [
                     'success' => true,
-                    'message' => "BOM imported successfully. {$totalRequirementsCreated} requirements loaded ({$totalQuantityImported} total pieces).",
+                    'message' => "BOM {$importType} completed successfully: {$totalAdded} added, {$totalUpdated} updated, {$totalSkipped} unchanged.",
                     'filename' => $filename,
                     'file_hash' => $fileHash,
+                    'import_type' => $importType,
                     'summary' => $extracted['summary'],
+                    'reconciliation' => [
+                        'added_count' => $totalAdded,
+                        'updated_count' => $totalUpdated,
+                        'skipped_count' => $totalSkipped,
+                        'conflicts_count' => 0,
+                        'is_revision' => $reconciliation['is_revision'],
+                    ],
                     'imported_rows' => count($rows),
                 ];
             });
@@ -231,6 +705,14 @@ class BomImportService
             }
             throw $e;
         }
+    }
+
+    /**
+     * Create a composite lookup key for BOM items.
+     */
+    protected function makeItemKey(?string $jigNo, ?string $unitNo, ?string $partNo): string
+    {
+        return trim((string) $jigNo) . '|' . trim((string) $unitNo) . '|' . trim((string) $partNo);
     }
 
     /**
@@ -367,7 +849,7 @@ class BomImportService
                 $rowErrors[] = "Row {$r}: Qty must be a positive integer (found '{$qtyRaw}').";
             }
 
-            // Duplicate detection
+            // Duplicate detection within the same file
             $comboKey = "{$projectCode}|{$jigNo}|{$unitNo}|{$partNo}|{$side}";
             if (isset($seenCombinations[$comboKey])) {
                 $prevRow = $seenCombinations[$comboKey];

@@ -20,6 +20,12 @@ class BomImportBatch extends Model
         'total_rows',
         'successful_rows',
         'failed_rows',
+        'added_rows_count',
+        'updated_rows_count',
+        'skipped_rows_count',
+        'conflict_rows_count',
+        'diff_summary',
+        'import_type',
         'errors',
         'status',
     ];
@@ -27,7 +33,12 @@ class BomImportBatch extends Model
     protected $casts = [
         'errors' => 'array',
         'project_codes' => 'array',
+        'diff_summary' => 'array',
         'file_size_bytes' => 'integer',
+        'added_rows_count' => 'integer',
+        'updated_rows_count' => 'integer',
+        'skipped_rows_count' => 'integer',
+        'conflict_rows_count' => 'integer',
     ];
 
     public function project()
