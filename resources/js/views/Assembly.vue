@@ -422,7 +422,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, computed } from 'vue';
+import { onMounted, onUnmounted, ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import axios from 'axios';
 
@@ -564,6 +564,26 @@ const submitAssemblyFromPart = async (part) => {
 
 onMounted(() => {
   loadHierarchy();
+  if (window.Echo) {
+    window.Echo.channel('workflow')
+      .listen('.assembly.completed', () => {
+        loadHierarchy();
+      })
+      .listen('.paint.completed', () => {
+        loadHierarchy();
+      })
+      .listen('.qc.inspected', () => {
+        loadHierarchy();
+      });
+  }
+});
+
+onUnmounted(() => {
+  if (window.Echo) {
+    try {
+      window.Echo.leaveChannel('workflow');
+    } catch (e) {}
+  }
 });
 </script>
 

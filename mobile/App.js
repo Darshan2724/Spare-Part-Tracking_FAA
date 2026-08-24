@@ -277,6 +277,7 @@ function App() {
   const [selectedAssemblyItem, setSelectedAssemblyItem] = useState(null);
   const [assemblyQty, setAssemblyQty] = useState('1');
   const [assemblyRemarks, setAssemblyRemarks] = useState('');
+  const [isSubmittingAssembly, setIsSubmittingAssembly] = useState(false);
 
   // Multi-Selection & Bulk Operations State (Issue 5)
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -987,7 +988,7 @@ function App() {
   };
 
   const submitAssemblyCompletion = async () => {
-    if (!selectedAssemblyItem) return;
+    if (!selectedAssemblyItem || isSubmittingAssembly) return;
     const part = selectedAssemblyItem;
     const sideStat = part.side_stats?.[unitSideTab] || {};
     const asmReady = sideStat.assembly_ready || 1;
@@ -998,6 +999,7 @@ function App() {
       return;
     }
 
+    setIsSubmittingAssembly(true);
     try {
       const sidePaintRecords = sideStat.paint_records || (part.paint_records || []).filter(p => p.side === unitSideTab || p.side === 'COMMON');
       const sideQcInspections = sideStat.qc_inspections || (part.qc_inspections || []).filter(q => q.side === unitSideTab || q.side === 'COMMON');
@@ -1005,19 +1007,23 @@ function App() {
       const paintRec = sidePaintRecords.find(p => ['completed', 'assembled'].includes(p.status));
       const directQcInsp = sideQcInspections.find(q => q.destination === 'ASSEMBLY' && q.approved_quantity > 0);
 
-      await apiClient.post('/assembly/items', {
+      const payload = {
         bom_item_id: part.id,
-        paint_record_id: paintRec ? paintRec.id : null,
-        qc_inspection_id: directQcInsp ? directQcInsp.id : null,
         side: unitSideTab,
         quantity: qty,
         remarks: assemblyRemarks || 'Mobile Assembly Complete',
-      });
+      };
+      if (paintRec?.id) payload.paint_record_id = paintRec.id;
+      if (directQcInsp?.id) payload.qc_inspection_id = directQcInsp.id;
+
+      const res = await apiClient.post('/assembly/items', payload);
       setShowAssemblyModal(false);
-      showToast(`Assembly Completed: ${qty} pcs of ${part.standard_part_no} (${unitSideTab})`);
-      loadData('assembly', false);
+      showToast(res.data?.message || `Assembly Completed: ${qty} pcs of ${part.standard_part_no} (${unitSideTab})`);
+      await loadData('assembly', false);
     } catch (err) {
-      Alert.alert('Action Failed', err.response?.data?.message || 'Could not complete assembly.');
+      Alert.alert('Action Failed', err.response?.data?.message || err.message || 'Could not complete assembly.');
+    } finally {
+      setIsSubmittingAssembly(false);
     }
   };
 
@@ -1262,17 +1268,22 @@ function App() {
   const handleBulkAssemblyComplete = async (targetItems) => {
     if (isSubmittingBulk) return;
     const assemblyPayload = targetItems.map(item => {
-      const paintRec = (item.paint_records || []).find(p => ['completed', 'assembled'].includes(p.status) && (p.side === unitSideTab || p.side === 'COMMON'));
-      const directQcInsp = (item.qc_inspections || []).find(q => q.destination === 'ASSEMBLY' && q.approved_quantity > 0 && (q.side === unitSideTab || q.side === 'COMMON'));
+      const sideStat = item.side_stats?.[unitSideTab] || {};
+      const sidePaintRecords = sideStat.paint_records || (item.paint_records || []).filter(p => p.side === unitSideTab || p.side === 'COMMON');
+      const sideQcInspections = sideStat.qc_inspections || (item.qc_inspections || []).filter(q => q.side === unitSideTab || q.side === 'COMMON');
+
+      const paintRec = sidePaintRecords.find(p => ['completed', 'assembled'].includes(p.status));
+      const directQcInsp = sideQcInspections.find(q => q.destination === 'ASSEMBLY' && q.approved_quantity > 0);
+      const readyQty = sideStat.assembly_ready || item.metrics?.assembly_ready || 1;
 
       return {
         bom_item_id: item.id,
         paint_record_id: paintRec ? paintRec.id : null,
         qc_inspection_id: directQcInsp ? directQcInsp.id : null,
         side: unitSideTab,
-        quantity: item.metrics?.assembly_ready || 1,
+        quantity: readyQty,
       };
-    }).filter(e => e.paint_record_id || e.qc_inspection_id);
+    });
 
     if (!assemblyPayload.length) {
       Alert.alert('No Eligible Items', 'No items ready for assembly found in the selection.');
@@ -1287,9 +1298,9 @@ function App() {
       });
       showToast(res.data.message || `Bulk assembly completed for ${assemblyPayload.length} items`);
       clearSelection();
-      loadData('assembly', false);
+      await loadData('assembly', false);
     } catch (err) {
-      Alert.alert('Bulk Assembly Failed', err.response?.data?.message || 'Could not process bulk assembly completion.');
+      Alert.alert('Bulk Assembly Failed', err.response?.data?.message || err.message || 'Could not process bulk assembly completion.');
     } finally {
       setIsSubmittingBulk(false);
     }
@@ -2265,7 +2276,7 @@ function App() {
                                   {asmReady > 0 ? (
                                     <TouchableOpacity
                                       style={[styles.actionBtn, { backgroundColor: '#0d9488' }]}
-                                      onPress={() => handleSubmitAssembly(item)}>
+                                      onPress={() => openAssemblyModal(item)}>
                                       <Text style={styles.actionBtnText}>MARK ASSEMBLED ({asmReady} pcs)</Text>
                                     </TouchableOpacity>
                                   ) : (
@@ -3275,11 +3286,21 @@ function App() {
                   />
 
                   <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
-                    <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]} onPress={() => setShowAssemblyModal(false)}>
+                    <TouchableOpacity
+                      style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]}
+                      disabled={isSubmittingAssembly}
+                      onPress={() => setShowAssemblyModal(false)}>
                       <Text style={styles.buttonText}>Cancel</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#0d9488' }]} onPress={submitAssemblyCompletion}>
-                      <Text style={styles.buttonText}>Mark Assembled</Text>
+                    <TouchableOpacity
+                      style={[styles.button, { flex: 1, backgroundColor: isSubmittingAssembly ? '#0f766e' : '#0d9488' }]}
+                      disabled={isSubmittingAssembly}
+                      onPress={submitAssemblyCompletion}>
+                      {isSubmittingAssembly ? (
+                        <ActivityIndicator color="#ffffff" size="small" />
+                      ) : (
+                        <Text style={styles.buttonText}>Mark Assembled</Text>
+                      )}
                     </TouchableOpacity>
                   </View>
                 </View>

@@ -1057,7 +1057,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import axios from 'axios';
@@ -1533,6 +1533,29 @@ const renderHealthChart = () => {
 onMounted(async () => {
   await fetchInitialProjectsList();
   fetchData();
+  if (window.Echo) {
+    window.Echo.channel('workflow')
+      .listen('.assembly.completed', () => {
+        fetchData();
+      })
+      .listen('.paint.completed', () => {
+        fetchData();
+      })
+      .listen('.qc.inspected', () => {
+        fetchData();
+      })
+      .listen('.store.received', () => {
+        fetchData();
+      });
+  }
+});
+
+onUnmounted(() => {
+  if (window.Echo) {
+    try {
+      window.Echo.leaveChannel('workflow');
+    } catch (e) {}
+  }
 });
 </script>
 
