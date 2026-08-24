@@ -1026,16 +1026,19 @@ function App() {
 
     try {
       const payload = {
-        bom_item_id: selectedPaintItem.bom_item_id || selectedPaintItem.bom_item?.id,
-        qc_inspection_id: selectedPaintItem.id,
+        bom_item_id: selectedPaintItem.bom_item_id || selectedPaintItem.bom_item?.id || selectedPaintItem.id,
         side: selectedPaintItem.side || unitSideTab || 'COMMON',
         quantity: qty,
         paint_type: paintType,
         remarks: paintRemarks,
       };
+      if (selectedPaintItem.approved_quantity && selectedPaintItem.id) {
+        payload.qc_inspection_id = selectedPaintItem.id;
+      }
+
       await apiClient.post('/paint/items', payload);
       setShowPaintModal(false);
-      showToast(`Paint Completed: ${qty} pcs of ${selectedPaintItem.bom_item?.standard_part_no || 'Part'}`);
+      showToast(`Paint Completed: ${qty} pcs of ${selectedPaintItem.bom_item?.standard_part_no || selectedPaintItem.standard_part_no || 'Part'}`);
       invalidateMobileCache('paint');
       invalidateMobileCache('assembly');
       invalidateMobileCache('dashboard');
@@ -1069,20 +1072,12 @@ function App() {
 
     setIsSubmittingAssembly(true);
     try {
-      const sidePaintRecords = sideStat.paint_records || (part.paint_records || []).filter(p => p.side === unitSideTab || p.side === 'COMMON');
-      const sideQcInspections = sideStat.qc_inspections || (part.qc_inspections || []).filter(q => q.side === unitSideTab || q.side === 'COMMON');
-
-      const paintRec = sidePaintRecords.find(p => ['completed', 'assembled'].includes(p.status));
-      const directQcInsp = sideQcInspections.find(q => q.destination === 'ASSEMBLY' && q.approved_quantity > 0);
-
       const payload = {
         bom_item_id: part.id,
         side: unitSideTab,
         quantity: qty,
         remarks: assemblyRemarks || 'Mobile Assembly Complete',
       };
-      if (paintRec?.id) payload.paint_record_id = paintRec.id;
-      if (directQcInsp?.id) payload.qc_inspection_id = directQcInsp.id;
 
       const res = await apiClient.post('/assembly/items', payload);
       setShowAssemblyModal(false);

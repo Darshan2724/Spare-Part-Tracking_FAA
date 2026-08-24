@@ -547,20 +547,16 @@ const onSearchInput = () => {
 };
 
 const submitAssemblyFromPart = async (part) => {
-  // Find paint record ready for assembly
-  const paintRec = (part.paint_records || []).find(p => p.status === 'completed') || {
-    id: part.id,
-    side: Object.keys(part.side_stats || {})[0] || 'RH',
-    quantity: part.metrics?.assembly_ready || 1,
-  };
-
   submitting.value = true;
   try {
+    const targetSide = selectedUnitSide.value || Object.keys(part.side_stats || {})[0] || 'LH';
+    const sideStat = part.side_stats?.[targetSide] || {};
+    const asmReady = sideStat.assembly_ready || part.metrics?.assembly_ready || 1;
+
     const payload = {
       bom_item_id: part.id,
-      paint_record_id: paintRec.id,
-      side: paintRec.side || 'RH',
-      quantity: part.metrics?.assembly_ready || paintRec.quantity || 1,
+      side: targetSide,
+      quantity: asmReady,
       remarks: 'Fitted into JIG assembly',
     };
 
@@ -573,7 +569,7 @@ const submitAssemblyFromPart = async (part) => {
     await loadHierarchy(true);
     if (searchQuery.value) onSearchInput();
   } catch (err) {
-    error.value = err.response?.data?.message || 'Failed to complete assembly.';
+    error.value = err.response?.data?.message || 'Failed to record assembly process.';
   } finally {
     submitting.value = false;
   }

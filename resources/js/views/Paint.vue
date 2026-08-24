@@ -615,20 +615,15 @@ const onSearchInput = () => {
 };
 
 const openPaintModalFromPart = (part) => {
-  // Find QC inspection record ready for paint
-  const inspection = (part.qc_inspections || []).find(q => q.approved_quantity > 0) || {
-    id: part.id,
-    bom_item_id: part.id,
-    side: Object.keys(part.side_stats || {})[0] || 'RH',
-    approved_quantity: part.metrics?.paint_ready || 1,
-  };
+  const targetSide = selectedUnitSide.value || Object.keys(part.side_stats || {})[0] || 'LH';
+  const sideStat = part.side_stats?.[targetSide] || {};
+  const paintReady = sideStat.paint_ready || part.metrics?.paint_ready || 1;
 
   activePaintTarget.value = {
     bom_item_id: part.id,
-    qc_inspection_id: inspection.id,
     standard_part_no: part.standard_part_no,
-    side: inspection.side || 'RH',
-    quantity: part.metrics?.paint_ready || inspection.approved_quantity || 1,
+    side: targetSide,
+    quantity: paintReady,
   };
 
   paintForm.value = {
@@ -645,7 +640,6 @@ const submitPaint = async () => {
   try {
     const payload = {
       bom_item_id: activePaintTarget.value.bom_item_id,
-      qc_inspection_id: activePaintTarget.value.qc_inspection_id,
       side: activePaintTarget.value.side,
       quantity: activePaintTarget.value.quantity,
       paint_type: paintForm.value.paint_type,

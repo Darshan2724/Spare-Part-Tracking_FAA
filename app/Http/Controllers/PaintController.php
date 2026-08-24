@@ -71,7 +71,7 @@ class PaintController extends Controller
 
         $request->validate([
             'bom_item_id' => ['required', 'exists:bom_items,id'],
-            'qc_inspection_id' => ['required', 'exists:qc_inspections,id'],
+            'qc_inspection_id' => ['nullable', 'exists:qc_inspections,id'],
             'side' => ['required', 'in:RH,LH,COMMON'],
             'quantity' => ['required', 'integer', 'min:1'],
             'paint_type' => ['nullable', 'string', 'max:100'],
@@ -80,80 +80,112 @@ class PaintController extends Controller
 
         return DB::transaction(function () use ($request) {
             $side = $request->input('side');
-            $inspection = QcInspection::where('id', $request->input('qc_inspection_id'))
+            $qcInspectionId = $request->input('qc_inspection_id');
+            $bomItemId = (int) $request->input('bom_item_id');
+            $requestedQty = (int) $request->input('quantity');
+
+            // Query all candidate eligible QC inspections for this BOM item & side
+            $qcQuery = QcInspection::where('bom_item_id', $bomItemId)
                 ->where(function ($q) use ($side) {
                     $q->where('side', $side)->orWhere('side', 'COMMON');
                 })
+                ->where('approved_quantity', '>', 0)
+                ->where(function ($q) {
+                    $q->where('destination', 'PAINT')->orWhereNull('destination');
+                })
                 ->lockForUpdate()
-                ->with(['receiptItem', 'bomItem', 'paintRecords'])
-                ->first();
+                ->with(['receiptItem', 'bomItem', 'paintRecords']);
 
-            if (!$inspection) {
-                return response()->json(['success' => false, 'message' => "No eligible QC inspection found for {$side} side."], 422);
+            if ($qcInspectionId) {
+                $qcQuery->orderByRaw("CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC", [$qcInspectionId]);
+            } else {
+                $qcQuery->orderBy('id', 'asc');
             }
 
-            if ($inspection->destination === 'ASSEMBLY') {
-                return response()->json(['success' => false, 'message' => 'This part was routed directly to Assembly and cannot be painted.'], 422);
+            $inspections = $qcQuery->get();
+
+            $paintAvailable = [];
+            foreach ($inspections as $insp) {
+                $alreadyPainted = (int) $insp->paintRecords->sum('quantity');
+                $paintAvailable[$insp->id] = max(0, $insp->approved_quantity - $alreadyPainted);
             }
 
-            $alreadyPainted = (int) $inspection->paintRecords->sum('quantity');
-            $availableToPaint = max(0, $inspection->approved_quantity - $alreadyPainted);
-            $requestedQty = (int) $request->input('quantity');
+            $totalAvailableToPaint = (int) array_sum($paintAvailable);
 
-            if ($availableToPaint <= 0) {
-                return response()->json(['success' => false, 'message' => 'All approved units for this QC inspection have already been painted.'], 422);
+            if ($totalAvailableToPaint <= 0) {
+                return response()->json(['success' => false, 'message' => "No unpainted QC approved units found for {$side} side requirement."], 422);
             }
 
-            if ($requestedQty > $availableToPaint) {
+            if ($requestedQty > $totalAvailableToPaint) {
                 return response()->json([
                     'success' => false,
-                    'message' => "Requested paint quantity ({$requestedQty}) exceeds available unpainted quantity ({$availableToPaint})."
+                    'message' => "Requested paint quantity ({$requestedQty}) exceeds available unpainted quantity ({$totalAvailableToPaint})."
                 ], 422);
             }
 
-            $record = PaintRecord::create([
-                'bom_item_id' => $request->input('bom_item_id'),
-                'qc_inspection_id' => $inspection->id,
-                'side' => $request->input('side'),
-                'quantity' => $requestedQty,
-                'painted_by' => $request->user()->id,
-                'status' => 'completed',
-                'completed_at' => now(),
-                'paint_type' => $request->input('paint_type') ?? 'Standard',
-                'remarks' => $request->input('remarks'),
-            ]);
+            // Sequentially fulfill paint quantity across eligible inspections
+            $qtyRemaining = $requestedQty;
+            $createdPaintRecords = [];
+            $projectId = null;
 
-            // If full approved quantity is now painted, update receipt item status to 'paint_completed'
-            if (($alreadyPainted + $requestedQty) >= $inspection->approved_quantity) {
-                if ($inspection->receiptItem) {
-                    $inspection->receiptItem->update(['status' => 'paint_completed']);
+            foreach ($inspections as $inspection) {
+                $pAvail = $paintAvailable[$inspection->id] ?? 0;
+                if ($qtyRemaining <= 0) break;
+                if ($pAvail <= 0) continue;
+
+                $consume = min($qtyRemaining, $pAvail);
+                $qtyRemaining -= $consume;
+                $paintAvailable[$inspection->id] -= $consume;
+                $projectId = $inspection->bomItem->project_id;
+
+                $record = PaintRecord::create([
+                    'bom_item_id' => $bomItemId,
+                    'qc_inspection_id' => $inspection->id,
+                    'side' => $side,
+                    'quantity' => $consume,
+                    'painted_by' => $request->user()->id,
+                    'status' => 'completed',
+                    'completed_at' => now(),
+                    'paint_type' => $request->input('paint_type') ?? 'Standard',
+                    'remarks' => $request->input('remarks'),
+                ]);
+                $createdPaintRecords[] = $record;
+
+                $alreadyPainted = (int) $inspection->paintRecords->sum('quantity');
+                if (($alreadyPainted + $consume) >= $inspection->approved_quantity) {
+                    if ($inspection->receiptItem) {
+                        $inspection->receiptItem->update(['status' => 'paint_completed']);
+                    }
                 }
             }
 
             WorkflowEvent::create([
-                'bom_item_id' => $request->input('bom_item_id'),
-                'project_id' => $inspection->bomItem->project_id,
+                'bom_item_id' => $bomItemId,
+                'project_id' => $projectId,
                 'user_id' => $request->user()->id,
                 'event_type' => 'paint_completed',
-                'side' => $request->input('side'),
+                'side' => $side,
                 'quantity' => $requestedQty,
                 'previous_state' => 'qc_approved',
                 'new_state' => 'paint_completed',
                 'remarks' => "Painting completed for {$requestedQty} units. Type: " . ($request->input('paint_type') ?? 'Standard'),
             ]);
 
-            try {
-                broadcast(new \App\Events\PaintUpdated($record, $inspection->bomItem->project_id, $request->input('side'), $requestedQty))->toOthers();
-            } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning("Realtime broadcast for PaintUpdated failed: " . $e->getMessage());
+            $lastRec = end($createdPaintRecords);
+            if ($lastRec) {
+                try {
+                    broadcast(new \App\Events\PaintUpdated($lastRec, $projectId, $side, $requestedQty))->toOthers();
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning("Realtime broadcast for PaintUpdated failed: " . $e->getMessage());
+                }
             }
 
             return response()->json([
                 'success' => true,
                 'message' => 'Paint process completed successfully.',
-                'paint_id' => $record->id,
+                'paint_id' => $lastRec ? $lastRec->id : null,
                 'processed_quantity' => $requestedQty,
-                'remaining_quantity' => max(0, $availableToPaint - $requestedQty),
+                'remaining_quantity' => max(0, $totalAvailableToPaint - $requestedQty),
             ]);
         });
     }
