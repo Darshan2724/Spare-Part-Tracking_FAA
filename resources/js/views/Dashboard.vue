@@ -1060,6 +1060,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { useAppCacheStore } from '@/stores/cache';
 import axios from 'axios';
 import { Chart, registerables } from 'chart.js';
 
@@ -1067,6 +1068,7 @@ Chart.register(...registerables);
 
 const router = useRouter();
 const authStore = useAuthStore();
+const cacheStore = useAppCacheStore();
 
 const metrics = ref({});
 const statusDistribution = ref({});
@@ -1236,25 +1238,25 @@ const resetFilters = () => {
   fetchData();
 };
 
-const fetchProjectHierarchy = async () => {
+const fetchProjectHierarchy = async (forceFresh = false) => {
   if (!filters.value.project_id) {
     hierarchyData.value = { jigs: [], project: null, canonical_summary: null };
     return;
   }
-  hierarchyLoading.value = true;
-  try {
-    const params = new URLSearchParams({
-      project_id: filters.value.project_id,
-      side: filters.value.side || '',
-    });
-    const res = await axios.get(`/api/v1/dashboard/project-hierarchy?${params.toString()}`);
-    hierarchyData.value = res.data || {};
-    if (res.data.active_projects?.length) activeProjectsList.value = res.data.active_projects;
-    if (res.data.completed_projects?.length) completedProjectsList.value = res.data.completed_projects;
+  const params = new URLSearchParams({
+    project_id: filters.value.project_id,
+    side: filters.value.side || '',
+  });
+  const cacheKey = `project_hierarchy_${params.toString()}`;
+
+  const applyHierarchy = (data) => {
+    hierarchyData.value = data || {};
+    if (data.active_projects?.length) activeProjectsList.value = data.active_projects;
+    if (data.completed_projects?.length) completedProjectsList.value = data.completed_projects;
 
     // Auto-expand the first incomplete Jig by default for immediate convenience
-    if (res.data.jigs && res.data.jigs.length > 0) {
-      const firstIncomplete = res.data.jigs.find(j => !j.is_complete) || res.data.jigs[0];
+    if (data.jigs && data.jigs.length > 0) {
+      const firstIncomplete = data.jigs.find(j => !j.is_complete) || data.jigs[0];
       if (firstIncomplete && !Object.keys(expandedJigs.value).length) {
         expandedJigs.value[firstIncomplete.jig_name] = true;
         if (firstIncomplete.units && firstIncomplete.units.length > 0) {
@@ -1263,6 +1265,20 @@ const fetchProjectHierarchy = async () => {
         }
       }
     }
+  };
+
+  const cached = cacheStore.get(cacheKey);
+  if (cached && !forceFresh) {
+    applyHierarchy(cached.data);
+    hierarchyLoading.value = false;
+  } else {
+    hierarchyLoading.value = true;
+  }
+
+  try {
+    const res = await axios.get(`/api/v1/dashboard/project-hierarchy?${params.toString()}`);
+    cacheStore.set(cacheKey, res.data, 60000);
+    applyHierarchy(res.data);
   } catch (err) {
     console.error('Failed to load project hierarchy:', err);
   } finally {
@@ -1286,9 +1302,9 @@ const onProjectFilterChange = () => {
   unitPartSearch.value = {};
   unitSideTab.value = {};
   unitPartPage.value = {};
-  fetchData();
+  fetchData(true);
   if (filters.value.project_id) {
-    fetchProjectHierarchy();
+    fetchProjectHierarchy(true);
   }
 };
 
@@ -1380,27 +1396,42 @@ const getStatusBadgeClass = (status) => {
   }
 };
 
-const fetchData = async () => {
-  loading.value = true;
+const fetchData = async (forceFresh = false) => {
+  const params = new URLSearchParams(
+    Object.entries(filters.value).filter(([_, v]) => v !== '')
+  ).toString();
+  const cacheKey = `dashboard_summary_${params}`;
+
+  const applyData = (data) => {
+    metrics.value = data.summary || {};
+    statusDistribution.value = data.status_distribution || {};
+    projectsProgress.value = data.projects_progress || [];
+    topProjectsData.value = data.top_projects || { labels: [], names: [], percentages: [], required: [], received: [], pending: [], projects: [], total_active_incomplete: 0 };
+    healthDistribution.value = data.health_distribution || { counts: { near_completion: 0, on_track: 0, at_risk: 0, delayed: 0 }, percentages: { near_completion: 0, on_track: 0, at_risk: 0, delayed: 0 }, total_active: 0, details: {} };
+
+    if (!filters.value.project_id) {
+      nextTick(() => {
+        renderTopProjectsChart();
+        renderHealthChart();
+      });
+    }
+  };
+
+  const cached = cacheStore.get(cacheKey);
+  if (cached && !forceFresh) {
+    applyData(cached.data);
+    loading.value = false;
+  } else {
+    loading.value = true;
+  }
+
   try {
-    const params = new URLSearchParams(
-      Object.entries(filters.value).filter(([_, v]) => v !== '')
-    ).toString();
-
     const sumRes = await axios.get(`/api/v1/dashboard/summary?${params}`);
-
-    metrics.value = sumRes.data.summary || {};
-    statusDistribution.value = sumRes.data.status_distribution || {};
-    projectsProgress.value = sumRes.data.projects_progress || [];
-    topProjectsData.value = sumRes.data.top_projects || { labels: [], names: [], percentages: [], required: [], received: [], pending: [], projects: [], total_active_incomplete: 0 };
-    healthDistribution.value = sumRes.data.health_distribution || { counts: { near_completion: 0, on_track: 0, at_risk: 0, delayed: 0 }, percentages: { near_completion: 0, on_track: 0, at_risk: 0, delayed: 0 }, total_active: 0, details: {} };
+    cacheStore.set(cacheKey, sumRes.data, 60000);
+    applyData(sumRes.data);
 
     if (filters.value.project_id) {
-      await fetchProjectHierarchy();
-    } else {
-      await nextTick();
-      renderTopProjectsChart();
-      renderHealthChart();
+      await fetchProjectHierarchy(forceFresh);
     }
   } catch (err) {
     console.error('Failed to load dashboard data:', err);

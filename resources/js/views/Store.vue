@@ -659,9 +659,11 @@
 <script setup>
 import { onMounted, ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
+import { useAppCacheStore } from '@/stores/cache';
 import axios from 'axios';
 
 const authStore = useAuthStore();
+const cacheStore = useAppCacheStore();
 const activeStoreTab = ref('pending');
 const returnedItemsList = ref([]);
 const receiptHistoryList = ref([]);
@@ -715,28 +717,44 @@ const onProjectChange = async () => {
   await checkAndLoadStoreData();
 };
 
-const checkAndLoadStoreData = async () => {
-  try {
-    const res = await axios.get(`/api/v1/store/hierarchy?project_id=${projectId.value}`);
-    if (res.data.projects) {
-      projects.value = res.data.projects;
+const checkAndLoadStoreData = async (forceFresh = false) => {
+  const cacheKey = `store_hierarchy_${projectId.value}`;
+  const applyData = (data) => {
+    if (data.projects) {
+      projects.value = data.projects;
     }
-    if (res.data.is_hierarchical) {
+    if (data.is_hierarchical) {
       isHierarchical.value = true;
-      hierarchyJigs.value = res.data.jigs || [];
-      hierarchyProject.value = res.data.project || null;
-      if (res.data.project && !projectId.value) {
-        projectId.value = res.data.project.id;
+      hierarchyJigs.value = data.jigs || [];
+      hierarchyProject.value = data.project || null;
+      if (data.project && !projectId.value) {
+        projectId.value = data.project.id;
       }
     } else {
       isHierarchical.value = false;
       hierarchyProject.value = null;
-      await loadItems();
+    }
+  };
+
+  const cached = cacheStore.get(cacheKey);
+  if (cached && !forceFresh) {
+    applyData(cached.data);
+    if (!cached.data.is_hierarchical) {
+      loadItems(1, false);
+    }
+  }
+
+  try {
+    const res = await axios.get(`/api/v1/store/hierarchy?project_id=${projectId.value}`);
+    cacheStore.set(cacheKey, res.data, 60000);
+    applyData(res.data);
+    if (!res.data.is_hierarchical) {
+      await loadItems(1, forceFresh);
     }
   } catch (err) {
     isHierarchical.value = false;
     hierarchyProject.value = null;
-    await loadItems();
+    await loadItems(1, forceFresh);
   }
 };
 
@@ -773,7 +791,12 @@ const receiveForm = ref({
   remarks: '',
 });
 
-const fetchReturnedItems = async () => {
+const fetchReturnedItems = async (forceFresh = false) => {
+  const cacheKey = `store_returned_${projectId.value}_${side.value}_${searchQuery.value}`;
+  const cached = cacheStore.get(cacheKey);
+  if (cached && !forceFresh) {
+    returnedItemsList.value = cached.data;
+  }
   try {
     const res = await axios.get('/api/v1/store/returned', {
       params: {
@@ -782,13 +805,20 @@ const fetchReturnedItems = async () => {
         search: searchQuery.value || ''
       }
     });
-    returnedItemsList.value = res.data.data || res.data || [];
+    const data = res.data.data || res.data || [];
+    cacheStore.set(cacheKey, data, 60000);
+    returnedItemsList.value = data;
   } catch (err) {
     error.value = 'Failed to load QC-returned items queue.';
   }
 };
 
-const fetchReceiptHistory = async () => {
+const fetchReceiptHistory = async (forceFresh = false) => {
+  const cacheKey = `store_history_${projectId.value}_${side.value}_${searchQuery.value}`;
+  const cached = cacheStore.get(cacheKey);
+  if (cached && !forceFresh) {
+    receiptHistoryList.value = cached.data;
+  }
   try {
     const res = await axios.get('/api/v1/store/history', {
       params: {
@@ -797,7 +827,9 @@ const fetchReceiptHistory = async () => {
         search: searchQuery.value || ''
       }
     });
-    receiptHistoryList.value = res.data.data || res.data || [];
+    const data = res.data.data || res.data || [];
+    cacheStore.set(cacheKey, data, 60000);
+    receiptHistoryList.value = data;
   } catch (err) {
     error.value = 'Failed to load store receipts history.';
   }
@@ -812,8 +844,11 @@ const handleProcessReturned = async (item, action) => {
       remarks: `Processed via Store Web Desk as ${action}.`
     });
     successMessage.value = res.data.message || `Returned item processed as ${action}.`;
-    await fetchReturnedItems();
-    if (isHierarchical.value) await checkAndLoadStoreData();
+    cacheStore.invalidate('store');
+    cacheStore.invalidate('dashboard');
+    cacheStore.invalidate('qc');
+    await fetchReturnedItems(true);
+    if (isHierarchical.value) await checkAndLoadStoreData(true);
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to process returned item.';
   } finally {
@@ -827,8 +862,11 @@ const handleRevertReceipt = async (item) => {
   try {
     const res = await axios.post(`/api/v1/store/items/${item.id}/revert`);
     successMessage.value = res.data.message || 'Receipt successfully reverted.';
-    await fetchReceiptHistory();
-    if (isHierarchical.value) await checkAndLoadStoreData();
+    cacheStore.invalidate('store');
+    cacheStore.invalidate('dashboard');
+    cacheStore.invalidate('qc');
+    await fetchReceiptHistory(true);
+    if (isHierarchical.value) await checkAndLoadStoreData(true);
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to revert receipt.';
   } finally {
@@ -936,13 +974,17 @@ const submitReceipt = async () => {
     const res = await axios.post('/api/v1/store/receipts', payload);
     successMessage.value = res.data.message || 'Receipt recorded and sent to QC.';
     
+    cacheStore.invalidate('store');
+    cacheStore.invalidate('dashboard');
+    cacheStore.invalidate('qc');
+
     // Close modal
     const modalEl = document.getElementById('receiveModal');
     const modal = bootstrap.Modal.getInstance(modalEl);
     if (modal) modal.hide();
 
     if (isHierarchical.value) {
-      await checkAndLoadStoreData();
+      await checkAndLoadStoreData(true);
       // Keep selected unit & jig active so user stays in context
       if (selectedJig.value) {
         const updatedJig = hierarchyJigs.value.find(j => j.jig_name === selectedJig.value.jig_name);

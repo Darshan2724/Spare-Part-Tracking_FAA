@@ -424,9 +424,11 @@
 <script setup>
 import { onMounted, onUnmounted, ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
+import { useAppCacheStore } from '@/stores/cache';
 import axios from 'axios';
 
 const authStore = useAuthStore();
+const cacheStore = useAppCacheStore();
 const projects = ref([]);
 const jigs = ref([]);
 const activeProject = ref(null);
@@ -463,17 +465,18 @@ const submitting = ref(false);
 
 let searchDebounce = null;
 
-const loadHierarchy = async () => {
-  try {
-    const params = new URLSearchParams();
-    if (projectId.value) params.append('project_id', projectId.value);
-    if (selectedSide.value) params.append('side', selectedSide.value);
+const loadHierarchy = async (forceFresh = false) => {
+  const params = new URLSearchParams();
+  if (projectId.value) params.append('project_id', projectId.value);
+  if (selectedSide.value) params.append('side', selectedSide.value);
 
-    const response = await axios.get(`/api/v1/assembly/hierarchy?${params.toString()}`);
-    if (response.data.is_hierarchical) {
-      activeProject.value = response.data.project;
-      jigs.value = response.data.jigs || [];
-      projects.value = response.data.projects || [];
+  const cacheKey = `assembly_hierarchy_${params.toString()}`;
+
+  const applyData = (data) => {
+    if (data.is_hierarchical) {
+      activeProject.value = data.project;
+      jigs.value = data.jigs || [];
+      projects.value = data.projects || [];
 
       if (selectedJig.value) {
         selectedJig.value = jigs.value.find(j => j.jig_name === selectedJig.value.jig_name) || null;
@@ -482,10 +485,21 @@ const loadHierarchy = async () => {
         }
       }
     } else {
-      projects.value = response.data.projects || [];
+      projects.value = data.projects || [];
       jigs.value = [];
       activeProject.value = null;
     }
+  };
+
+  const cached = cacheStore.get(cacheKey);
+  if (cached && !forceFresh) {
+    applyData(cached.data);
+  }
+
+  try {
+    const response = await axios.get(`/api/v1/assembly/hierarchy?${params.toString()}`);
+    cacheStore.set(cacheKey, response.data, 60000);
+    applyData(response.data);
   } catch (err) {
     error.value = 'Unable to load assembly hierarchy.';
   }
@@ -494,7 +508,7 @@ const loadHierarchy = async () => {
 const onProjectChange = () => {
   selectedJig.value = null;
   selectedUnit.value = null;
-  loadHierarchy();
+  loadHierarchy(true);
 };
 
 const goBackOneLevel = () => {
@@ -553,7 +567,10 @@ const submitAssemblyFromPart = async (part) => {
     const res = await axios.post('/api/v1/assembly/items', payload);
     successMessage.value = res.data.message || 'Assembly process recorded successfully.';
 
-    loadHierarchy();
+    cacheStore.invalidate('assembly');
+    cacheStore.invalidate('dashboard');
+
+    await loadHierarchy(true);
     if (searchQuery.value) onSearchInput();
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to complete assembly.';

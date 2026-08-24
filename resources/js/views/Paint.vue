@@ -467,9 +467,11 @@
 <script setup>
 import { onMounted, ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
+import { useAppCacheStore } from '@/stores/cache';
 import axios from 'axios';
 
 const authStore = useAuthStore();
+const cacheStore = useAppCacheStore();
 const projects = ref([]);
 const jigs = ref([]);
 const activeProject = ref(null);
@@ -531,17 +533,18 @@ const paintForm = ref({
 
 let searchDebounce = null;
 
-const loadHierarchy = async () => {
-  try {
-    const params = new URLSearchParams();
-    if (projectId.value) params.append('project_id', projectId.value);
-    if (selectedSide.value) params.append('side', selectedSide.value);
+const loadHierarchy = async (forceFresh = false) => {
+  const params = new URLSearchParams();
+  if (projectId.value) params.append('project_id', projectId.value);
+  if (selectedSide.value) params.append('side', selectedSide.value);
 
-    const response = await axios.get(`/api/v1/paint/hierarchy?${params.toString()}`);
-    if (response.data.is_hierarchical) {
-      activeProject.value = response.data.project;
-      jigs.value = response.data.jigs || [];
-      projects.value = response.data.projects || [];
+  const cacheKey = `paint_hierarchy_${params.toString()}`;
+
+  const applyData = (data) => {
+    if (data.is_hierarchical) {
+      activeProject.value = data.project;
+      jigs.value = data.jigs || [];
+      projects.value = data.projects || [];
 
       if (selectedJig.value) {
         selectedJig.value = jigs.value.find(j => j.jig_name === selectedJig.value.jig_name) || null;
@@ -550,10 +553,21 @@ const loadHierarchy = async () => {
         }
       }
     } else {
-      projects.value = response.data.projects || [];
+      projects.value = data.projects || [];
       jigs.value = [];
       activeProject.value = null;
     }
+  };
+
+  const cached = cacheStore.get(cacheKey);
+  if (cached && !forceFresh) {
+    applyData(cached.data);
+  }
+
+  try {
+    const response = await axios.get(`/api/v1/paint/hierarchy?${params.toString()}`);
+    cacheStore.set(cacheKey, response.data, 60000);
+    applyData(response.data);
   } catch (err) {
     error.value = 'Unable to load paint hierarchy.';
   }
@@ -562,7 +576,7 @@ const loadHierarchy = async () => {
 const onProjectChange = () => {
   selectedJig.value = null;
   selectedUnit.value = null;
-  loadHierarchy();
+  loadHierarchy(true);
 };
 
 const goBackOneLevel = () => {
@@ -641,11 +655,15 @@ const submitPaint = async () => {
     const res = await axios.post('/api/v1/paint/items', payload);
     successMessage.value = res.data.message || 'Painting completed and pushed to assembly.';
 
+    cacheStore.invalidate('paint');
+    cacheStore.invalidate('assembly');
+    cacheStore.invalidate('dashboard');
+
     const modalEl = document.getElementById('paintModal');
     const modal = bootstrap.Modal.getInstance(modalEl);
     if (modal) modal.hide();
 
-    loadHierarchy();
+    await loadHierarchy(true);
     if (searchQuery.value) onSearchInput();
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to complete painting.';
