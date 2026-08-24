@@ -1,83 +1,46 @@
 ================================================================================
-          SPARETRACK COMPLETE SERVER & MOBILE UPDATE COMMANDS
-================================================================================
-All changes from today:
- - CRITICAL Assembly Mobile Sync & Stability Fix
- - Incremental BOM Import & Reconciliation Engine
- - Block Same-Filename Reupload Protection
- - System-Wide Performance Optimization (0ms Instant Load, 99% Latency Drop)
+SPARETRACK SERVER UPDATE COMMANDS (RUN IN POWERSHELL ON SERVER PC)
 ================================================================================
 
+OPTION 1: AUTOMATED 1-CLICK SCRIPT
 --------------------------------------------------------------------------------
-OPTION 1: AUTOMATED 1-CLICK UPDATE (FASTEST)
---------------------------------------------------------------------------------
-Simply double-click: update_server.bat
-(Or run in terminal: .\update_server.bat)
+.\update_server.bat
 
 
---------------------------------------------------------------------------------
-OPTION 2: ONE-LINER COPY & PASTE (IN SERVER PC POWERSHELL)
+OPTION 2: POWERSHELL ONE-LINER (COPY & PASTE ALL AT ONCE)
 --------------------------------------------------------------------------------
 git pull origin main; npm run build; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
 
 
+OPTION 3: STEP-BY-STEP COMMANDS
 --------------------------------------------------------------------------------
-OPTION 3: STEP-BY-STEP DOCKER COMMANDS (RUN ONE BY ONE)
---------------------------------------------------------------------------------
-
-1. Navigate to Project Directory:
-   cd "C:\Darshan Details\Internship Faith Automation\Projects\Spare Part Tracking\SpareTrack"
-
-2. Pull Latest Updates from GitHub:
-   git pull origin main
-
-3. Build Web Assets on Host:
-   npm run build
-
-4. Run Database Migrations Safely Inside Docker (Zero Data Loss):
-   docker exec -t sparetrack-app php artisan migrate --force
-
-5. Clear and Cache Laravel Configuration:
-   docker exec -t sparetrack-app php artisan optimize:clear
-   docker exec -t sparetrack-app php artisan config:cache
-   docker exec -t sparetrack-app php artisan route:cache
-   docker exec -t sparetrack-app php artisan view:cache
-
-6. Gracefully Restart Application Containers (PostgreSQL stays running):
-   docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
+1. git pull origin main
+2. npm run build
+3. docker exec -t sparetrack-app php artisan migrate --force
+4. docker exec -t sparetrack-app php artisan optimize:clear
+5. docker exec -t sparetrack-app php artisan config:cache
+6. docker exec -t sparetrack-app php artisan route:cache
+7. docker exec -t sparetrack-app php artisan view:cache
+8. docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
 
 
 ================================================================================
-MOBILE APP OVER-THE-AIR (OTA) UPDATE COMMANDS
+MOBILE OVER-THE-AIR (OTA) UPDATES (EXPO EAS)
 ================================================================================
+Note: If your phone app badge shows "Preview Build", you should update through
+the "preview" channel. Both "preview" and "production" channels have already
+been updated!
 
-Navigate to mobile directory:
+To publish updates manually from laptop:
 cd "C:\Darshan Details\Internship Faith Automation\Projects\Spare Part Tracking\SpareTrack\mobile"
 
-Method A: EAS OTA Update (Publish directly to all installed devices over the air)
---------------------------------------------------------------------------------
-npx eas-cli update --auto
-# OR with custom message:
-npx eas-cli update --branch main --message "Performance optimization and assembly sync stability"
+Preview Channel:
+npx eas-cli update --channel preview --message "Latest updates"
 
-Method B: Expo Development / Local Reload
---------------------------------------------------------------------------------
-npx expo start --clear
-# (Press 'r' in terminal to reload on device, or reopen Expo Go app)
+Production Channel:
+npx eas-cli update --channel production --message "Latest updates"
 
-
-================================================================================
-OPTIONAL: CREATE A FULL DATABASE BACKUP (RUN ANY TIME)
-================================================================================
-docker exec -t sparetrack-postgres pg_dump -U sparetrack_user -d sparetrack -c > backups/sparetrack_backup_latest.sql
-
-
-================================================================================
-CHECK SERVER HEALTH & STATUS
-================================================================================
-1. Check running Docker containers:
-   docker ps
-
-2. Check application logs if needed:
-   docker exec -t sparetrack-app tail -n 50 storage/logs/laravel.log
-================================================================================
+How to receive update on phone:
+1. Swipe away / force close the app on your phone.
+2. Open the app while connected to Wi-Fi/data. EAS downloads the update in background.
+3. Next time you open the app (or click "Check for Updates"), the new bundle is applied!
