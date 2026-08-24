@@ -4,12 +4,11 @@ This guide contains everything required to deploy all updates onto the **Server 
 
 ---
 
-## ⚡ Option 1: Automated 1-Click Update Script
-On the Server PC, simply double-click:
-```bat
-update_server.bat
+## ⚡ Option 1: Automated 1-Click Update Script (Fastest)
+On the Server PC, open PowerShell in the project root directory and run:
+```powershell
+.\update_server.bat
 ```
-*(Or execute `.\update_server.bat` in PowerShell/Command Prompt).*
 
 ---
 
@@ -57,42 +56,29 @@ docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-ngi
 
 ## 📱 Mobile App Over-The-Air (OTA) Updates
 
-Navigate to the mobile directory:
+### About Preview vs Production Builds:
+- **Preview Build**: If the app on your phone was installed as a Preview / Internal testing APK (the app badge says "Preview Build"), EAS Update checks the **`preview`** channel.
+- **Production Build**: If the app was built for production release, it checks the **`production`** channel.
+
+> **Note**: Both `preview` and `production` channels have already been built and published with the latest fixes!
+
+If you ever need to publish a new mobile update manually from your terminal:
+
 ```powershell
 cd "C:\Darshan Details\Internship Faith Automation\Projects\Spare Part Tracking\SpareTrack\mobile"
 ```
 
-### Method A: EAS Over-The-Air (OTA) Publish
-Publish the update directly to all installed mobile devices without rebuilding the APK:
+#### Publish to Preview Channel:
 ```powershell
-# For Preview APK builds:
-npx eas-cli update --channel preview --message "Performance optimization and stability fix"
-
-# For Production APK builds:
-npx eas-cli update --channel production --message "Performance optimization and stability fix"
+npx eas-cli update --channel preview --message "Latest updates"
 ```
 
-### Method B: Expo Go / Local Reload
+#### Publish to Production Channel:
 ```powershell
-npx expo start --clear
-```
-*(Press `r` in terminal to reload the bundle on connected devices).*
-
----
-
-## 💾 Optional: Timestamped Database Backup
-To create a backup before or after updates:
-```powershell
-docker exec -t sparetrack-postgres pg_dump -U sparetrack_user -d sparetrack -c > backups/sparetrack_backup_latest.sql
+npx eas-cli update --channel production --message "Latest updates"
 ```
 
----
-
-## 🩺 System Verification & Health Check
-```powershell
-# Check running containers
-docker ps
-
-# View live Laravel logs
-docker exec -t sparetrack-app tail -n 50 storage/logs/laravel.log
-```
+### How to apply on Phone:
+1. Close the app completely on your phone (swipe it away from recent apps).
+2. Open the app again while connected to internet $\to$ EAS automatically downloads the new bundle.
+3. On next open (or by clicking "Check for Updates"), the app will run the latest version immediately without reinstalling the APK!
