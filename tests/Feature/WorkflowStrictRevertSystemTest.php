@@ -792,4 +792,41 @@ class WorkflowStrictRevertSystemTest extends TestCase
         $this->assertEquals(3, $metricsLh['parts_in_qc']);
         $this->assertEquals(0, $metricsLh['parts_in_store']);
     }
+
+    /**
+     * Test 16: Global Department Revert Items Endpoint.
+     */
+    public function test_global_department_revert_items_endpoint_returns_hierarchical_records_without_unit_id(): void
+    {
+        // Setup Store receipt
+        $storeRec = $this->createStoreReceipt('LH', 3);
+
+        // Setup QC arrived receipt
+        $item2 = $this->createSecondaryBomItem();
+        $qcRec = $this->createStoreReceipt('RH', 2, $item2);
+        $qcRec->update(['status' => 'qc_received']);
+
+        // Query Store global revert queue
+        $storeResp = $this->actingAs($this->adminUser)->getJson('/api/v1/workflow/revert-items?department=store');
+        $storeResp->assertStatus(200);
+        $storeResp->assertJson(['success' => true, 'department' => 'store']);
+        $storeItems = $storeResp->json('items');
+        $this->assertNotEmpty($storeItems);
+        $this->assertEquals('STORE', $storeItems[0]['from_department']);
+        $this->assertEquals('PENDING_ARRIVAL', $storeItems[0]['to_department']);
+
+        // Query QC global revert queue
+        $qcResp = $this->actingAs($this->adminUser)->getJson('/api/v1/workflow/revert-items?department=qc');
+        $qcResp->assertStatus(200);
+        $qcResp->assertJson(['success' => true, 'department' => 'qc']);
+        $qcItems = $qcResp->json('items');
+        $this->assertNotEmpty($qcItems);
+        $this->assertEquals('QC', $qcItems[0]['from_department']);
+        $this->assertEquals('STORE', $qcItems[0]['to_department']);
+
+        // Test project filter
+        $filterResp = $this->actingAs($this->adminUser)->getJson("/api/v1/workflow/revert-items?department=store&project_id={$this->project->id}&side=LH");
+        $filterResp->assertStatus(200);
+        $this->assertGreaterThanOrEqual(1, $filterResp->json('total'));
+    }
 }

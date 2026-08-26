@@ -300,6 +300,138 @@ const compactQtyStyles = StyleSheet.create({
   },
 });
 
+function CompactInlineRevertRow({ item, onRevert, disabled }) {
+  const maxAvail = item.available_quantity || 1;
+  const [qty, setQty] = useState(String(maxAvail));
+
+  useEffect(() => {
+    setQty(String(item.available_quantity || 1));
+  }, [item.available_quantity]);
+
+  const numQty = parseInt(qty, 10) || 0;
+  const isValid = numQty >= 1 && numQty <= maxAvail;
+
+  const decrement = () => {
+    const next = Math.max(1, (parseInt(qty, 10) || 1) - 1);
+    setQty(String(next));
+  };
+
+  const increment = () => {
+    const next = Math.min(maxAvail, (parseInt(qty, 10) || 0) + 1);
+    setQty(String(next));
+  };
+
+  return (
+    <View style={compactInlineRevertStyles.row}>
+      <Text style={compactInlineRevertStyles.availText}>
+        Avail: <Text style={{ fontWeight: '800', color: '#1e293b' }}>{maxAvail}</Text>
+      </Text>
+
+      <View style={compactInlineRevertStyles.stepperBox}>
+        <TouchableOpacity
+          style={[compactInlineRevertStyles.stepBtn, numQty <= 1 && { opacity: 0.4 }]}
+          disabled={numQty <= 1 || disabled}
+          onPress={decrement}>
+          <Text style={compactInlineRevertStyles.stepBtnText}>−</Text>
+        </TouchableOpacity>
+
+        <TextInput
+          style={compactInlineRevertStyles.input}
+          keyboardType="numeric"
+          value={qty}
+          onChangeText={(val) => {
+            const clean = val.replace(/[^0-9]/g, '');
+            setQty(clean);
+          }}
+        />
+
+        <TouchableOpacity
+          style={[compactInlineRevertStyles.stepBtn, numQty >= maxAvail && { opacity: 0.4 }]}
+          disabled={numQty >= maxAvail || disabled}
+          onPress={increment}>
+          <Text style={compactInlineRevertStyles.stepBtnText}>+</Text>
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity
+        style={[
+          compactInlineRevertStyles.actionBtn,
+          (!isValid || disabled) && { opacity: 0.4 }
+        ]}
+        disabled={!isValid || disabled}
+        onPress={() => onRevert(item, numQty)}>
+        <Text style={compactInlineRevertStyles.actionBtnText}>
+          ↩ Revert ({isValid ? numQty : '−'})
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const compactInlineRevertStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+    gap: 6,
+  },
+  availText: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  stepperBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    height: 32,
+    overflow: 'hidden',
+  },
+  stepBtn: {
+    width: 28,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+  },
+  stepBtnText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#334155',
+    lineHeight: 18,
+  },
+  input: {
+    width: 38,
+    height: 32,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0f172a',
+    padding: 0,
+    backgroundColor: '#ffffff',
+  },
+  actionBtn: {
+    backgroundColor: '#dc2626',
+    paddingHorizontal: 10,
+    height: 32,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+});
+
 function App() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
@@ -461,6 +593,15 @@ function App() {
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [unitSideTab, setUnitSideTab] = useState('LH'); // 'LH' | 'RH'
 
+  // Global / Upper Revert State
+  const [globalRevertItems, setGlobalRevertItems] = useState([]);
+  const [isLoadingGlobalRevert, setIsLoadingGlobalRevert] = useState(false);
+  const [selectedGlobalRevertIds, setSelectedGlobalRevertIds] = useState(new Set());
+  const [isGlobalRevertSelectionMode, setIsGlobalRevertSelectionMode] = useState(false);
+  const [showBulkGlobalRevertModal, setShowBulkGlobalRevertModal] = useState(false);
+  const [bulkGlobalRevertReason, setBulkGlobalRevertReason] = useState('');
+  const [isSubmittingGlobalRevert, setIsSubmittingGlobalRevert] = useState(false);
+
   // In-Memory Tab Data Cache for Instant Zero-Delay Tab Switching
   const mobileCacheRef = useRef(new Map());
   const invalidateMobileCache = (prefix = '') => {
@@ -546,6 +687,46 @@ function App() {
     }, 30000);
     return () => clearInterval(interval);
   }, [token, activeTab, storeSubTab, tabSearches, selectedSide, selectedProject]);
+
+  const isTopLevelRevertTab = !selectedUnit && (
+    (activeTab === 'store' && storeSubTab === 'revert') ||
+    (activeTab === 'qc' && qcSubTab === 'revert') ||
+    (activeTab === 'rework' && reworkSubTab === 'revert') ||
+    (activeTab === 'paint' && paintSubTab === 'revert') ||
+    (activeTab === 'assembly' && assemblySubTab === 'revert')
+  );
+
+  const loadGlobalRevertItems = useCallback(async (dept = activeTab, showSpinner = true) => {
+    if (!token) return;
+    if (showSpinner) setIsLoadingGlobalRevert(true);
+    try {
+      const activeSearch = tabSearches[getCurrentSearchKey(dept, storeSubTab, qcSubTab)] || '';
+      const params = {
+        department: dept,
+        per_page: 200,
+      };
+      if (selectedProject) params.project_id = selectedProject;
+      if (selectedSide) params.side = selectedSide;
+      if (activeSearch) params.search = activeSearch;
+
+      const res = await apiClient.get('/workflow/revert-items', { params });
+      if (res.data && Array.isArray(res.data.items)) {
+        setGlobalRevertItems(res.data.items);
+      } else {
+        setGlobalRevertItems([]);
+      }
+    } catch (err) {
+      console.log('Error loading global revert items:', err);
+    } finally {
+      if (showSpinner) setIsLoadingGlobalRevert(false);
+    }
+  }, [token, activeTab, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab, tabSearches, selectedProject, selectedSide]);
+
+  useEffect(() => {
+    if (isTopLevelRevertTab && token) {
+      loadGlobalRevertItems(activeTab, true);
+    }
+  }, [isTopLevelRevertTab, activeTab, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab, selectedProject, selectedSide, tabSearches, loadGlobalRevertItems]);
 
   const [otaChecking, setOtaChecking] = useState(false);
 
@@ -1297,6 +1478,92 @@ function App() {
     }
   };
 
+  // --- GLOBAL / UPPER REVERT HANDLERS ---
+  const handleQuickGlobalRevert = async (item, requestedQty) => {
+    if (isSubmittingGlobalRevert) return;
+    const qty = parseInt(requestedQty, 10);
+    const maxAvail = item.available_quantity || 1;
+    if (isNaN(qty) || qty <= 0 || qty > maxAvail) {
+      Alert.alert('Invalid Quantity', `Quantity must be between 1 and ${maxAvail}.`);
+      return;
+    }
+
+    setIsSubmittingGlobalRevert(true);
+    try {
+      const payload = {
+        department: activeTab,
+        bom_item_id: item.bom_item_id,
+        side: item.side,
+        quantity: qty,
+        source_type: item.source_type,
+        source_id: item.source_id,
+        reason: 'Global department workflow revert',
+      };
+
+      const res = await apiClient.post('/workflow/revert', payload);
+      showToast(res.data?.message || `Successfully reverted ${qty} pcs of ${item.standard_part_no}`);
+
+      // Invalidate caches
+      invalidateMobileCache('store');
+      invalidateMobileCache('qc');
+      invalidateMobileCache('rework');
+      invalidateMobileCache('paint');
+      invalidateMobileCache('assembly');
+      invalidateMobileCache('dashboard');
+
+      await loadGlobalRevertItems(activeTab, false);
+      await loadData(activeTab, false, null, true);
+    } catch (err) {
+      Alert.alert('Revert Failed', err.response?.data?.message || err.message || 'Could not complete revert.');
+    } finally {
+      setIsSubmittingGlobalRevert(false);
+    }
+  };
+
+  const handleBulkGlobalRevertSubmit = async () => {
+    if (isSubmittingGlobalRevert || selectedGlobalRevertIds.size === 0) return;
+    const selectedList = globalRevertItems.filter(i => selectedGlobalRevertIds.has(i.id));
+    if (!selectedList.length) return;
+
+    const payloadItems = selectedList.map(item => ({
+      bom_item_id: item.bom_item_id,
+      side: item.side,
+      quantity: item.available_quantity,
+      source_type: item.source_type,
+      source_id: item.source_id,
+    }));
+
+    setIsSubmittingGlobalRevert(true);
+    try {
+      const res = await apiClient.post('/workflow/bulk-revert', {
+        department: activeTab,
+        items: payloadItems,
+        reason: bulkGlobalRevertReason || 'Global bulk workflow revert',
+      });
+
+      showToast(res.data?.message || `Successfully reverted ${payloadItems.length} items`);
+      setShowBulkGlobalRevertModal(false);
+      setSelectedGlobalRevertIds(new Set());
+      setIsGlobalRevertSelectionMode(false);
+      setBulkGlobalRevertReason('');
+
+      // Invalidate caches
+      invalidateMobileCache('store');
+      invalidateMobileCache('qc');
+      invalidateMobileCache('rework');
+      invalidateMobileCache('paint');
+      invalidateMobileCache('assembly');
+      invalidateMobileCache('dashboard');
+
+      await loadGlobalRevertItems(activeTab, false);
+      await loadData(activeTab, false, null, true);
+    } catch (err) {
+      Alert.alert('Bulk Revert Failed', err.response?.data?.message || err.message || 'Could not execute bulk revert.');
+    } finally {
+      setIsSubmittingGlobalRevert(false);
+    }
+  };
+
   // --- BULK ACTION HANDLERS (Issue 5 & Phase 4) ---
   const [isSubmittingBulk, setIsSubmittingBulk] = useState(false);
 
@@ -1991,7 +2258,7 @@ function App() {
         style={styles.content}
         contentContainerStyle={[
           styles.content,
-          (selectedItemIds.size > 0 && selectedUnit) ? { paddingBottom: 120 } : null
+          ((selectedItemIds.size > 0 && selectedUnit) || (isTopLevelRevertTab && isGlobalRevertSelectionMode && selectedGlobalRevertIds.size > 0)) ? { paddingBottom: 120 } : null
         ]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
         {loading && !refreshing && !selectedProject && items.length === 0 && projects.length === 0 ? (
@@ -2029,8 +2296,146 @@ function App() {
         ) : ['store', 'qc', 'rework', 'paint', 'assembly'].includes(activeTab) ? (
           // MOBILE UNIFIED 4-LEVEL DRILLDOWN VIEW (Page-wise Search Enabled across all departments)
           <View style={styles.listContainer}>
-            {/* LEVEL 1: PROJECTS GRID (when no project selected) */}
-            {!selectedProject && (
+            {/* UPPER / GLOBAL REVERT QUEUE (when upper revert subtab is active and no unit opened) */}
+            {isTopLevelRevertTab ? (
+              <View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <Text style={styles.sectionHeader}>
+                    ↩ {activeTab.toUpperCase()} GLOBAL REVERT QUEUE ({globalRevertItems.length})
+                  </Text>
+                  {selectedProject && (
+                    <TouchableOpacity
+                      style={styles.clearProjectFilterBtn}
+                      onPress={() => setSelectedProject(null)}>
+                      <Text style={styles.clearProjectFilterBtnText}>All Projects ✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Multi-Selection Control Bar */}
+                <View style={styles.selectionControlBar}>
+                  <TouchableOpacity
+                    style={styles.selectionToggleBtn}
+                    onPress={() => {
+                      if (isGlobalRevertSelectionMode) {
+                        setSelectedGlobalRevertIds(new Set());
+                        setIsGlobalRevertSelectionMode(false);
+                      } else {
+                        setIsGlobalRevertSelectionMode(true);
+                      }
+                    }}>
+                    <Text style={styles.selectionToggleText}>
+                      {isGlobalRevertSelectionMode ? '✕ Cancel Selection' : '☑ Multi-Select'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {isGlobalRevertSelectionMode && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <TouchableOpacity
+                        style={styles.selectAllBtn}
+                        onPress={() => {
+                          const allIds = new Set(globalRevertItems.map(i => i.id));
+                          setSelectedGlobalRevertIds(allIds);
+                        }}>
+                        <Text style={styles.selectAllBtnText}>Select All ({globalRevertItems.length})</Text>
+                      </TouchableOpacity>
+                      {selectedGlobalRevertIds.size > 0 && (
+                        <TouchableOpacity
+                          style={styles.clearSelectBtn}
+                          onPress={() => setSelectedGlobalRevertIds(new Set())}>
+                          <Text style={styles.clearSelectBtnText}>Clear ({selectedGlobalRevertIds.size})</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
+                </View>
+
+                {isLoadingGlobalRevert && globalRevertItems.length === 0 ? (
+                  <View style={{ paddingVertical: 30, alignItems: 'center' }}>
+                    <ActivityIndicator size="large" color="#dc2626" />
+                    <Text style={{ marginTop: 8, color: '#64748b', fontSize: 13 }}>Loading revertible parts...</Text>
+                  </View>
+                ) : (
+                  <>
+                    {globalRevertItems.map((item) => {
+                      const isSelected = selectedGlobalRevertIds.has(item.id);
+                      return (
+                        <TouchableOpacity
+                          key={item.id}
+                          activeOpacity={0.85}
+                          onLongPress={() => {
+                            setIsGlobalRevertSelectionMode(true);
+                            setSelectedGlobalRevertIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(item.id)) next.delete(item.id);
+                              else next.add(item.id);
+                              return next;
+                            });
+                          }}
+                          onPress={() => {
+                            if (isGlobalRevertSelectionMode) {
+                              setSelectedGlobalRevertIds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(item.id)) next.delete(item.id);
+                                else next.add(item.id);
+                                return next;
+                              });
+                            }
+                          }}
+                          style={[
+                            styles.itemCard,
+                            isSelected && { borderColor: '#dc2626', borderWidth: 2, backgroundColor: '#fef2f2' }
+                          ]}>
+                          {/* Row 1: Context Pill + Part No + Side */}
+                          <View style={styles.itemHeader}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                              {isGlobalRevertSelectionMode && (
+                                <View style={[styles.checkboxCircle, isSelected && { backgroundColor: '#dc2626', borderColor: '#dc2626' }]}>
+                                  {isSelected && <Text style={styles.checkmarkText}>✓</Text>}
+                                </View>
+                              )}
+                              <Text style={styles.itemPartNo} numberOfLines={1}>
+                                {item.project_code} • {item.jig_name ? `${item.jig_name} • ` : ''}{item.unit_no ? `${item.unit_no} • ` : ''}{item.standard_part_no}
+                              </Text>
+                              <View style={item.side === 'LH' ? styles.sidePillLh : styles.sidePillRh}>
+                                <Text style={item.side === 'LH' ? styles.sidePillTextLh : styles.sidePillTextRh}>
+                                  {item.side}
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+
+                          {/* Row 2: Lineage Route Info */}
+                          <View style={{ marginTop: 2, marginBottom: 4 }}>
+                            <Text style={[styles.itemSubText, { fontSize: 11, color: '#475569' }]}>
+                              From: <Text style={{ fontWeight: '700' }}>{item.from_department}</Text> → To: <Text style={{ fontWeight: '700', color: '#dc2626' }}>{item.target_label}</Text>
+                            </Text>
+                          </View>
+
+                          {/* Row 3: Compact Inline Quantity Stepper & Single Revert Action */}
+                          <CompactInlineRevertRow
+                            item={item}
+                            disabled={isSubmittingGlobalRevert || isGlobalRevertSelectionMode}
+                            onRevert={handleQuickGlobalRevert}
+                          />
+                        </TouchableOpacity>
+                      );
+                    })}
+
+                    {globalRevertItems.length === 0 && (
+                      <View style={styles.emptyState}>
+                        <Text style={[styles.emptyStateText, { color: '#64748b' }]}>
+                          ✓ No active revertible parts in {activeTab.toUpperCase()}.
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                )}
+              </View>
+            ) : (
+              <>
+                {/* LEVEL 1: PROJECTS GRID (when no project selected) */}
+                {!selectedProject && (
               <View>
                 <Text style={styles.sectionHeader}>
                   SELECT {activeTab.toUpperCase()} PROJECT ({
@@ -2990,6 +3395,8 @@ function App() {
                 })()}
               </View>
             )}
+              </>
+            )}
           </View>
         ) : (
           // PURCHASE QUEUE OR FALLBACK
@@ -3044,6 +3451,34 @@ function App() {
           </View>
         )}
       </ScrollView>
+
+      {/* GLOBAL REVERT FIXED BOTTOM STICKY ACTION BAR */}
+      {isTopLevelRevertTab && isGlobalRevertSelectionMode && selectedGlobalRevertIds.size > 0 && (() => {
+        const selectedList = globalRevertItems.filter(i => selectedGlobalRevertIds.has(i.id));
+        const totalSelectedQty = selectedList.reduce((sum, item) => sum + (item.available_quantity || 0), 0);
+
+        return (
+          <View style={styles.stickyBottomActionBar}>
+            <View style={styles.stickyBarHeader}>
+              <Text style={styles.stickyBarCountBadge}>
+                ↩ Selected: {selectedGlobalRevertIds.size} parts • Total: {totalSelectedQty} pcs
+              </Text>
+              <TouchableOpacity onPress={() => setSelectedGlobalRevertIds(new Set())} style={styles.stickyBarClearBtn}>
+                <Text style={styles.stickyBarClearText}>✕ Clear</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.bulkBtn, { backgroundColor: '#dc2626' }]}
+              disabled={isSubmittingGlobalRevert}
+              onPress={() => setShowBulkGlobalRevertModal(true)}>
+              <Text style={styles.bulkBtnText}>
+                ↩ BULK REVERT SELECTED ({selectedGlobalRevertIds.size} PARTS • {totalSelectedQty} PCS)
+              </Text>
+            </TouchableOpacity>
+          </View>
+        );
+      })()}
 
       {/* FIXED BOTTOM STICKY ACTION BAR */}
       {selectedItemIds.size > 0 && selectedUnit && (() => {
@@ -3981,6 +4416,60 @@ function App() {
                         <ActivityIndicator color="#ffffff" size="small" />
                       ) : (
                         <Text style={styles.buttonText}>Confirm Revert ({rQty} pcs)</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
+
+      {/* BULK GLOBAL REVERT MODAL */}
+      <Modal visible={showBulkGlobalRevertModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={styles.modalTitle}>↩ Bulk Revert Parts</Text>
+              <TouchableOpacity onPress={() => setShowBulkGlobalRevertModal(false)} style={{ padding: 4 }}>
+                <Text style={{ fontSize: 16, color: '#64748b', fontWeight: '700' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {(() => {
+              const selectedList = globalRevertItems.filter(i => selectedGlobalRevertIds.has(i.id));
+              const totalPcs = selectedList.reduce((sum, i) => sum + (i.available_quantity || 0), 0);
+
+              return (
+                <View>
+                  <Text style={{ fontSize: 13, color: '#334155', marginBottom: 8, lineHeight: 18 }}>
+                    You are about to revert <Text style={{ fontWeight: '800', color: '#dc2626' }}>{selectedList.length} parts ({totalPcs} total pcs)</Text> in {activeTab.toUpperCase()} back to their previous department.
+                  </Text>
+
+                  <Text style={[styles.label, { marginTop: 4 }]}>Reason for Bulk Revert (Audit Trail)</Text>
+                  <TextInput
+                    style={[styles.input, { minHeight: 44 }]}
+                    value={bulkGlobalRevertReason}
+                    onChangeText={setBulkGlobalRevertReason}
+                    placeholder="e.g. Batch quality hold, intake adjustment..."
+                  />
+
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                    <TouchableOpacity
+                      style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]}
+                      disabled={isSubmittingGlobalRevert}
+                      onPress={() => setShowBulkGlobalRevertModal(false)}>
+                      <Text style={styles.buttonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.button, { flex: 1.4, backgroundColor: isSubmittingGlobalRevert ? '#991b1b' : '#dc2626' }]}
+                      disabled={isSubmittingGlobalRevert}
+                      onPress={handleBulkGlobalRevertSubmit}>
+                      {isSubmittingGlobalRevert ? (
+                        <ActivityIndicator color="#ffffff" size="small" />
+                      ) : (
+                        <Text style={styles.buttonText}>Confirm ({totalPcs} pcs)</Text>
                       )}
                     </TouchableOpacity>
                   </View>
@@ -5165,5 +5654,16 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '800',
     fontSize: 11.5,
+  },
+  clearProjectFilterBtn: {
+    backgroundColor: '#e2e8f0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  clearProjectFilterBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
   },
 });
