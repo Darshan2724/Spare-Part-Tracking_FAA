@@ -6,7 +6,8 @@ echo "      Updating SpareTrack Server Deployment"
 echo "  (Self-Healing Reverts + Zero Data Loss Migration)"
 echo "==================================================="
 
-echo "[1/6] Pulling latest code and migrations from GitHub..."
+echo "[1/6] Stashing local server artifacts and pulling latest code from GitHub..."
+git stash
 git pull origin main
 
 echo "[2/6] Building production frontend assets..."
