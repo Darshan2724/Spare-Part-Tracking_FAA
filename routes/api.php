@@ -145,6 +145,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
         // Strict Lineage-Based Workflow Revert Operations
         Route::prefix('workflow')->group(function () {
             Route::get('/revert-options', [\App\Http\Controllers\WorkflowRevertController::class, 'getRevertOptions']);
+            Route::get('/revert-items', [\App\Http\Controllers\WorkflowRevertController::class, 'getRevertItems']);
             Route::post('/revert', [\App\Http\Controllers\WorkflowRevertController::class, 'revert']);
             Route::post('/bulk-revert', [\App\Http\Controllers\WorkflowRevertController::class, 'bulkRevert']);
         });

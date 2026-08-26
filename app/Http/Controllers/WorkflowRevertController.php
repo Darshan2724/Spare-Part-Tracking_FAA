@@ -191,6 +191,357 @@ class WorkflowRevertController extends Controller
     }
 
     /**
+     * Get all active department-wide revert-eligible items without requiring a Unit ID.
+     */
+    public function getRevertItems(Request $request)
+    {
+        $request->validate([
+            'department' => ['required', 'in:store,qc,rework,paint,assembly'],
+            'project_id' => ['nullable', 'integer', 'exists:projects,id'],
+            'side' => ['nullable', 'in:RH,LH,COMMON'],
+            'search' => ['nullable', 'string', 'max:100'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:500'],
+        ]);
+
+        $dept = strtolower($request->input('department'));
+        $projectId = $request->input('project_id');
+        $side = $request->input('side');
+        $search = $request->input('search');
+        $perPage = (int) ($request->input('per_page') ?? 100);
+
+        $applyBomFilters = function ($query) use ($projectId, $search) {
+            if ($projectId) {
+                $query->where('bom_items.project_id', $projectId);
+            }
+            if ($search) {
+                $qStr = '%' . trim($search) . '%';
+                $query->where(function ($sub) use ($qStr) {
+                    $sub->where('bom_items.standard_part_no', 'ilike', $qStr)
+                        ->orWhere('bom_items.item_no', 'ilike', $qStr)
+                        ->orWhere('bom_items.jig_name', 'ilike', $qStr)
+                        ->orWhere('bom_items.unit_no', 'ilike', $qStr)
+                        ->orWhereHas('project', function ($pSub) use ($qStr) {
+                            $pSub->where('name', 'ilike', $qStr)
+                                 ->orWhere('project_code', 'ilike', $qStr);
+                        });
+                });
+            }
+        };
+
+        $rawItems = [];
+
+        switch ($dept) {
+            case 'store':
+                $q = ReceiptItem::with(['bomItem.project', 'bomItem.supplier'])
+                    ->whereHas('bomItem', $applyBomFilters)
+                    ->whereIn('status', ['pending_qc', 'store_received', 'received'])
+                    ->where('received_quantity', '>', 0)
+                    ->whereDoesntHave('qcInspections')
+                    ->orderBy('id', 'desc');
+
+                if ($side) {
+                    $q->where(fn($sQ) => $sQ->where('side', $side)->orWhere('side', 'COMMON'));
+                }
+
+                $records = $q->take($perPage)->get();
+                foreach ($records as $r) {
+                    $bom = $r->bomItem;
+                    if (!$bom) continue;
+                    $rawItems[] = [
+                        'id' => "store_receipt_{$r->id}",
+                        'bom_item_id' => $bom->id,
+                        'standard_part_no' => $bom->standard_part_no,
+                        'item_no' => $bom->item_no,
+                        'side' => $r->side,
+                        'project_id' => $bom->project_id,
+                        'project_code' => $bom->project?->project_code ?? 'N/A',
+                        'project_name' => $bom->project?->name ?? '',
+                        'jig_name' => $bom->jig_name ?? '',
+                        'unit_no' => $bom->unit_no ?? '',
+                        'supplier_name' => $bom->supplier?->name ?? 'Standard',
+                        'available_quantity' => (int) $r->received_quantity,
+                        'from_department' => 'STORE',
+                        'to_department' => 'PENDING_ARRIVAL',
+                        'target_label' => 'Pending Supplier Arrival',
+                        'source_type' => 'receipt_item',
+                        'source_id' => $r->id,
+                        'revert_options' => [[
+                            'source_type' => 'receipt_item',
+                            'source_id' => $r->id,
+                            'available_quantity' => (int) $r->received_quantity,
+                            'from_department' => 'STORE',
+                            'to_department' => 'PENDING_ARRIVAL',
+                            'target_label' => 'Pending Supplier Arrival',
+                            'description' => "Receipt #{$r->id} ({$r->received_quantity} pcs)",
+                        ]],
+                    ];
+                }
+                break;
+
+            case 'qc':
+                $q = ReceiptItem::with(['bomItem.project', 'bomItem.supplier', 'qcInspections'])
+                    ->whereHas('bomItem', $applyBomFilters)
+                    ->where('status', 'qc_received')
+                    ->orderBy('id', 'desc');
+
+                if ($side) {
+                    $q->where(fn($sQ) => $sQ->where('side', $side)->orWhere('side', 'COMMON'));
+                }
+
+                $records = $q->take($perPage * 2)->get();
+                foreach ($records as $r) {
+                    $bom = $r->bomItem;
+                    if (!$bom) continue;
+                    $inspected = (int) $r->qcInspections->sum(fn($insp) => $insp->approved_quantity + $insp->rejected_quantity + $insp->rework_quantity);
+                    $avail = max(0, $r->received_quantity - $inspected);
+                    if ($avail <= 0) continue;
+
+                    $rawItems[] = [
+                        'id' => "qc_receipt_{$r->id}",
+                        'bom_item_id' => $bom->id,
+                        'standard_part_no' => $bom->standard_part_no,
+                        'item_no' => $bom->item_no,
+                        'side' => $r->side,
+                        'project_id' => $bom->project_id,
+                        'project_code' => $bom->project?->project_code ?? 'N/A',
+                        'project_name' => $bom->project?->name ?? '',
+                        'jig_name' => $bom->jig_name ?? '',
+                        'unit_no' => $bom->unit_no ?? '',
+                        'supplier_name' => $bom->supplier?->name ?? 'Standard',
+                        'available_quantity' => $avail,
+                        'from_department' => 'QC',
+                        'to_department' => 'STORE',
+                        'target_label' => 'Store Bay',
+                        'source_type' => 'receipt_item',
+                        'source_id' => $r->id,
+                        'revert_options' => [[
+                            'source_type' => 'receipt_item',
+                            'source_id' => $r->id,
+                            'available_quantity' => $avail,
+                            'from_department' => 'QC',
+                            'to_department' => 'STORE',
+                            'target_label' => 'Store Bay',
+                            'description' => "Arrived in QC from Store ({$avail} pcs)",
+                        ]],
+                    ];
+                    if (count($rawItems) >= $perPage) break;
+                }
+                break;
+
+            case 'rework':
+                $q = QcInspection::with(['bomItem.project', 'bomItem.supplier', 'reworkRecords'])
+                    ->whereHas('bomItem', $applyBomFilters)
+                    ->where('rework_quantity', '>', 0)
+                    ->orderBy('id', 'desc');
+
+                if ($side) {
+                    $q->where(fn($sQ) => $sQ->where('side', $side)->orWhere('side', 'COMMON'));
+                }
+
+                $records = $q->take($perPage * 2)->get();
+                foreach ($records as $insp) {
+                    $bom = $insp->bomItem;
+                    if (!$bom) continue;
+                    $completed = (int) $insp->reworkRecords->whereIn('status', ['completed', 'returned_to_qc'])->sum('quantity');
+                    $avail = max(0, $insp->rework_quantity - $completed);
+                    if ($avail <= 0) continue;
+
+                    $rawItems[] = [
+                        'id' => "rework_insp_{$insp->id}",
+                        'bom_item_id' => $bom->id,
+                        'standard_part_no' => $bom->standard_part_no,
+                        'item_no' => $bom->item_no,
+                        'side' => $insp->side,
+                        'project_id' => $bom->project_id,
+                        'project_code' => $bom->project?->project_code ?? 'N/A',
+                        'project_name' => $bom->project?->name ?? '',
+                        'jig_name' => $bom->jig_name ?? '',
+                        'unit_no' => $bom->unit_no ?? '',
+                        'supplier_name' => $bom->supplier?->name ?? 'Standard',
+                        'available_quantity' => $avail,
+                        'from_department' => 'REWORK',
+                        'to_department' => 'QC',
+                        'target_label' => 'Quality Control Bay',
+                        'source_type' => 'qc_inspection',
+                        'source_id' => $insp->id,
+                        'revert_options' => [[
+                            'source_type' => 'qc_inspection',
+                            'source_id' => $insp->id,
+                            'available_quantity' => $avail,
+                            'from_department' => 'REWORK',
+                            'to_department' => 'QC',
+                            'target_label' => 'Quality Control Bay',
+                            'description' => "Routed to Rework from QC #{$insp->id} ({$avail} pcs)",
+                        ]],
+                    ];
+                    if (count($rawItems) >= $perPage) break;
+                }
+                break;
+
+            case 'paint':
+                $q = QcInspection::with(['bomItem.project', 'bomItem.supplier', 'paintRecords'])
+                    ->whereHas('bomItem', $applyBomFilters)
+                    ->where('approved_quantity', '>', 0)
+                    ->where(fn($pQ) => $pQ->where('destination', 'PAINT')->orWhereNull('destination'))
+                    ->orderBy('id', 'desc');
+
+                if ($side) {
+                    $q->where(fn($sQ) => $sQ->where('side', $side)->orWhere('side', 'COMMON'));
+                }
+
+                $records = $q->take($perPage * 2)->get();
+                foreach ($records as $insp) {
+                    $bom = $insp->bomItem;
+                    if (!$bom) continue;
+                    $painted = (int) $insp->paintRecords->sum('quantity');
+                    $avail = max(0, $insp->approved_quantity - $painted);
+                    if ($avail <= 0) continue;
+
+                    $rawItems[] = [
+                        'id' => "paint_insp_{$insp->id}",
+                        'bom_item_id' => $bom->id,
+                        'standard_part_no' => $bom->standard_part_no,
+                        'item_no' => $bom->item_no,
+                        'side' => $insp->side,
+                        'project_id' => $bom->project_id,
+                        'project_code' => $bom->project?->project_code ?? 'N/A',
+                        'project_name' => $bom->project?->name ?? '',
+                        'jig_name' => $bom->jig_name ?? '',
+                        'unit_no' => $bom->unit_no ?? '',
+                        'supplier_name' => $bom->supplier?->name ?? 'Standard',
+                        'available_quantity' => $avail,
+                        'from_department' => 'PAINT',
+                        'to_department' => 'QC',
+                        'target_label' => 'Quality Control Bay',
+                        'source_type' => 'qc_inspection',
+                        'source_id' => $insp->id,
+                        'revert_options' => [[
+                            'source_type' => 'qc_inspection',
+                            'source_id' => $insp->id,
+                            'available_quantity' => $avail,
+                            'from_department' => 'PAINT',
+                            'to_department' => 'QC',
+                            'target_label' => 'Quality Control Bay',
+                            'description' => "Approved for Paint from QC #{$insp->id} ({$avail} pcs)",
+                        ]],
+                    ];
+                    if (count($rawItems) >= $perPage) break;
+                }
+                break;
+
+            case 'assembly':
+                // Source 1: Paint Records
+                $pQ = PaintRecord::with(['bomItem.project', 'bomItem.supplier', 'assemblyRecords'])
+                    ->whereHas('bomItem', $applyBomFilters)
+                    ->whereIn('status', ['completed', 'assembled'])
+                    ->orderBy('id', 'desc');
+
+                if ($side) {
+                    $pQ->where(fn($sQ) => $sQ->where('side', $side)->orWhere('side', 'COMMON'));
+                }
+
+                $pRecords = $pQ->take($perPage * 2)->get();
+                foreach ($pRecords as $p) {
+                    $bom = $p->bomItem;
+                    if (!$bom) continue;
+                    $assembled = (int) $p->assemblyRecords->sum('quantity');
+                    $avail = max(0, $p->quantity - $assembled);
+                    if ($avail <= 0) continue;
+
+                    $rawItems[] = [
+                        'id' => "assembly_paint_{$p->id}",
+                        'bom_item_id' => $bom->id,
+                        'standard_part_no' => $bom->standard_part_no,
+                        'item_no' => $bom->item_no,
+                        'side' => $p->side,
+                        'project_id' => $bom->project_id,
+                        'project_code' => $bom->project?->project_code ?? 'N/A',
+                        'project_name' => $bom->project?->name ?? '',
+                        'jig_name' => $bom->jig_name ?? '',
+                        'unit_no' => $bom->unit_no ?? '',
+                        'supplier_name' => $bom->supplier?->name ?? 'Standard',
+                        'available_quantity' => $avail,
+                        'from_department' => 'ASSEMBLY',
+                        'to_department' => 'PAINT',
+                        'target_label' => 'Paint Shop',
+                        'source_type' => 'paint_record',
+                        'source_id' => $p->id,
+                        'revert_options' => [[
+                            'source_type' => 'paint_record',
+                            'source_id' => $p->id,
+                            'available_quantity' => $avail,
+                            'from_department' => 'ASSEMBLY',
+                            'to_department' => 'PAINT',
+                            'target_label' => 'Paint Shop',
+                            'description' => "Painted in Paint Shop #{$p->id} ({$avail} pcs)",
+                        ]],
+                    ];
+                    if (count($rawItems) >= $perPage) break;
+                }
+
+                // Source 2: Direct QC Inspections
+                if (count($rawItems) < $perPage) {
+                    $qQ = QcInspection::with(['bomItem.project', 'bomItem.supplier', 'assemblyRecords'])
+                        ->whereHas('bomItem', $applyBomFilters)
+                        ->where('approved_quantity', '>', 0)
+                        ->where('destination', 'ASSEMBLY')
+                        ->orderBy('id', 'desc');
+
+                    if ($side) {
+                        $qQ->where(fn($sQ) => $sQ->where('side', $side)->orWhere('side', 'COMMON'));
+                    }
+
+                    $qRecords = $qQ->take($perPage * 2)->get();
+                    foreach ($qRecords as $insp) {
+                        $bom = $insp->bomItem;
+                        if (!$bom) continue;
+                        $assembled = (int) $insp->assemblyRecords->sum('quantity');
+                        $avail = max(0, $insp->approved_quantity - $assembled);
+                        if ($avail <= 0) continue;
+
+                        $rawItems[] = [
+                            'id' => "assembly_qc_{$insp->id}",
+                            'bom_item_id' => $bom->id,
+                            'standard_part_no' => $bom->standard_part_no,
+                            'item_no' => $bom->item_no,
+                            'side' => $insp->side,
+                            'project_id' => $bom->project_id,
+                            'project_code' => $bom->project?->project_code ?? 'N/A',
+                            'project_name' => $bom->project?->name ?? '',
+                            'jig_name' => $bom->jig_name ?? '',
+                            'unit_no' => $bom->unit_no ?? '',
+                            'supplier_name' => $bom->supplier?->name ?? 'Standard',
+                            'available_quantity' => $avail,
+                            'from_department' => 'ASSEMBLY',
+                            'to_department' => 'QC',
+                            'target_label' => 'Quality Control Bay',
+                            'source_type' => 'qc_inspection',
+                            'source_id' => $insp->id,
+                            'revert_options' => [[
+                                'source_type' => 'qc_inspection',
+                                'source_id' => $insp->id,
+                                'available_quantity' => $avail,
+                                'from_department' => 'ASSEMBLY',
+                                'to_department' => 'QC',
+                                'target_label' => 'Quality Control Bay',
+                                'description' => "Direct QC Approval #{$insp->id} ({$avail} pcs)",
+                            ]],
+                        ];
+                        if (count($rawItems) >= $perPage) break;
+                    }
+                }
+                break;
+        }
+
+        return response()->json([
+            'success' => true,
+            'department' => $dept,
+            'total' => count($rawItems),
+            'items' => $rawItems,
+        ]);
+    }
+
+    /**
      * Execute a strict, transactional reverse workflow transition with row-level locks.
      */
     public function revert(Request $request)
