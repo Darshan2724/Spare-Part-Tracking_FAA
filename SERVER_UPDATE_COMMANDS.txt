@@ -1,19 +1,20 @@
-================================================================================
-SPARETRACK SERVER UPDATE COMMANDS (RUN IN POWERSHELL ON SERVER PC)
-================================================================================
+====================================================================
+SPARETRACK — SERVER & MOBILE DEPLOYMENT COMMANDS
+====================================================================
 
-OPTION 1: AUTOMATED 1-CLICK SCRIPT
---------------------------------------------------------------------------------
-.\update_server.bat
+GitHub Pull Request URL:
+https://github.com/Darshan2724/Spare-Part-Tracking_FAA/pull/new/feat/strict-department-revert-system
 
+--------------------------------------------------------------------
+POWERSHELL ONE-LINER (COPY & PASTE ALL AT ONCE ON SERVER PC):
+--------------------------------------------------------------------
 
-OPTION 2: POWERSHELL ONE-LINER (COPY & PASTE ALL AT ONCE)
---------------------------------------------------------------------------------
 git pull origin main; npm run build; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
 
+--------------------------------------------------------------------
+STEP-BY-STEP SERVER COMMANDS:
+--------------------------------------------------------------------
 
-OPTION 3: STEP-BY-STEP COMMANDS
---------------------------------------------------------------------------------
 1. git pull origin main
 2. npm run build
 3. docker exec -t sparetrack-app php artisan migrate --force
@@ -23,24 +24,14 @@ OPTION 3: STEP-BY-STEP COMMANDS
 7. docker exec -t sparetrack-app php artisan view:cache
 8. docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
 
+--------------------------------------------------------------------
+MOBILE OTA UPDATE COMMANDS (RUN IN MOBILE FOLDER):
+--------------------------------------------------------------------
 
-================================================================================
-MOBILE OVER-THE-AIR (OTA) UPDATES (EXPO EAS)
-================================================================================
-Note: If your phone app badge shows "Preview Build", you should update through
-the "preview" channel. Both "preview" and "production" channels have already
-been updated!
+cd "c:\Darshan Details\Internship Faith Automation\Projects\Spare Part Tracking\SpareTrack\mobile"
 
-To publish updates manually from laptop:
-cd "C:\Darshan Details\Internship Faith Automation\Projects\Spare Part Tracking\SpareTrack\mobile"
+Preview Build (EAS update):
+npx --yes eas-cli update --branch preview --message "feat: strict multi-department revert system"
 
-Preview Channel:
-npx eas-cli update --channel preview --message "Latest updates"
-
-Production Channel:
-npx eas-cli update --channel production --message "Latest updates"
-
-How to receive update on phone:
-1. Swipe away / force close the app on your phone.
-2. Open the app while connected to Wi-Fi/data. EAS downloads the update in background.
-3. Next time you open the app (or click "Check for Updates"), the new bundle is applied!
+Production Build (EAS update):
+npx --yes eas-cli update --branch production --message "feat: strict multi-department revert system"
