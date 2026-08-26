@@ -4,6 +4,15 @@ This guide contains everything required to deploy all updates onto the **Server 
 
 ---
 
+## 🔀 GitHub Pull Request Link
+The feature branch has been pushed to GitHub:
+👉 **[Create Pull Request on GitHub](https://github.com/Darshan2724/Spare-Part-Tracking_FAA/pull/new/feat/strict-department-revert-system)**
+
+Once you merge the PR on GitHub, run the commands below on your Server PC.
+*(If you want to pull directly from the branch without merging first, use `git checkout feat/strict-department-revert-system && git pull origin feat/strict-department-revert-system`).*
+
+---
+
 ## ⚡ Option 1: Automated 1-Click Update Script (Fastest)
 On the Server PC, open PowerShell in the project root directory and run:
 ```powershell
@@ -56,29 +65,23 @@ docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-ngi
 
 ## 📱 Mobile App Over-The-Air (OTA) Updates
 
-### About Preview vs Production Builds:
-- **Preview Build**: If the app on your phone was installed as a Preview / Internal testing APK (the app badge says "Preview Build"), EAS Update checks the **`preview`** channel.
-- **Production Build**: If the app was built for production release, it checks the **`production`** channel.
-
-> **Note**: Both `preview` and `production` channels have already been built and published with the latest fixes!
-
-If you ever need to publish a new mobile update manually from your terminal:
+To publish the new mobile update directly from your terminal:
 
 ```powershell
-cd "C:\Darshan Details\Internship Faith Automation\Projects\Spare Part Tracking\SpareTrack\mobile"
+cd "c:\Darshan Details\Internship Faith Automation\Projects\Spare Part Tracking\SpareTrack\mobile"
 ```
 
-#### Publish to Preview Channel:
+### 1. Publish to Preview Channel (If your app is Preview Build):
 ```powershell
-npx eas-cli update --channel preview --message "Latest updates"
+npx --yes eas-cli update --branch preview --message "feat: strict multi-department revert system"
 ```
 
-#### Publish to Production Channel:
+### 2. Publish to Production Channel (If your app is Production Build):
 ```powershell
-npx eas-cli update --channel production --message "Latest updates"
+npx --yes eas-cli update --branch production --message "feat: strict multi-department revert system"
 ```
 
-### How to apply on Phone:
+### 3. How to Apply the Update on Phone:
 1. Close the app completely on your phone (swipe it away from recent apps).
-2. Open the app again while connected to internet $\to$ EAS automatically downloads the new bundle.
-3. On next open (or by clicking "Check for Updates"), the app will run the latest version immediately without reinstalling the APK!
+2. Re-open the app while connected to Wi-Fi/Internet (EAS will download the new bundle in background).
+3. On next restart (or when tapping "Check for Updates" in app), the latest version with the Revert features will be live without reinstalling the APK!
