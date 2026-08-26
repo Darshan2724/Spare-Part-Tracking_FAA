@@ -303,7 +303,7 @@ function App() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState('');
-  const [serverHost, setServerHost] = useState('192.168.100.60:8080');
+  const [serverHost, setServerHost] = useState('192.168.9.200:8080');
   const [email, setEmail] = useState('admin@sparetrack.internal');
   const [password, setPassword] = useState('password123');
 
@@ -1716,7 +1716,7 @@ function App() {
                 setServerHost(txt);
                 setConnectionStatus(null);
               }}
-              placeholder="e.g. 192.168.100.60:8080"
+              placeholder="e.g. 192.168.9.200:8080"
               autoCapitalize="none"
               autoCorrect={false}
             />
