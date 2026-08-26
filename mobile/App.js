@@ -176,7 +176,8 @@ const swipeCardStyles = StyleSheet.create({
 });
 
 function CompactQuantitySelector({
-  available = 1,
+  available,
+  max,
   value = '1',
   onChange,
   color = '#2563eb',
@@ -184,7 +185,7 @@ function CompactQuantitySelector({
   remainingLabel = 'Remaining in Queue',
 }) {
   const num = parseInt(value, 10) || 1;
-  const maxAvail = Math.max(1, parseInt(available, 10) || 1);
+  const maxAvail = Math.max(1, parseInt(available !== undefined ? available : (max !== undefined ? max : 1), 10) || 1);
   const remaining = Math.max(0, maxAvail - num);
 
   return (
@@ -605,35 +606,7 @@ function App() {
     autoCheckOta();
   }, []);
 
-  const [testingConnection, setTestingConnection] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState(null);
 
-  const handleTestConnection = async (hostOverride = null) => {
-    const targetHost = hostOverride || serverHost;
-    setTestingConnection(true);
-    setConnectionStatus(null);
-    try {
-      if (targetHost) {
-        setBaseUrl(targetHost);
-      }
-      const startTime = Date.now();
-      const res = await apiClient.get('/health', { timeout: 5000 });
-      const elapsed = Date.now() - startTime;
-      setConnectionStatus({
-        success: true,
-        msg: `✓ Connected to Faith Automation API (${elapsed}ms)`,
-      });
-      showToast(`✓ Server connected (${elapsed}ms)`);
-    } catch (err) {
-      const targetUrl = `${apiClient.defaults.baseURL || getBaseUrl()}/health`;
-      setConnectionStatus({
-        success: false,
-        msg: `❌ Cannot reach ${targetUrl}\n${err.message || 'Connection timeout'}. Please verify phone is on same Wi-Fi and Mobile Data is OFF.`,
-      });
-    } finally {
-      setTestingConnection(false);
-    }
-  };
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -1674,71 +1647,15 @@ function App() {
               </View>
             ) : null}
 
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-              <Text style={styles.label}>Server Host / IP</Text>
-              <TouchableOpacity onPress={() => handleTestConnection()} disabled={testingConnection}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: '#2563eb' }}>
-                  {testingConnection ? 'Testing...' : '⚡ Test Connection'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Quick Server Presets */}
-            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8, marginTop: 2 }}>
-              <TouchableOpacity
-                style={[styles.chipBtn, serverHost.includes('192.168.100.60') && styles.chipBtnActive]}
-                onPress={() => {
-                  setServerHost('192.168.100.60:8080');
-                  setBaseUrl('192.168.100.60:8080');
-                  handleTestConnection('192.168.100.60:8080');
-                }}>
-                <Text style={[styles.chipBtnText, serverHost.includes('192.168.100.60') && styles.chipBtnTextActive]}>
-                  Wi-Fi (192.168.100.60)
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.chipBtn, serverHost.includes('192.168.9.200') && styles.chipBtnActive]}
-                onPress={() => {
-                  setServerHost('192.168.9.200:8080');
-                  setBaseUrl('192.168.9.200:8080');
-                  handleTestConnection('192.168.9.200:8080');
-                }}>
-                <Text style={[styles.chipBtnText, serverHost.includes('192.168.9.200') && styles.chipBtnTextActive]}>
-                  Plant LAN (192.168.9.200)
-                </Text>
-              </TouchableOpacity>
-            </View>
-
+            <Text style={styles.label}>Server Host / IP</Text>
             <TextInput
               style={styles.input}
               value={serverHost}
-              onChangeText={(txt) => {
-                setServerHost(txt);
-                setConnectionStatus(null);
-              }}
+              onChangeText={setServerHost}
               placeholder="e.g. 192.168.9.200:8080"
               autoCapitalize="none"
               autoCorrect={false}
             />
-
-            {connectionStatus && (
-              <View style={{
-                padding: 8,
-                borderRadius: 6,
-                marginBottom: 8,
-                backgroundColor: connectionStatus.success ? '#f0fdf4' : '#fef2f2',
-                borderColor: connectionStatus.success ? '#22c55e' : '#ef4444',
-                borderWidth: 1,
-              }}>
-                <Text style={{
-                  fontSize: 11.5,
-                  fontWeight: '600',
-                  color: connectionStatus.success ? '#15803d' : '#b91c1c',
-                }}>
-                  {connectionStatus.msg}
-                </Text>
-              </View>
-            )}
 
             <Text style={styles.label}>Email Address</Text>
             <TextInput
@@ -1811,19 +1728,9 @@ function App() {
             </Text>
           </View>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <TouchableOpacity
-            style={[styles.logoutBtn, { backgroundColor: '#f1f5f9', borderColor: '#cbd5e1' }]}
-            onPress={handleCheckOtaUpdate}
-            disabled={otaChecking}>
-            <Text style={[styles.logoutBtnText, { color: '#334155' }]}>
-              {otaChecking ? '⏳' : '🔄 Update'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-            <Text style={styles.logoutBtnText}>Logout</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+          <Text style={styles.logoutBtnText}>Logout</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Navigation Tabs Bar */}
@@ -2083,8 +1990,8 @@ function App() {
         ref={mainScrollRef}
         style={styles.content}
         contentContainerStyle={[
-          styles.scrollContentContainer,
-          selectedItemIds.size > 0 && selectedUnit && { paddingBottom: 120 }
+          styles.content,
+          (selectedItemIds.size > 0 && selectedUnit) ? { paddingBottom: 120 } : null
         ]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
         {loading && !refreshing && !selectedProject && items.length === 0 && projects.length === 0 ? (
@@ -2379,9 +2286,20 @@ function App() {
                         const showLH = hasLh || !hasRh;
                         const showRH = hasRh || !hasLh;
 
+                        const defaultSide = (showLH && lhElig.eligible) ? 'LH' : (showRH && rhElig.eligible) ? 'RH' : (showLH ? 'LH' : 'RH');
+
+                        const openUnit = (sideToOpen = defaultSide) => {
+                          scrollToTop(false);
+                          clearSelection();
+                          setSelectedUnit(unit);
+                          setUnitSideTab(sideToOpen);
+                        };
+
                         return (
-                          <View
+                          <TouchableOpacity
                             key={unit.unit_no}
+                            activeOpacity={0.85}
+                            onPress={() => openUnit(defaultSide)}
                             style={[
                               styles.unitCard,
                               unit.is_complete ? styles.unitCardComplete : styles.unitCardIncomplete,
@@ -2410,13 +2328,7 @@ function App() {
                                       borderColor: lhElig.eligible ? '#0ea5e9' : '#e2e8f0',
                                       backgroundColor: lhElig.eligible ? '#f0f9ff' : '#f8fafc' }
                                   ]}
-                                  disabled={!lhElig.eligible}
-                                  onPress={() => {
-                                    scrollToTop(false);
-                                    clearSelection();
-                                    setSelectedUnit(unit);
-                                    setUnitSideTab('LH');
-                                  }}>
+                                  onPress={() => openUnit('LH')}>
                                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                                     <View style={styles.sidePillLh}>
                                       <Text style={styles.sidePillTextLh}>🔵 LH</Text>
@@ -2443,13 +2355,7 @@ function App() {
                                       borderColor: rhElig.eligible ? '#6366f1' : '#e2e8f0',
                                       backgroundColor: rhElig.eligible ? '#eef2ff' : '#f8fafc' }
                                   ]}
-                                  disabled={!rhElig.eligible}
-                                  onPress={() => {
-                                    scrollToTop(false);
-                                    clearSelection();
-                                    setSelectedUnit(unit);
-                                    setUnitSideTab('RH');
-                                  }}>
+                                  onPress={() => openUnit('RH')}>
                                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                                     <View style={styles.sidePillRh}>
                                       <Text style={styles.sidePillTextRh}>🔷 RH</Text>
@@ -2467,7 +2373,7 @@ function App() {
                                 </TouchableOpacity>
                               )}
                             </View>
-                          </View>
+                          </TouchableOpacity>
                         );
                       })}
 
@@ -2486,51 +2392,53 @@ function App() {
 
                 {/* LEVEL 4: PARTS LIST (when Unit selected) */}
                 {selectedUnit && (() => {
-                  const visibleParts = (selectedUnit.parts || []).filter(item => {
+                  const partsList = Array.isArray(selectedUnit.parts) ? selectedUnit.parts : [];
+                  const visibleParts = partsList.filter(item => {
+                    if (!item) return false;
                     const matchSide = unitSideTab === 'LH'
                       ? !!(item.side_stats?.LH || item.side_stats?.COMMON)
                       : !!(item.side_stats?.RH || item.side_stats?.COMMON);
                     if (!matchSide) return false;
 
-                    const currentSideStats = unitSideTab === 'LH' ? (item.side_stats?.LH || item.side_stats?.COMMON) : (item.side_stats?.RH || item.side_stats?.COMMON);
+                    const currentSideStats = unitSideTab === 'LH' ? (item.side_stats?.LH || item.side_stats?.COMMON || {}) : (item.side_stats?.RH || item.side_stats?.COMMON || {});
 
                     // Store subtabs
                     if (activeTab === 'store') {
-                      if (storeSubTab === 'pending' && !(currentSideStats && currentSideStats.pending > 0)) return false;
-                      if (storeSubTab === 'revert' && !(currentSideStats && (currentSideStats.total_revertible || 0) > 0)) return false;
+                      if (storeSubTab === 'pending' && !((currentSideStats.pending ?? 0) > 0)) return false;
+                      if (storeSubTab === 'revert' && !((currentSideStats.total_revertible ?? 0) > 0)) return false;
                     }
 
                     // QC subtabs
                     if (activeTab === 'qc') {
-                      if (qcSubTab === 'arrival' && !(currentSideStats?.qc_pending_arrival > 0)) return false;
-                      if (qcSubTab === 'inspection' && !(currentSideStats?.qc_pending_inspection > 0)) return false;
-                      if (qcSubTab === 'revert' && !(currentSideStats && (currentSideStats.total_revertible || 0) > 0)) return false;
+                      if (qcSubTab === 'arrival' && !((currentSideStats.qc_pending_arrival ?? 0) > 0)) return false;
+                      if (qcSubTab === 'inspection' && !((currentSideStats.qc_pending_inspection ?? 0) > 0)) return false;
+                      if (qcSubTab === 'revert' && !((currentSideStats.total_revertible ?? 0) > 0)) return false;
                     }
 
                     // Rework subtabs
                     if (activeTab === 'rework') {
-                      if (reworkSubTab === 'queue' && !(currentSideStats && ((currentSideStats.rework_pending || 0) + (currentSideStats.rework_in_progress || 0) > 0))) return false;
-                      if (reworkSubTab === 'revert' && !(currentSideStats && (currentSideStats.total_revertible || 0) > 0)) return false;
+                      if (reworkSubTab === 'queue' && !(((currentSideStats.rework_pending ?? 0) + (currentSideStats.rework_in_progress ?? 0) + (currentSideStats.parts_in_rework ?? 0)) > 0)) return false;
+                      if (reworkSubTab === 'revert' && !((currentSideStats.total_revertible ?? 0) > 0)) return false;
                     }
 
                     // Paint subtabs
                     if (activeTab === 'paint') {
-                      if (paintSubTab === 'queue' && !(currentSideStats && (currentSideStats.paint_ready || 0) > 0)) return false;
-                      if (paintSubTab === 'revert' && !(currentSideStats && (currentSideStats.total_revertible || 0) > 0)) return false;
+                      if (paintSubTab === 'queue' && !((currentSideStats.paint_ready ?? 0) > 0)) return false;
+                      if (paintSubTab === 'revert' && !((currentSideStats.total_revertible ?? 0) > 0)) return false;
                     }
 
                     // Assembly subtabs
                     if (activeTab === 'assembly') {
-                      if (assemblySubTab === 'queue' && !(currentSideStats && (currentSideStats.assembly_ready || 0) > 0)) return false;
-                      if (assemblySubTab === 'completed' && !(currentSideStats && (currentSideStats.assembly_completed || 0) > 0)) return false;
-                      if (assemblySubTab === 'revert' && !(currentSideStats && (currentSideStats.total_revertible || 0) > 0)) return false;
+                      if (assemblySubTab === 'queue' && !((currentSideStats.assembly_ready ?? 0) > 0)) return false;
+                      if (assemblySubTab === 'completed' && !((currentSideStats.assembly_completed ?? 0) > 0)) return false;
+                      if (assemblySubTab === 'revert' && !((currentSideStats.total_revertible ?? 0) > 0)) return false;
                     }
 
                     if (!currentSearchQuery) return true;
                     const q = currentSearchQuery.toLowerCase().trim();
-                    return (item.standard_part_no || '').toLowerCase().includes(q) ||
-                           (item.item_no || '').toLowerCase().includes(q) ||
-                           (item.supplier?.name || item.supplier_name_raw || '').toLowerCase().includes(q);
+                    return String(item.standard_part_no || '').toLowerCase().includes(q) ||
+                           String(item.item_no || '').toLowerCase().includes(q) ||
+                           String(item.supplier?.name || item.supplier_name_raw || '').toLowerCase().includes(q);
                   });
 
                   const getEligibleQty = (p) => {
@@ -2745,14 +2653,15 @@ function App() {
 
                       {/* Parts Cards (High-Density Industrial Layout) */}
                       {visibleParts.map((item) => {
+                        if (!item) return null;
                         const itemKey = `${item.id}_${unitSideTab}`;
                         const isSelected = selectedItemIds.has(itemKey);
                         const currentSideStats = unitSideTab === 'LH' ? (item.side_stats?.LH || item.side_stats?.COMMON || {}) : (item.side_stats?.RH || item.side_stats?.COMMON || {});
-                        const req = currentSideStats.required ?? 0;
-                        const rec = currentSideStats.received ?? 0;
-                        const pen = currentSideStats.pending ?? 0;
-                        const revertOpts = currentSideStats.revert_options || [];
-                        const totalRevertible = currentSideStats.total_revertible || 0;
+                        const req = Number(currentSideStats.required ?? 0);
+                        const rec = Number(currentSideStats.received ?? 0);
+                        const pen = Number(currentSideStats.pending ?? 0);
+                        const revertOpts = Array.isArray(currentSideStats.revert_options) ? currentSideStats.revert_options : [];
+                        const totalRevertible = Number(currentSideStats.total_revertible ?? 0);
 
                         {/* COMPACT REVERT CARD (High-Density Space-Efficient Layout) */}
                         if (isCurrentRevertTab) {
