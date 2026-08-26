@@ -2043,7 +2043,7 @@ function App() {
             >
               <View style={[styles.otaDot, { backgroundColor: otaChecking ? '#f59e0b' : '#10b981' }]} />
               <Text style={styles.otaText}>
-                {otaChecking ? 'Checking for updates...' : 'v2.4.0 • Phase 4 Live • Tap to Check'}
+                {otaChecking ? 'Checking for updates...' : '⚡ v2.4.0 Live • Tap to Check for Updates'}
               </Text>
               {otaChecking && <ActivityIndicator size="small" color="#64748b" style={{ marginLeft: 6 }} />}
             </TouchableOpacity>
@@ -2077,9 +2077,21 @@ function App() {
             </Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-          <Text style={styles.logoutBtnText}>Logout</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <TouchableOpacity 
+            style={styles.headerUpdateBtn} 
+            onPress={handleCheckOtaUpdate}
+            disabled={otaChecking}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.headerUpdateBtnText}>
+              {otaChecking ? '⏳ Checking...' : '⚡ Check Update'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+            <Text style={styles.logoutBtnText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Navigation Tabs Bar */}
@@ -4696,6 +4708,19 @@ const styles = StyleSheet.create({
   roleBadge: {
     color: '#2563eb',
     fontWeight: 'bold',
+  },
+  headerUpdateBtn: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#93c5fd',
+  },
+  headerUpdateBtnText: {
+    color: '#2563eb',
+    fontWeight: 'bold',
+    fontSize: 11,
   },
   logoutBtn: {
     backgroundColor: '#fef2f2',
