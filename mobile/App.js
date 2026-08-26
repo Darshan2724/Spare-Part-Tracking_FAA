@@ -762,6 +762,8 @@ function App() {
 
   const handleSelectProject = async (projId) => {
     setSelectedProject(projId);
+    setSelectedJig(null);
+    setSelectedUnit(null);
     setLoading(true);
     try {
       const hierarchyEndpoint = `/${activeTab === 'dashboard' ? 'store' : activeTab}/hierarchy`;
@@ -1904,7 +1906,7 @@ function App() {
                 {!selectedJig && (
                   <View>
                     <Text style={styles.sectionHeader}>
-                      ASSEMBLY JIGS ({
+                      {activeTab.toUpperCase()} JIGS ({
                         hierarchyJigs.filter(j => {
                           if (!currentSearchQuery) return true;
                           const q = currentSearchQuery.toLowerCase().trim();
@@ -1925,7 +1927,10 @@ function App() {
                           styles.jigCard,
                           jig.is_complete ? styles.jigCardComplete : styles.jigCardIncomplete
                         ]}
-                        onPress={() => setSelectedJig(jig)}>
+                        onPress={() => {
+                          setSelectedJig(jig);
+                          setSelectedUnit(null);
+                        }}>
                         <View style={styles.itemHeader}>
                           <Text style={[styles.jigName, jig.is_complete && { color: '#15803d' }]}>
                             {jig.is_complete ? '✓ ' : '⚙️ '}JIG: {jig.jig_name}
