@@ -1098,5 +1098,59 @@ class WorkflowStrictRevertSystemTest extends TestCase
         $globalStoreRevertAfter->assertStatus(200);
         $this->assertEmpty($globalStoreRevertAfter->json('items'));
     }
+
+    public function test_revert_department_data_isolation_and_authorization()
+    {
+        // 1. Create a dedicated Rework User
+        \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'REWORK', 'guard_name' => 'web']);
+        \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'REWORK', 'guard_name' => 'sanctum']);
+
+        $reworkUser = User::firstOrCreate(
+            ['email' => 'rework-operator@sparetrack.internal'],
+            [
+                'name' => 'Rework Operator',
+                'password' => bcrypt('password123'),
+            ]
+        );
+        $reworkUser->syncRoles(['REWORK']);
+
+        // 2. Rework user attempts to query QC revert items -> must be rejected with 403
+        $unauthorizedResp = $this->actingAs($reworkUser)->getJson('/api/v1/workflow/revert-items?department=qc');
+        $unauthorizedResp->assertStatus(403);
+        $unauthorizedResp->assertJsonFragment([
+            'success' => false,
+        ]);
+
+        // 3. Rework user queries Rework revert items -> allowed with 200
+        $authorizedResp = $this->actingAs($reworkUser)->getJson('/api/v1/workflow/revert-items?department=rework');
+        $authorizedResp->assertStatus(200);
+
+        // 4. Admin user can query both departments, each containing strictly isolated records
+        $rec = $this->createStoreReceipt('LH', 2);
+        $rec->update(['status' => 'qc_received']);
+
+        $insp = QcInspection::create([
+            'bom_item_id' => $this->bomItem->id,
+            'receipt_item_id' => $rec->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'approved_quantity' => 0,
+            'rework_quantity' => 2,
+            'result' => 'rework',
+            'inspected_by' => $this->adminUser->id,
+            'inspection_date' => now(),
+        ]);
+        $rec->update(['status' => 'qc_rework']);
+
+        $reworkList = $this->actingAs($this->adminUser)->getJson("/api/v1/workflow/revert-items?department=rework&project_id={$this->project->id}&side=LH");
+        $reworkList->assertStatus(200);
+        $reworkItems = $reworkList->json('items');
+        $this->assertNotEmpty($reworkItems);
+        foreach ($reworkItems as $item) {
+            $this->assertEquals('REWORK', $item['from_department']);
+            $this->assertEquals('QC', $item['to_department']);
+        }
+    }
 }
+
 

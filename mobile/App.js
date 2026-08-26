@@ -610,8 +610,21 @@ function App() {
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [unitSideTab, setUnitSideTab] = useState('LH'); // 'LH' | 'RH'
 
-  // Global / Upper Revert State
-  const [globalRevertItems, setGlobalRevertItems] = useState([]);
+  // Department-Namespaced Global / Upper Revert State (Isolates Store, QC, Rework, Paint, Assembly)
+  const [deptGlobalRevertItems, setDeptGlobalRevertItems] = useState({
+    store: [],
+    qc: [],
+    rework: [],
+    paint: [],
+    assembly: [],
+  });
+
+  // Derived strictly department-isolated revert items for the active department
+  const globalRevertItems = useMemo(() => {
+    const rawList = deptGlobalRevertItems[activeTab] || [];
+    return rawList.filter(item => (item.from_department || '').toLowerCase() === activeTab.toLowerCase());
+  }, [deptGlobalRevertItems, activeTab]);
+
   const [isLoadingGlobalRevert, setIsLoadingGlobalRevert] = useState(false);
   const [selectedGlobalRevertIds, setSelectedGlobalRevertIds] = useState(new Set());
   const [isGlobalRevertSelectionMode, setIsGlobalRevertSelectionMode] = useState(false);
@@ -718,7 +731,7 @@ function App() {
     const thisGlobalReqId = ++currentGlobalRevertReqIdRef.current;
     if (showSpinner) setIsLoadingGlobalRevert(true);
     try {
-      const activeSearch = tabSearches[getCurrentSearchKey(dept, storeSubTab, qcSubTab)] || '';
+      const activeSearch = tabSearches[getCurrentSearchKey(dept, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab)] || '';
       const params = {
         department: dept,
         per_page: 200,
@@ -729,11 +742,12 @@ function App() {
 
       const res = await apiClient.get('/workflow/revert-items', { params });
       if (thisGlobalReqId === currentGlobalRevertReqIdRef.current && activeTabRef.current === dept) {
-        if (res.data && Array.isArray(res.data.items)) {
-          setGlobalRevertItems(res.data.items);
-        } else {
-          setGlobalRevertItems([]);
-        }
+        const receivedItems = Array.isArray(res.data?.items) ? res.data.items : [];
+        const validatedItems = receivedItems.filter(i => (i.from_department || '').toLowerCase() === dept.toLowerCase());
+        setDeptGlobalRevertItems(prev => ({
+          ...prev,
+          [dept]: validatedItems
+        }));
       }
     } catch (err) {
       console.log('Error loading global revert items:', err);
@@ -836,15 +850,17 @@ function App() {
       const role = receivedUser.role?.name || (receivedUser.roles && receivedUser.roles[0]?.name) || '';
       setUserRole(role);
 
-      if (role === 'STORE') setActiveTab('store');
-      else if (role === 'QC') setActiveTab('qc');
-      else if (role === 'REWORK') setActiveTab('rework');
-      else if (role === 'PAINT') setActiveTab('paint');
-      else if (role === 'ASSEMBLY') setActiveTab('assembly');
-      else if (role === 'PURCHASE') setActiveTab('purchase');
-      else setActiveTab('dashboard');
+      let initialTab = 'dashboard';
+      if (role === 'STORE') initialTab = 'store';
+      else if (role === 'QC') initialTab = 'qc';
+      else if (role === 'REWORK') initialTab = 'rework';
+      else if (role === 'PAINT') initialTab = 'paint';
+      else if (role === 'ASSEMBLY') initialTab = 'assembly';
+      else if (role === 'PURCHASE') initialTab = 'purchase';
 
-      await loadData(role === 'STORE' ? 'store' : role === 'QC' ? 'qc' : 'dashboard');
+      setActiveTab(initialTab);
+      mobileCacheRef.current.clear();
+      await loadData(initialTab);
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Could not connect to server.';
       const targetUrl = `${apiClient.defaults.baseURL || getBaseUrl()}/auth/login`;
@@ -868,9 +884,38 @@ function App() {
           setAuthToken(null);
           setSummary(null);
           setItems([]);
+          setProjects([]);
+          setHierarchyJigs([]);
+          setHierarchyProject(null);
           setSelectedJig(null);
           setSelectedUnit(null);
           setSelectedProject('');
+          setSelectedSide('');
+          setDeptGlobalRevertItems({
+            store: [],
+            qc: [],
+            rework: [],
+            paint: [],
+            assembly: [],
+          });
+          setSelectedGlobalRevertIds(new Set());
+          setIsGlobalRevertSelectionMode(false);
+          mobileCacheRef.current.clear();
+          setTabSearches({
+            store_pending: '',
+            store_revert: '',
+            qc_arrival: '',
+            qc_inspection: '',
+            qc_revert: '',
+            rework_queue: '',
+            rework_revert: '',
+            paint_queue: '',
+            paint_revert: '',
+            assembly_queue: '',
+            assembly_completed: '',
+            assembly_revert: '',
+            purchase: '',
+          });
         }
       }
     ]);
@@ -890,8 +935,8 @@ function App() {
 
   const loadData = async (tab = activeTab, showSpinner = true, customSearch = null, forceFresh = false) => {
     const subTab = getCurrentSubTabForDept(tab);
-    const activeSearch = customSearch !== null ? customSearch : (tabSearches[getCurrentSearchKey(tab, storeSubTab, qcSubTab)] || '');
-    const cacheKey = `${tab}_${subTab}_${selectedProject || ''}_${selectedSide || ''}_${activeSearch}`;
+    const activeSearch = customSearch !== null ? customSearch : (tabSearches[getCurrentSearchKey(tab, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab)] || '');
+    const cacheKey = `${user?.id || 'anon'}_${userRole}_${tab}_${subTab}_${selectedProject || ''}_${selectedSide || ''}_${activeSearch}`;
 
     const thisRequestId = ++currentRequestIdRef.current;
 
