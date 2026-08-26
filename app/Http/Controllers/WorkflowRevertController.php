@@ -890,6 +890,12 @@ class WorkflowRevertController extends Controller
             $qtyRemaining -= $consume;
 
             $insp->decrement('rework_quantity', $consume);
+            $receiptItemToRestore = $insp->receiptItem;
+            if ($insp->approved_quantity == 0 && $insp->rework_quantity == 0 && $insp->rejected_quantity == 0) {
+                $insp->delete();
+            }
+
+            $this->restoreReceiptItemToQcReceived($bomItem, $side, $consume, $receiptItemToRestore);
 
             WorkflowEvent::create([
                 'bom_item_id' => $bomItem->id,
@@ -960,6 +966,13 @@ class WorkflowRevertController extends Controller
             if (isset($insp->paint_quantity) && $insp->paint_quantity >= $consume) {
                 $insp->decrement('paint_quantity', $consume);
             }
+
+            $receiptItemToRestore = $insp->receiptItem;
+            if ($insp->approved_quantity == 0 && $insp->rework_quantity == 0 && $insp->rejected_quantity == 0) {
+                $insp->delete();
+            }
+
+            $this->restoreReceiptItemToQcReceived($bomItem, $side, $consume, $receiptItemToRestore);
 
             WorkflowEvent::create([
                 'bom_item_id' => $bomItem->id,
@@ -1129,6 +1142,13 @@ class WorkflowRevertController extends Controller
                 $insp->decrement('assembly_quantity', $consume);
             }
 
+            $receiptItemToRestore = $insp->receiptItem;
+            if ($insp->approved_quantity == 0 && $insp->rework_quantity == 0 && $insp->rejected_quantity == 0) {
+                $insp->delete();
+            }
+
+            $this->restoreReceiptItemToQcReceived($bomItem, $side, $consume, $receiptItemToRestore);
+
             WorkflowEvent::create([
                 'bom_item_id' => $bomItem->id,
                 'project_id' => $bomItem->project_id,
@@ -1150,6 +1170,64 @@ class WorkflowRevertController extends Controller
             'reverted_quantity' => $qty,
             'from_department' => 'ASSEMBLY',
             'to_department' => 'QC',
+        ]);
+    }
+
+    /**
+     * Helper to restore / create a ReceiptItem in 'qc_received' status for QC Inspection Queue.
+     */
+    protected function restoreReceiptItemToQcReceived(BomItem $bomItem, string $side, int $quantity, ?ReceiptItem $receiptItem = null): ReceiptItem
+    {
+        if ($receiptItem) {
+            $recQty = (int) $receiptItem->received_quantity;
+            if (in_array($receiptItem->status, ['qc_approved', 'qc_rework', 'qc_inspected'])) {
+                if ($recQty === $quantity) {
+                    $receiptItem->update([
+                        'status' => 'qc_received',
+                        'qc_received_at' => now(),
+                    ]);
+                    return $receiptItem;
+                } elseif ($recQty > $quantity) {
+                    $receiptItem->update(['received_quantity' => $recQty - $quantity]);
+                    $returnedItem = $receiptItem->replicate();
+                    $returnedItem->received_quantity = $quantity;
+                    $returnedItem->status = 'qc_received';
+                    $returnedItem->qc_received_at = now();
+                    $returnedItem->save();
+                    return $returnedItem;
+                }
+            } elseif ($receiptItem->status === 'qc_received') {
+                // Already in qc_received state
+                return $receiptItem;
+            }
+
+            // Create a replicated slice in qc_received
+            $returnedItem = $receiptItem->replicate();
+            $returnedItem->received_quantity = $quantity;
+            $returnedItem->status = 'qc_received';
+            $returnedItem->qc_received_at = now();
+            $returnedItem->save();
+            return $returnedItem;
+        }
+
+        // Check if an existing qc_received item exists for this BOM item and side
+        $existingQcItem = ReceiptItem::where('bom_item_id', $bomItem->id)
+            ->where('side', $side)
+            ->where('status', 'qc_received')
+            ->first();
+
+        if ($existingQcItem) {
+            $existingQcItem->increment('received_quantity', $quantity);
+            return $existingQcItem;
+        }
+
+        // Fallback: create fresh ReceiptItem linked to BOM Item
+        return ReceiptItem::create([
+            'bom_item_id' => $bomItem->id,
+            'side' => $side,
+            'received_quantity' => $quantity,
+            'status' => 'qc_received',
+            'qc_received_at' => now(),
         ]);
     }
 

@@ -890,6 +890,18 @@ const submitInspection = async () => {
 
 onMounted(() => {
   loadHierarchy();
+  if (window.Echo) {
+    window.Echo.channel('workflow')
+      .listen('.part.reverted', () => {
+        loadHierarchy();
+      })
+      .listen('.qc.inspected', () => {
+        loadHierarchy();
+      })
+      .listen('.store.received', () => {
+        loadHierarchy();
+      });
+  }
 });
 </script>
 

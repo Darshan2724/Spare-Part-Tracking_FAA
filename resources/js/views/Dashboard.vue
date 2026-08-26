@@ -1577,6 +1577,9 @@ onMounted(async () => {
       })
       .listen('.store.received', () => {
         fetchData();
+      })
+      .listen('.part.reverted', () => {
+        fetchData();
       });
   }
 });
