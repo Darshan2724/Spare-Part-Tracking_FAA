@@ -2405,10 +2405,10 @@ function App() {
                             </View>
                           </View>
 
-                          {/* Row 2: Lineage Route Info */}
+                          {/* Row 2: Lineage Destination Info */}
                           <View style={{ marginTop: 2, marginBottom: 4 }}>
                             <Text style={[styles.itemSubText, { fontSize: 11, color: '#475569' }]}>
-                              From: <Text style={{ fontWeight: '700' }}>{item.from_department}</Text> → To: <Text style={{ fontWeight: '700', color: '#dc2626' }}>{item.target_label}</Text>
+                              To: <Text style={{ fontWeight: '700', color: '#dc2626' }}>{item.target_label || item.to_department}</Text>
                             </Text>
                           </View>
 
@@ -3096,7 +3096,7 @@ function App() {
                                     <View key={`rev-seg-${idx}`} style={styles.compactRevertSegmentRow}>
                                       <View style={{ flex: 1, marginRight: 8 }}>
                                         <Text style={styles.compactRevertInfoText}>
-                                          Revert Qty: <Text style={{ fontWeight: '800', color: '#c2410c' }}>{opt.available_quantity} pcs</Text>  •  From: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{opt.target_label || opt.to_department}</Text>
+                                          Revert Qty: <Text style={{ fontWeight: '800', color: '#c2410c' }}>{opt.available_quantity} pcs</Text>  •  To: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{opt.target_label || opt.to_department}</Text>
                                         </Text>
                                         {opt.description ? (
                                           <Text style={styles.compactRevertLineageSubtext}>
@@ -3115,7 +3115,7 @@ function App() {
                               ) : (
                                 <View style={styles.compactRevertSingleRow}>
                                   <Text style={styles.compactRevertInfoText}>
-                                    Revert Qty: <Text style={{ fontWeight: '800', color: '#c2410c' }}>{totalRevertible} pcs</Text>  •  From: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{revertOpts[0]?.target_label || (activeTab === 'store' ? 'Store Bay' : (activeTab === 'qc' ? 'Store Bay' : 'QC Bay'))}</Text>
+                                    Revert Qty: <Text style={{ fontWeight: '800', color: '#c2410c' }}>{totalRevertible} pcs</Text>  •  To: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{revertOpts[0]?.target_label || (activeTab === 'store' ? 'Pending Supplier Arrival' : (activeTab === 'qc' ? 'Store Bay' : 'Quality Control Bay'))}</Text>
                                   </Text>
                                   <TouchableOpacity
                                     style={styles.compactRevertActionBtn}
