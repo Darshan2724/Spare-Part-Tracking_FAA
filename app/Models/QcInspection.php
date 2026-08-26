@@ -48,6 +48,11 @@ class QcInspection extends Model
         return $this->belongsTo(ReworkRecord::class);
     }
 
+    public function reworkRecords()
+    {
+        return $this->hasMany(ReworkRecord::class, 'qc_inspection_id');
+    }
+
     public function paintRecord()
     {
         return $this->hasOne(PaintRecord::class, 'qc_inspection_id');

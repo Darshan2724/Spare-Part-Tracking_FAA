@@ -30,6 +30,17 @@ class WorkflowRevertController extends Controller
         $dept = strtolower($request->input('department'));
         $bomItemId = (int) $request->input('bom_item_id');
         $side = $request->input('side');
+        $user = $request->user();
+
+        // Department Authorization Check
+        if ($user && !$this->verifyDepartmentAuthorization($user, $dept)) {
+            return response()->json([
+                'success' => false,
+                'message' => "Unauthorized access to {$dept} revert options for your role.",
+                'options' => [],
+                'total_revertible' => 0,
+            ], 403);
+        }
 
         $options = [];
 
@@ -209,6 +220,17 @@ class WorkflowRevertController extends Controller
         $side = $request->input('side');
         $search = $request->input('search');
         $perPage = (int) ($request->input('per_page') ?? 100);
+        $user = $request->user();
+
+        // Department Authorization Check
+        if ($user && !$this->verifyDepartmentAuthorization($user, $dept)) {
+            return response()->json([
+                'success' => false,
+                'message' => "Unauthorized access to {$dept} revert items for your role.",
+                'items' => [],
+                'total' => 0,
+            ], 403);
+        }
 
         $applyBomFilters = function ($query) use ($projectId, $search) {
             if ($projectId) {
@@ -1263,5 +1285,31 @@ class WorkflowRevertController extends Controller
         } catch (\Throwable $e) {
             Log::warning("Realtime broadcast for PartReverted failed: " . $e->getMessage());
         }
+    }
+
+    /**
+     * Verify whether the authenticated user is authorized to perform operations in the requested department.
+     */
+    protected function verifyDepartmentAuthorization($user, string $dept): bool
+    {
+        if (!$user) return false;
+
+        $roleName = strtoupper($user->role?->name ?? ($user->roles?->first()?->name ?? ''));
+
+        // Super Admins, Admins, Directors, and Managers have cross-department oversight
+        if (in_array($roleName, ['ADMIN', 'SUPER_ADMIN', 'MANAGER', 'DIRECTOR', 'SYSADMIN'])) {
+            return true;
+        }
+
+        $deptRoleMap = [
+            'store' => ['STORE', 'STORE_MANAGER', 'STORE_OPERATOR'],
+            'qc' => ['QC', 'QC_MANAGER', 'QC_INSPECTOR'],
+            'rework' => ['REWORK', 'REWORK_OPERATOR', 'QC'],
+            'paint' => ['PAINT', 'PAINT_OPERATOR', 'PAINT_SHOP'],
+            'assembly' => ['ASSEMBLY', 'ASSEMBLY_OPERATOR'],
+        ];
+
+        $allowedRoles = $deptRoleMap[strtolower($dept)] ?? [];
+        return in_array($roleName, $allowedRoles);
     }
 }
