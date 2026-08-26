@@ -141,5 +141,11 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::post('/items', [AssemblyController::class, 'store']);
             Route::post('/bulk-complete', [AssemblyController::class, 'bulkComplete']);
         });
+
+        // Strict Lineage-Based Workflow Revert Operations
+        Route::prefix('workflow')->group(function () {
+            Route::get('/revert-options', [\App\Http\Controllers\WorkflowRevertController::class, 'getRevertOptions']);
+            Route::post('/revert', [\App\Http\Controllers\WorkflowRevertController::class, 'revert']);
+        });
     });
 });

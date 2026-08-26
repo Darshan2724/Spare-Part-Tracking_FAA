@@ -1,0 +1,563 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\AssemblyRecord;
+use App\Models\BomItem;
+use App\Models\BomRequirement;
+use App\Models\PaintRecord;
+use App\Models\Project;
+use App\Models\QcInspection;
+use App\Models\Receipt;
+use App\Models\ReceiptItem;
+use App\Models\ReworkRecord;
+use App\Models\User;
+use App\Services\QuantityCalculationService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class WorkflowStrictRevertSystemTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected User $adminUser;
+    protected Project $project;
+    protected BomItem $bomItem;
+    protected QuantityCalculationService $calcService;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->calcService = app(QuantityCalculationService::class);
+
+        \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'ADMIN', 'guard_name' => 'web']);
+        \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'ADMIN', 'guard_name' => 'sanctum']);
+
+        $this->adminUser = User::firstOrCreate(
+            ['email' => 'admin-revert@sparetrack.internal'],
+            [
+                'name' => 'Admin User',
+                'password' => bcrypt('password123'),
+            ]
+        );
+        $this->adminUser->syncRoles(['ADMIN']);
+
+        $this->project = Project::create([
+            'project_code' => 'FA-REV-01',
+            'name' => 'Automotive Tooling Project',
+            'customer_name' => 'Automotive Tooling Corp',
+            'status' => 'active',
+        ]);
+
+        $this->bomItem = BomItem::create([
+            'project_id' => $this->project->id,
+            'jig_no' => '169961@',
+            'unit_no' => '01',
+            'item_no' => '020',
+            'standard_part_no' => '020#R00',
+            'part_description' => 'Revert Test Bracket',
+        ]);
+
+        // Requirement: LH = 2, RH = 2
+        BomRequirement::create([
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'required_quantity' => 2,
+        ]);
+        BomRequirement::create([
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'RH',
+            'required_quantity' => 2,
+        ]);
+    }
+
+    /**
+     * Helper to create store receipt.
+     */
+    protected function createStoreReceipt(string $side, int $quantity): ReceiptItem
+    {
+        $receipt = Receipt::create([
+            'project_id' => $this->project->id,
+            'received_by' => $this->adminUser->id,
+            'receipt_number' => 'REC-' . uniqid(),
+            'received_date' => now(),
+        ]);
+
+        return ReceiptItem::create([
+            'receipt_id' => $receipt->id,
+            'bom_item_id' => $this->bomItem->id,
+            'side' => $side,
+            'received_quantity' => $quantity,
+            'status' => 'received',
+        ]);
+    }
+
+    /**
+     * Test 1: QC -> Store Revert (Physical Arrival reverted to Store Bay).
+     */
+    public function test_qc_can_revert_physical_arrival_to_store(): void
+    {
+        $rec = $this->createStoreReceipt('LH', 2);
+        // Mark physical arrival in QC
+        $rec->update(['status' => 'qc_received']);
+
+        $metricsBefore = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(0, $metricsBefore['parts_in_store']);
+        $this->assertEquals(2, $metricsBefore['parts_in_qc']);
+        $this->assertEquals(2, $metricsBefore['total_received']);
+
+        // Revert 1 unit from QC back to Store
+        $response = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'qc',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'quantity' => 1,
+            'reason' => 'Store sent wrong batch to QC bay',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'reverted_quantity' => 1,
+            'from_department' => 'QC',
+            'to_department' => 'STORE',
+        ]);
+
+        $metricsAfter = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(1, $metricsAfter['parts_in_store']);
+        $this->assertEquals(1, $metricsAfter['parts_in_qc']);
+        $this->assertEquals(2, $metricsAfter['total_received']); // Conservation
+        $this->assertEquals(0, $metricsAfter['total_pending']);
+    }
+
+    /**
+     * Test 2: Rework -> QC Revert (Rework allocation reverted back to QC queue).
+     */
+    public function test_rework_can_be_reverted_to_qc(): void
+    {
+        $rec = $this->createStoreReceipt('LH', 2);
+        $rec->update(['status' => 'qc_received']);
+
+        // QC routes 2 to Rework
+        $insp = QcInspection::create([
+            'bom_item_id' => $this->bomItem->id,
+            'receipt_item_id' => $rec->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'rework_quantity' => 2,
+            'approved_quantity' => 0,
+            'rejected_quantity' => 0,
+            'result' => 'rework',
+            'inspected_by' => $this->adminUser->id,
+            'inspection_date' => now(),
+        ]);
+
+        $metricsBefore = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(2, $metricsBefore['parts_in_rework']);
+        $this->assertEquals(0, $metricsBefore['parts_in_qc']);
+
+        // Revert 1 unit from Rework back to QC
+        $response = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'rework',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'source_type' => 'qc_inspection',
+            'source_id' => $insp->id,
+            'quantity' => 1,
+            'reason' => 'Minor burr easily removed at QC station',
+        ]);
+
+        $response->assertStatus(200);
+
+        $metricsAfter = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(1, $metricsAfter['parts_in_rework']);
+        $this->assertEquals(1, $metricsAfter['parts_in_qc']);
+        $this->assertEquals(2, $metricsAfter['total_received']);
+    }
+
+    /**
+     * Test 3: Paint -> QC Revert (Approved for paint reverted back to QC queue).
+     */
+    public function test_paint_can_be_reverted_to_qc(): void
+    {
+        $rec = $this->createStoreReceipt('LH', 2);
+        $rec->update(['status' => 'qc_received']);
+
+        $insp = QcInspection::create([
+            'bom_item_id' => $this->bomItem->id,
+            'receipt_item_id' => $rec->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'approved_quantity' => 2,
+            'paint_quantity' => 2,
+            'destination' => 'PAINT',
+            'result' => 'approved',
+            'inspected_by' => $this->adminUser->id,
+            'inspection_date' => now(),
+        ]);
+
+        $metricsBefore = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(2, $metricsBefore['parts_in_paint']);
+        $this->assertEquals(0, $metricsBefore['parts_in_qc']);
+
+        // Revert 2 units from Paint back to QC
+        $response = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'paint',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'quantity' => 2,
+            'reason' => 'Defect discovered before powder coat application',
+        ]);
+
+        $response->assertStatus(200);
+
+        $metricsAfter = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(0, $metricsAfter['parts_in_paint']);
+        $this->assertEquals(2, $metricsAfter['parts_in_qc']);
+        $this->assertEquals(2, $metricsAfter['total_received']);
+    }
+
+    /**
+     * Test 4: Direct Assembly -> QC Revert.
+     */
+    public function test_direct_assembly_can_be_reverted_to_qc(): void
+    {
+        $rec = $this->createStoreReceipt('LH', 2);
+        $rec->update(['status' => 'qc_received']);
+
+        $insp = QcInspection::create([
+            'bom_item_id' => $this->bomItem->id,
+            'receipt_item_id' => $rec->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'approved_quantity' => 2,
+            'assembly_quantity' => 2,
+            'destination' => 'ASSEMBLY',
+            'result' => 'approved',
+            'inspected_by' => $this->adminUser->id,
+            'inspection_date' => now(),
+        ]);
+
+        $metricsBefore = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(2, $metricsBefore['parts_in_assembly']);
+        $this->assertEquals(0, $metricsBefore['parts_in_qc']);
+
+        // Revert 1 unit from Assembly back to QC
+        $response = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'assembly',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'source_type' => 'qc_inspection',
+            'source_id' => $insp->id,
+            'quantity' => 1,
+            'reason' => 'Fitment issue reported by assembly fitter',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'from_department' => 'ASSEMBLY',
+            'to_department' => 'QC',
+        ]);
+
+        $metricsAfter = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(1, $metricsAfter['parts_in_assembly']);
+        $this->assertEquals(1, $metricsAfter['parts_in_qc']);
+        $this->assertEquals(2, $metricsAfter['total_received']);
+    }
+
+    /**
+     * Test 5: Paint -> Assembly -> Revert to Paint.
+     */
+    public function test_painted_assembly_can_be_reverted_to_paint(): void
+    {
+        $rec = $this->createStoreReceipt('LH', 2);
+        $rec->update(['status' => 'qc_received']);
+
+        $insp = QcInspection::create([
+            'bom_item_id' => $this->bomItem->id,
+            'receipt_item_id' => $rec->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'approved_quantity' => 2,
+            'paint_quantity' => 2,
+            'destination' => 'PAINT',
+            'result' => 'approved',
+            'inspected_by' => $this->adminUser->id,
+            'inspection_date' => now(),
+        ]);
+
+        // Paint completes 2
+        $paint = PaintRecord::create([
+            'bom_item_id' => $this->bomItem->id,
+            'qc_inspection_id' => $insp->id,
+            'side' => 'LH',
+            'quantity' => 2,
+            'status' => 'completed',
+            'painted_by' => $this->adminUser->id,
+        ]);
+
+        $metricsBefore = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(2, $metricsBefore['parts_in_assembly']);
+        $this->assertEquals(0, $metricsBefore['parts_in_paint']);
+
+        // Assembly reverts 1 back to Paint
+        $response = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'assembly',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'source_type' => 'paint_record',
+            'source_id' => $paint->id,
+            'quantity' => 1,
+            'reason' => 'Paint scratch noticed in assembly bay, re-spray needed',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'from_department' => 'ASSEMBLY',
+            'to_department' => 'PAINT',
+        ]);
+
+        $metricsAfter = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(1, $metricsAfter['parts_in_assembly']);
+        $this->assertEquals(1, $metricsAfter['parts_in_paint']);
+        $this->assertEquals(2, $metricsAfter['total_received']);
+    }
+
+    /**
+     * Test 6: Multi-Source Lineage Discovery & Revert in Assembly (QC + Paint mix).
+     */
+    public function test_mixed_lineage_assembly_reverts_correctly_to_respective_sources(): void
+    {
+        BomRequirement::where('bom_item_id', $this->bomItem->id)->where('side', 'LH')->update(['required_quantity' => 3]);
+
+        $rec = $this->createStoreReceipt('LH', 3);
+        $rec->update(['status' => 'qc_received']);
+
+        // 1 pc approved Direct to Assembly
+        $inspDirect = QcInspection::create([
+            'bom_item_id' => $this->bomItem->id,
+            'receipt_item_id' => $rec->id,
+            'side' => 'LH',
+            'inspected_quantity' => 1,
+            'approved_quantity' => 1,
+            'assembly_quantity' => 1,
+            'destination' => 'ASSEMBLY',
+            'result' => 'approved',
+            'inspected_by' => $this->adminUser->id,
+            'inspection_date' => now(),
+        ]);
+
+        // 2 pcs approved for Paint
+        $inspPaint = QcInspection::create([
+            'bom_item_id' => $this->bomItem->id,
+            'receipt_item_id' => $rec->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'approved_quantity' => 2,
+            'paint_quantity' => 2,
+            'destination' => 'PAINT',
+            'result' => 'approved',
+            'inspected_by' => $this->adminUser->id,
+            'inspection_date' => now(),
+        ]);
+
+        // Paint completes 2 pcs
+        $paintRec = PaintRecord::create([
+            'bom_item_id' => $this->bomItem->id,
+            'qc_inspection_id' => $inspPaint->id,
+            'side' => 'LH',
+            'quantity' => 2,
+            'status' => 'completed',
+            'painted_by' => $this->adminUser->id,
+        ]);
+
+        // Verify Assembly has 3 available
+        $metricsStart = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(3, $metricsStart['parts_in_assembly']);
+
+        // Check revert options endpoint returns both distinct lineage sources
+        $optionsRes = $this->actingAs($this->adminUser)->getJson("/api/v1/workflow/revert-options?department=assembly&bom_item_id={$this->bomItem->id}&side=LH");
+        $optionsRes->assertStatus(200);
+        $optionsRes->assertJsonCount(2, 'options');
+
+        // Revert 1 unit from Paint segment to Paint Shop
+        $res1 = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'assembly',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'source_type' => 'paint_record',
+            'source_id' => $paintRec->id,
+            'quantity' => 1,
+        ]);
+        $res1->assertStatus(200);
+        $res1->assertJson(['to_department' => 'PAINT']);
+
+        // Revert 1 unit from Direct QC segment to QC Bay
+        $res2 = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'assembly',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'source_type' => 'qc_inspection',
+            'source_id' => $inspDirect->id,
+            'quantity' => 1,
+        ]);
+        $res2->assertStatus(200);
+        $res2->assertJson(['to_department' => 'QC']);
+
+        // Final verification: 1 in Assembly (from Paint), 1 in Paint, 1 in QC
+        $metricsFinal = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(1, $metricsFinal['parts_in_assembly']);
+        $this->assertEquals(1, $metricsFinal['parts_in_paint']);
+        $this->assertEquals(1, $metricsFinal['parts_in_qc']);
+        $this->assertEquals(3, $metricsFinal['raw_received']);
+    }
+
+    /**
+     * Test 7: Strict Side Isolation during Reverts (LH vs RH).
+     */
+    public function test_revert_maintains_strict_side_isolation(): void
+    {
+        // LH = 2, RH = 2 in Paint
+        $recLh = $this->createStoreReceipt('LH', 2);
+        $recLh->update(['status' => 'qc_received']);
+        $inspLh = QcInspection::create([
+            'bom_item_id' => $this->bomItem->id,
+            'receipt_item_id' => $recLh->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'approved_quantity' => 2,
+            'destination' => 'PAINT',
+            'result' => 'approved',
+            'inspected_by' => $this->adminUser->id,
+            'inspection_date' => now(),
+        ]);
+
+        $recRh = $this->createStoreReceipt('RH', 2);
+        $recRh->update(['status' => 'qc_received']);
+        $inspRh = QcInspection::create([
+            'bom_item_id' => $this->bomItem->id,
+            'receipt_item_id' => $recRh->id,
+            'side' => 'RH',
+            'inspected_quantity' => 2,
+            'approved_quantity' => 2,
+            'destination' => 'PAINT',
+            'result' => 'approved',
+            'inspected_by' => $this->adminUser->id,
+            'inspection_date' => now(),
+        ]);
+
+        // Revert 1 unit of LH from Paint back to QC
+        $response = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'paint',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'quantity' => 1,
+        ]);
+        $response->assertStatus(200);
+
+        $metricsLh = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $metricsRh = $this->calcService->calculateProjectMetrics($this->project, 'RH');
+
+        // LH: Paint = 1, QC = 1
+        $this->assertEquals(1, $metricsLh['parts_in_paint']);
+        $this->assertEquals(1, $metricsLh['parts_in_qc']);
+
+        // RH: Paint = 2, QC = 0 (completely untouched)
+        $this->assertEquals(2, $metricsRh['parts_in_paint']);
+        $this->assertEquals(0, $metricsRh['parts_in_qc']);
+    }
+
+    /**
+     * Test 8: Over-Revert protection returns 422.
+     */
+    public function test_revert_exceeding_available_quantity_fails_with_422(): void
+    {
+        $rec = $this->createStoreReceipt('LH', 1);
+        $rec->update(['status' => 'qc_received']);
+
+        $response = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'qc',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'quantity' => 5, // Exceeds available 1
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJson(['success' => false]);
+    }
+
+    /**
+     * Test 9: Store -> Pending Supplier Arrival Revert (Restores to Pending Arrival).
+     */
+    public function test_store_can_revert_receipt_to_pending_supplier_arrival(): void
+    {
+        $rec = $this->createStoreReceipt('LH', 2);
+
+        $metricsBefore = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(2, $metricsBefore['parts_in_store']);
+        $this->assertEquals(2, $metricsBefore['total_received']);
+        $this->assertEquals(0, $metricsBefore['total_pending']);
+
+        // Revert 1 unit from Store back to Pending Arrival
+        $response = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'store',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'quantity' => 1,
+            'reason' => 'Damaged shipping box rejected upon review',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'reverted_quantity' => 1,
+            'from_department' => 'STORE',
+            'to_department' => 'PENDING_ARRIVAL',
+        ]);
+
+        $metricsAfter = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(1, $metricsAfter['parts_in_store']);
+        $this->assertEquals(1, $metricsAfter['total_received']);
+        $this->assertEquals(1, $metricsAfter['total_pending']);
+    }
+
+    /**
+     * Test 10: Sequential / Concurrency Revert Depletion Protection.
+     */
+    public function test_sequential_reverts_deplete_and_then_fail_cleanly(): void
+    {
+        $rec = $this->createStoreReceipt('LH', 2);
+        $rec->update(['status' => 'qc_received']);
+
+        // First revert of 1
+        $res1 = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'qc',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'quantity' => 1,
+        ]);
+        $res1->assertStatus(200);
+
+        // Second revert of 1 (exhausts balance)
+        $res2 = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'qc',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'quantity' => 1,
+        ]);
+        $res2->assertStatus(200);
+
+        // Third revert of 1 (must fail with 422 because balance is exhausted)
+        $res3 = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'qc',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'quantity' => 1,
+        ]);
+        $res3->assertStatus(422);
+        $res3->assertJson(['success' => false]);
+    }
+}

@@ -279,6 +279,17 @@ function App() {
   const [assemblyRemarks, setAssemblyRemarks] = useState('');
   const [isSubmittingAssembly, setIsSubmittingAssembly] = useState(false);
 
+  // Universal Strict Lineage Revert Modal State
+  const [showRevertModal, setShowRevertModal] = useState(false);
+  const [revertTargetItem, setRevertTargetItem] = useState(null);
+  const [revertDept, setRevertDept] = useState('');
+  const [revertSide, setRevertSide] = useState('LH');
+  const [revertOptionsList, setRevertOptionsList] = useState([]);
+  const [selectedRevertOption, setSelectedRevertOption] = useState(null);
+  const [revertQty, setRevertQty] = useState('1');
+  const [revertReason, setRevertReason] = useState('');
+  const [isSubmittingRevert, setIsSubmittingRevert] = useState(false);
+
   // Multi-Selection & Bulk Operations State (Issue 5)
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState(new Set());
@@ -1089,6 +1100,62 @@ function App() {
       Alert.alert('Action Failed', err.response?.data?.message || err.message || 'Could not complete assembly.');
     } finally {
       setIsSubmittingAssembly(false);
+    }
+  };
+
+  // --- STRICT LINEAGE REVERT ACTIONS ---
+  const openRevertModal = (part, dept, side = unitSideTab) => {
+    setRevertTargetItem(part);
+    setRevertDept(dept);
+    setRevertSide(side);
+    const sideStat = part.side_stats?.[side] || part.side_stats?.COMMON || {};
+    const options = sideStat.revert_options || [];
+    setRevertOptionsList(options);
+    const initialOption = options[0] || null;
+    setSelectedRevertOption(initialOption);
+    setRevertQty(String(initialOption?.available_quantity || 1));
+    setRevertReason('');
+    setShowRevertModal(true);
+  };
+
+  const submitRevert = async () => {
+    if (!revertTargetItem || isSubmittingRevert) return;
+    const qty = parseInt(revertQty, 10);
+    const maxAvail = selectedRevertOption?.available_quantity || 1;
+    if (isNaN(qty) || qty <= 0 || qty > maxAvail) {
+      Alert.alert('Invalid Quantity', `Revert quantity must be between 1 and ${maxAvail}.`);
+      return;
+    }
+
+    setIsSubmittingRevert(true);
+    try {
+      const payload = {
+        department: revertDept,
+        bom_item_id: revertTargetItem.id,
+        side: revertSide,
+        quantity: qty,
+        source_type: selectedRevertOption?.source_type,
+        source_id: selectedRevertOption?.source_id,
+        reason: revertReason || 'Mobile workflow revert',
+      };
+
+      const res = await apiClient.post('/workflow/revert', payload);
+      setShowRevertModal(false);
+      showToast(res.data?.message || `Successfully reverted ${qty} pcs of ${revertTargetItem.standard_part_no}`);
+
+      // Invalidate relevant department caches
+      invalidateMobileCache('store');
+      invalidateMobileCache('qc');
+      invalidateMobileCache('rework');
+      invalidateMobileCache('paint');
+      invalidateMobileCache('assembly');
+      invalidateMobileCache('dashboard');
+
+      await loadData(revertDept, false, null, true);
+    } catch (err) {
+      Alert.alert('Revert Failed', err.response?.data?.message || err.message || 'Could not complete revert.');
+    } finally {
+      setIsSubmittingRevert(false);
     }
   };
 
@@ -2352,6 +2419,35 @@ function App() {
                                 </View>
                               );
                             })()}
+
+                            {/* Strict Lineage Revert Action Button */}
+                            {!isSelectionMode && (() => {
+                              const sideStat = item.side_stats?.[unitSideTab] || item.side_stats?.COMMON || {};
+                              const revertOpts = sideStat.revert_options || [];
+                              const totalRevertible = sideStat.total_revertible || 0;
+                              if (totalRevertible <= 0 || revertOpts.length === 0) return null;
+
+                              let revertLabel = `↩ Revert (${totalRevertible})`;
+                              if (activeTab === 'store') revertLabel = `↩ Revert Store Receipt (${totalRevertible})`;
+                              else if (activeTab === 'qc') revertLabel = `↩ Revert to Store (${totalRevertible})`;
+                              else if (activeTab === 'rework') revertLabel = `↩ Revert to QC (${totalRevertible})`;
+                              else if (activeTab === 'paint') revertLabel = `↩ Revert to QC (${totalRevertible})`;
+                              else if (activeTab === 'assembly') {
+                                revertLabel = revertOpts.length > 1
+                                  ? `↩ Revert Lineage (${totalRevertible})`
+                                  : `↩ Revert to ${revertOpts[0]?.target_label || 'Prev'} (${totalRevertible})`;
+                              }
+
+                              return (
+                                <View style={{ marginTop: 6, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 5 }}>
+                                  <TouchableOpacity
+                                    style={styles.compactRevertBtn}
+                                    onPress={() => openRevertModal(item, activeTab, unitSideTab)}>
+                                    <Text style={styles.compactRevertBtnText}>{revertLabel}</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              );
+                            })()}
                           </TouchableOpacity>
                         );
                       })}
@@ -3440,6 +3536,131 @@ function App() {
           </View>
         </View>
       </Modal>
+
+      {/* UNIVERSAL STRICT LINEAGE REVERT MODAL */}
+      <Modal visible={showRevertModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <Text style={styles.modalTitle}>↩ Revert Part</Text>
+              <TouchableOpacity onPress={() => setShowRevertModal(false)} style={{ padding: 4 }}>
+                <Text style={{ fontSize: 16, color: '#64748b', fontWeight: '700' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.itemPartNo}>
+              {revertTargetItem?.standard_part_no || `Part #${revertTargetItem?.id}`} ({revertSide})
+            </Text>
+
+            {(() => {
+              const rQty = parseInt(revertQty, 10) || 0;
+              const maxAvail = selectedRevertOption?.available_quantity || 1;
+
+              return (
+                <View style={{ marginTop: 8 }}>
+                  {/* Lineage Segment Selection (if multiple sources exist, e.g. Assembly with QC + Paint) */}
+                  {revertOptionsList.length > 1 && (
+                    <View style={{ marginBottom: 10 }}>
+                      <Text style={[styles.label, { marginBottom: 4, fontWeight: '700' }]}>Select Lineage Source to Revert:</Text>
+                      {revertOptionsList.map((opt, idx) => {
+                        const isChosen = selectedRevertOption?.source_id === opt.source_id && selectedRevertOption?.source_type === opt.source_type;
+                        return (
+                          <TouchableOpacity
+                            key={`revert-opt-${idx}`}
+                            style={[
+                              styles.revertOptionCard,
+                              isChosen && styles.revertOptionCardSelected
+                            ]}
+                            onPress={() => {
+                              setSelectedRevertOption(opt);
+                              setRevertQty(String(opt.available_quantity || 1));
+                            }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Text style={[styles.revertOptionText, isChosen && { fontWeight: '800', color: '#dc2626' }]}>
+                                {opt.description}
+                              </Text>
+                              <Text style={[styles.revertOptionBadge, isChosen && { backgroundColor: '#fee2e2', color: '#b91c1c' }]}>
+                                ↩ {opt.target_label}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* Read-Only Target Department Display */}
+                  <View style={styles.revertDestinationBox}>
+                    <Text style={styles.revertDestinationLabel}>Revert Destination (Canonical Lineage):</Text>
+                    <Text style={styles.revertDestinationTarget}>
+                      ↩ {selectedRevertOption?.target_label || 'Previous Department'}
+                    </Text>
+                  </View>
+
+                  {/* Quantity Stepper */}
+                  <Text style={[styles.label, { marginTop: 10, color: '#dc2626', fontWeight: '800' }]}>
+                    Quantity to Revert (1 to {maxAvail})
+                  </Text>
+                  <View style={[styles.qtyStepperRow, { borderColor: '#fca5a5' }]}>
+                    <TouchableOpacity
+                      style={[styles.qtyBtn, { borderColor: '#dc2626' }]}
+                      onPress={() => setRevertQty(String(Math.max(1, rQty - 1)))}>
+                      <Text style={[styles.qtyBtnText, { color: '#dc2626' }]}>−</Text>
+                    </TouchableOpacity>
+                    <TextInput
+                      style={[styles.qtyInput, { borderColor: '#dc2626' }]}
+                      keyboardType="numeric"
+                      value={revertQty}
+                      onChangeText={setRevertQty}
+                    />
+                    <TouchableOpacity
+                      style={[styles.qtyBtn, { borderColor: '#dc2626' }]}
+                      onPress={() => setRevertQty(String(Math.min(maxAvail, rQty + 1)))}>
+                      <Text style={[styles.qtyBtnText, { color: '#dc2626' }]}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.qtyRemainingText}>
+                    Remaining in current department: <Text style={{ fontWeight: '700', color: '#1e293b' }}>{Math.max(0, maxAvail - rQty)} pcs</Text>
+                  </Text>
+
+                  {/* Reason Input */}
+                  <Text style={[styles.label, { marginTop: 8 }]}>Reason for Revert (Audit Trail)</Text>
+                  <TextInput
+                    style={[styles.input, { minHeight: 44 }]}
+                    value={revertReason}
+                    onChangeText={setRevertReason}
+                    placeholder="e.g. Allocation correction, quality re-check..."
+                  />
+
+                  {/* Action Buttons */}
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                    <TouchableOpacity
+                      style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]}
+                      disabled={isSubmittingRevert}
+                      onPress={() => setShowRevertModal(false)}>
+                      <Text style={styles.buttonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.button,
+                        { flex: 1.3, backgroundColor: isSubmittingRevert ? '#991b1b' : '#dc2626' },
+                        (rQty <= 0 || rQty > maxAvail) && { opacity: 0.5 }
+                      ]}
+                      disabled={isSubmittingRevert || rQty <= 0 || rQty > maxAvail}
+                      onPress={submitRevert}>
+                      {isSubmittingRevert ? (
+                        <ActivityIndicator color="#ffffff" size="small" />
+                      ) : (
+                        <Text style={styles.buttonText}>Confirm Revert ({rQty} pcs)</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -4381,5 +4602,63 @@ const styles = StyleSheet.create({
     color: '#b91c1c',
     fontSize: 11.5,
     fontWeight: '700',
+  },
+  compactRevertBtn: {
+    backgroundColor: '#fff1f2',
+    borderWidth: 1,
+    borderColor: '#fca5a5',
+    borderRadius: 6,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
+  compactRevertBtnText: {
+    color: '#b91c1c',
+    fontWeight: '700',
+    fontSize: 11.5,
+  },
+  revertOptionCard: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 6,
+  },
+  revertOptionCardSelected: {
+    borderColor: '#dc2626',
+    backgroundColor: '#fef2f2',
+  },
+  revertOptionText: {
+    fontSize: 12,
+    color: '#334155',
+  },
+  revertOptionBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  revertDestinationBox: {
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 4,
+  },
+  revertDestinationLabel: {
+    fontSize: 11,
+    color: '#991b1b',
+    fontWeight: '600',
+  },
+  revertDestinationTarget: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#dc2626',
+    marginTop: 2,
   },
 });
