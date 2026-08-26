@@ -233,6 +233,120 @@ class HierarchyService
                     $statusColor = 'secondary';
                 }
 
+                // Revert Options computation for this department and side
+                $revertOptions = [];
+                $deptKey = strtolower($department ?? '');
+                if ($deptKey === 'store') {
+                    foreach ($recForSide as $rec) {
+                        if (in_array($rec->status, ['pending_qc', 'store_received', 'received']) && $rec->received_quantity > 0) {
+                            $inspected = (int) $qcForSide->where('receipt_item_id', $rec->id)->sum(fn($q) => $q->approved_quantity + $q->rejected_quantity + $q->rework_quantity);
+                            $uninspected = max(0, $rec->received_quantity - $inspected);
+                            if ($uninspected > 0) {
+                                $revertOptions[] = [
+                                    'source_type' => 'receipt_item',
+                                    'source_id' => $rec->id,
+                                    'available_quantity' => $uninspected,
+                                    'from_department' => 'STORE',
+                                    'to_department' => 'PENDING_ARRIVAL',
+                                    'target_label' => 'Pending Supplier Arrival',
+                                    'description' => "Receipt #{$rec->id} ({$uninspected} pcs)",
+                                ];
+                            }
+                        }
+                    }
+                } elseif ($deptKey === 'qc') {
+                    foreach ($recForSide as $rec) {
+                        if ($rec->status === 'qc_received' && $rec->received_quantity > 0) {
+                            $inspected = (int) $qcForSide->where('receipt_item_id', $rec->id)->sum(fn($q) => $q->approved_quantity + $q->rejected_quantity + $q->rework_quantity);
+                            $avail = max(0, $rec->received_quantity - $inspected);
+                            if ($avail > 0) {
+                                $revertOptions[] = [
+                                    'source_type' => 'receipt_item',
+                                    'source_id' => $rec->id,
+                                    'available_quantity' => $avail,
+                                    'from_department' => 'QC',
+                                    'to_department' => 'STORE',
+                                    'target_label' => 'Store Bay',
+                                    'description' => "Arrived from Store ({$avail} pcs)",
+                                ];
+                            }
+                        }
+                    }
+                } elseif ($deptKey === 'rework') {
+                    foreach ($qcForSide as $insp) {
+                        if ($insp->rework_quantity > 0) {
+                            $completed = (int) $reworkForSide->where('qc_inspection_id', $insp->id)->whereIn('status', ['completed', 'returned_to_qc'])->sum('quantity');
+                            $avail = max(0, $insp->rework_quantity - $completed);
+                            if ($avail > 0) {
+                                $revertOptions[] = [
+                                    'source_type' => 'qc_inspection',
+                                    'source_id' => $insp->id,
+                                    'available_quantity' => $avail,
+                                    'from_department' => 'REWORK',
+                                    'to_department' => 'QC',
+                                    'target_label' => 'Quality Control Bay',
+                                    'description' => "From QC Inspection #{$insp->id} ({$avail} pcs)",
+                                ];
+                            }
+                        }
+                    }
+                } elseif ($deptKey === 'paint') {
+                    foreach ($qcForSide as $insp) {
+                        if ($insp->approved_quantity > 0 && ($insp->destination === 'PAINT' || empty($insp->destination))) {
+                            $painted = (int) $paintForSide->where('qc_inspection_id', $insp->id)->sum('quantity');
+                            $avail = max(0, $insp->approved_quantity - $painted);
+                            if ($avail > 0) {
+                                $revertOptions[] = [
+                                    'source_type' => 'qc_inspection',
+                                    'source_id' => $insp->id,
+                                    'available_quantity' => $avail,
+                                    'from_department' => 'PAINT',
+                                    'to_department' => 'QC',
+                                    'target_label' => 'Quality Control Bay',
+                                    'description' => "From QC Approval #{$insp->id} ({$avail} pcs)",
+                                ];
+                            }
+                        }
+                    }
+                } elseif ($deptKey === 'assembly') {
+                    // Lineage 1: From Paint Records
+                    foreach ($paintForSide as $p) {
+                        if (in_array($p->status, ['completed', 'assembled']) && $p->quantity > 0) {
+                            $assembled = (int) $assemblyForSide->where('paint_record_id', $p->id)->sum('quantity');
+                            $avail = max(0, $p->quantity - $assembled);
+                            if ($avail > 0) {
+                                $revertOptions[] = [
+                                    'source_type' => 'paint_record',
+                                    'source_id' => $p->id,
+                                    'available_quantity' => $avail,
+                                    'from_department' => 'ASSEMBLY',
+                                    'to_department' => 'PAINT',
+                                    'target_label' => 'Paint Shop',
+                                    'description' => "From Paint Shop #{$p->id} ({$avail} pcs)",
+                                ];
+                            }
+                        }
+                    }
+                    // Lineage 2: From Direct QC Approvals
+                    foreach ($qcForSide as $insp) {
+                        if ($insp->approved_quantity > 0 && $insp->destination === 'ASSEMBLY') {
+                            $assembled = (int) $assemblyForSide->where('qc_inspection_id', $insp->id)->sum('quantity');
+                            $avail = max(0, $insp->approved_quantity - $assembled);
+                            if ($avail > 0) {
+                                $revertOptions[] = [
+                                    'source_type' => 'qc_inspection',
+                                    'source_id' => $insp->id,
+                                    'available_quantity' => $avail,
+                                    'from_department' => 'ASSEMBLY',
+                                    'to_department' => 'QC',
+                                    'target_label' => 'Quality Control Bay',
+                                    'description' => "From Direct QC #{$insp->id} ({$avail} pcs)",
+                                ];
+                            }
+                        }
+                    }
+                }
+
                 $sideStats[$side] = [
                     'side' => $side,
                     'required' => $reqQty,
@@ -260,6 +374,8 @@ class HierarchyService
                     'rework_records' => $reworkForSide->values(),
                     'paint_records' => $paintForSide->values(),
                     'assembly_records' => $assemblyForSide->values(),
+                    'revert_options' => $revertOptions,
+                    'total_revertible' => array_sum(array_column($revertOptions, 'available_quantity')),
                     'status_badge' => $statusBadge,
                     'status_color' => $statusColor,
                     'is_done' => ($reqQty > 0 && $asmComp >= $reqQty),
