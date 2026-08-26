@@ -71,6 +71,36 @@ This document provides a comprehensive, chronological, and technical record of a
 * Solved Windows network discovery issues (switching Wi-Fi profile from **Public** to **Private**).
 * Built standalone production preview APK on EAS Cloud.
 
+### Milestone 7: Strict Multi-Department Lineage Revert Engine & API
+* **Removed Legacy Recent Receipts**: Replaced unstructured Store "Recent Receipts" with a mathematical lineage revert engine (`WorkflowRevertController.php` & `HierarchyService.php`).
+* **Reverse State Transitions**:
+  - **Store**: Reverts `receipt_item` $\rightarrow$ Pending Supplier Arrival.
+  - **QC**: Reverts physical arrival $\rightarrow$ Store Bay.
+  - **Rework**: Reverts `rework_record` $\rightarrow$ QC Inspection.
+  - **Paint**: Reverts `paint_record` $\rightarrow$ QC Inspection.
+  - **Assembly**: Reverts `assembly_record` $\rightarrow$ Paint Shop / QC Inspection (based on original lineage).
+* **Atomic Bulk Revert API**: Created `/api/v1/workflow/bulk-revert` supporting multi-part revert operations wrapped inside atomic PostgreSQL transactions (`DB::transaction`).
+
+### Milestone 8: Mobile UI Modernization & Department Subtabs
+* **Dedicated Top-Level Subtabs**: Standardized two-tab and three-tab navigation across all operational departments:
+  - **Store**: `[ 📦 Pending Intake | ↩ Revert ]`
+  - **QC**: `[ 📦 1. Arrival | 🔬 2. Inspection | ↩ Revert ]`
+  - **Rework**: `[ 🛠️ Rework Queue | ↩ Revert ]`
+  - **Paint**: `[ 🎨 Paint Queue | ↩ Revert ]`
+  - **Assembly**: `[ ⚙️ Queue | 🏁 Done | ↩ Revert ]`
+* **Compact Revert Cards**: Replaced verbose cards with sleek cards showing Part Number, `LH`/`RH` side badge, Total Revertible quantity, and Source Department pill.
+* **Unified Sticky Action Bar**: Bottom selection bar dynamically computes total selected parts and total piece quantity across all departments with dedicated Forward and Revert bulk action buttons.
+
+### Milestone 9: Full Hierarchy Drilling & Multi-Field Search
+* **Zero Missing Units**: Verified all 14 Units (`Unit 00` through `Unit 13`) for Project `FA-279` / JIG `169961@` render cleanly with zero crashes.
+* **Multi-Field Hierarchy Search**: Extended backend search across `jig_no`, `unit_no`, `standard_part_no`, `item_no`, `part_description`, `size`, and `supplier.name`.
+
+### Milestone 10: Mobile Terminal Network Config, Live Connection Tester & EAS OTA
+* **Default Server Configuration**: Hardcoded primary default server to **`192.168.9.200:8080`** (Plant Floor LAN).
+* **Quick Network Presets**: Added one-tap switcher chips on the login screen for `Wi-Fi (192.168.100.60)` and `Plant LAN (192.168.9.200)`.
+* **Live Connection Tester**: Added `⚡ Test Connection` button on the login screen pinging `/api/v1/health` with real-time millisecond latency display.
+* **Seamless EAS OTA Updates**: Added auto-update check on application launch and in-app `🔄 Update` button in header. Total test coverage expanded to **81 passing PHPUnit tests (801 assertions)**.
+
 ---
 
 ## 3. System Architecture & Tech Stack
@@ -202,6 +232,10 @@ To transfer and deploy the complete system to the company's dedicated Windows 11
 
 | Commit Hash | Description |
 | :--- | :--- |
+| `9550245` | Preserve `192.168.9.200:8080` as primary default while keeping Wi-Fi presets and live connection tester |
+| `6e6fa43` | Update default server IP to active Wi-Fi (192.168.100.60), add network presets and live connection tester |
+| `c2ab2df` | Add top-level department subtabs for Store and all departments, and enable bulk revert |
+| `733dadc` | Fix Level 4 Part rendering for crashes when opening a Unit and expand search queries |
 | `194411a` | Configure `expo-build-properties` plugin to enforce `android:usesCleartextTraffic` in standalone APK builds |
 | `191ce4e` | Enhance mobile API client URL normalization and diagnostics |
 | `a74fb69` | Configure dedicated square app launcher icon from `LOGO_APP.png` while keeping banner logo on login page |
