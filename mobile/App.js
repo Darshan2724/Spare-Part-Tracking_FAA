@@ -2939,10 +2939,9 @@ function App() {
                                   );
                                 })()}
                               </View>
-                            )}
-                          </TouchableOpacity>
-                        );
-                      })}
+                            </TouchableOpacity>
+                          );
+                        })}
 
                       {visibleParts.length === 0 && (
                         <View style={[styles.emptyState, { paddingVertical: 24, alignItems: 'center' }]}>
