@@ -2077,21 +2077,9 @@ function App() {
             </Text>
           </View>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <TouchableOpacity 
-            style={styles.headerUpdateBtn} 
-            onPress={handleCheckOtaUpdate}
-            disabled={otaChecking}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.headerUpdateBtnText}>
-              {otaChecking ? '⏳ Checking...' : '⚡ Check Update'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-            <Text style={styles.logoutBtnText}>Logout</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+          <Text style={styles.logoutBtnText}>Logout</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Navigation Tabs Bar */}
