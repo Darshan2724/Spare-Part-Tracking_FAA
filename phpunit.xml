@@ -17,5 +17,9 @@
         <env name="SESSION_DRIVER" value="array"/>
         <env name="DB_CONNECTION" value="pgsql"/>
         <env name="DB_HOST" value="127.0.0.1"/>
+        <env name="DB_PORT" value="5432"/>
+        <env name="DB_DATABASE" value="sparetrack_testing"/>
+        <env name="DB_USERNAME" value="sparetrack_user"/>
+        <env name="DB_PASSWORD" value="sparetrack_pass"/>
     </php>
 </phpunit>
