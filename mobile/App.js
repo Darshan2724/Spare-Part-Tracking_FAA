@@ -507,6 +507,23 @@ function App() {
     return tab;
   };
 
+  const getCurrentSubTabForDept = (dept = activeTab) => {
+    if (dept === 'store') return storeSubTab;
+    if (dept === 'qc') return qcSubTab;
+    if (dept === 'rework') return reworkSubTab;
+    if (dept === 'paint') return paintSubTab;
+    if (dept === 'assembly') return assemblySubTab;
+    return 'main';
+  };
+
+  const activeTabRef = useRef(activeTab);
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  const currentRequestIdRef = useRef(0);
+  const currentGlobalRevertReqIdRef = useRef(0);
+
   const currentSearchQuery = tabSearches[getCurrentSearchKey()] || '';
 
   // Store Receive Modal state
