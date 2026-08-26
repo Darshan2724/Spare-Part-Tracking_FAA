@@ -1010,4 +1010,93 @@ class WorkflowStrictRevertSystemTest extends TestCase
         $this->assertEquals('qc_received', $qcItems[0]['status']);
         $this->assertEquals(1, $qcItems[0]['received_quantity']);
     }
+
+    public function test_complete_four_stage_reverse_chain_from_assembly_to_qc_to_store_to_pending_arrival()
+    {
+        // 1. Initial State: Store Receipt (2 units)
+        $rec = $this->createStoreReceipt('LH', 2);
+        $rec->update(['status' => 'qc_received']);
+
+        // 2. QC Approves 2 units to Assembly
+        $insp = QcInspection::create([
+            'bom_item_id' => $this->bomItem->id,
+            'receipt_item_id' => $rec->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'approved_quantity' => 2,
+            'destination' => 'ASSEMBLY',
+            'result' => 'approved',
+            'inspected_by' => $this->adminUser->id,
+            'inspection_date' => now(),
+        ]);
+        $rec->update(['status' => 'qc_approved']);
+
+        // 3. Stage 1 Revert: Assembly -> QC (1 unit)
+        $revertToQcResp = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'assembly',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'source_type' => 'qc_inspection',
+            'source_id' => $insp->id,
+            'quantity' => 1,
+            'reason' => 'Assembly quality mismatch, returning to QC',
+        ]);
+        $revertToQcResp->assertStatus(200);
+
+        // 4. Stage 2 Revert: QC -> Store (1 unit)
+        $qcOptions = $this->actingAs($this->adminUser)->getJson("/api/v1/workflow/revert-options?department=qc&bom_item_id={$this->bomItem->id}&side=LH");
+        $qcOptions->assertStatus(200);
+        $qcSourceId = $qcOptions->json('options.0.source_id');
+        $this->assertNotNull($qcSourceId);
+
+        $revertToStoreResp = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'qc',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'source_type' => 'receipt_item',
+            'source_id' => $qcSourceId,
+            'quantity' => 1,
+            'reason' => 'Wrong part delivered to QC, returning to Store stock',
+        ]);
+        $revertToStoreResp->assertStatus(200);
+
+        // 5. Verification in Global Store Revert queue
+        $globalStoreRevert = $this->actingAs($this->adminUser)->getJson("/api/v1/workflow/revert-items?department=store&project_id={$this->project->id}&side=LH");
+        $globalStoreRevert->assertStatus(200);
+        $globalItems = $globalStoreRevert->json('items');
+        $this->assertNotEmpty($globalItems);
+        $this->assertEquals(1, $globalItems[0]['available_quantity']);
+        $this->assertEquals('STORE', $globalItems[0]['from_department']);
+        $this->assertEquals('PENDING_ARRIVAL', $globalItems[0]['to_department']);
+
+        // 6. Verification in Unit-Level Store Revert options
+        $storeOptions = $this->actingAs($this->adminUser)->getJson("/api/v1/workflow/revert-options?department=store&bom_item_id={$this->bomItem->id}&side=LH");
+        $storeOptions->assertStatus(200);
+        $storeSourceId = $storeOptions->json('options.0.source_id');
+        $this->assertNotNull($storeSourceId);
+        $this->assertEquals(1, $storeOptions->json('options.0.available_quantity'));
+
+        // 7. Stage 3 Revert: Store -> Pending Supplier Arrival (1 unit)
+        $revertToPendingResp = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'store',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'source_type' => 'receipt_item',
+            'source_id' => $storeSourceId,
+            'quantity' => 1,
+            'reason' => 'Return to vendor, physical defect discovered in Store',
+        ]);
+        $revertToPendingResp->assertStatus(200);
+        $revertToPendingResp->assertJsonFragment([
+            'success' => true,
+            'from_department' => 'STORE',
+            'to_department' => 'PENDING_ARRIVAL',
+        ]);
+
+        // 8. Global Store Revert should now be empty for that item
+        $globalStoreRevertAfter = $this->actingAs($this->adminUser)->getJson("/api/v1/workflow/revert-items?department=store&project_id={$this->project->id}&side=LH");
+        $globalStoreRevertAfter->assertStatus(200);
+        $this->assertEmpty($globalStoreRevertAfter->json('items'));
+    }
 }
+

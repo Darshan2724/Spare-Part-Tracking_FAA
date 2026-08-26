@@ -38,20 +38,21 @@ class WorkflowRevertController extends Controller
                 $items = ReceiptItem::where('bom_item_id', $bomItemId)
                     ->where(fn($q) => $q->where('side', $side)->orWhere('side', 'COMMON'))
                     ->whereIn('status', ['pending_qc', 'store_received', 'received'])
-                    ->whereDoesntHave('qcInspections')
                     ->orderBy('id', 'desc')
                     ->get();
 
                 foreach ($items as $item) {
-                    if ($item->received_quantity > 0) {
+                    $inspected = (int) QcInspection::where('receipt_item_id', $item->id)->sum(DB::raw('approved_quantity + rejected_quantity + rework_quantity'));
+                    $available = max(0, $item->received_quantity - $inspected);
+                    if ($available > 0) {
                         $options[] = [
                             'source_type' => 'receipt_item',
                             'source_id' => $item->id,
-                            'available_quantity' => $item->received_quantity,
+                            'available_quantity' => $available,
                             'from_department' => 'STORE',
                             'to_department' => 'PENDING_ARRIVAL',
                             'target_label' => 'Pending Supplier Arrival',
-                            'description' => "Receipt #{$item->id} ({$item->received_quantity} pcs)",
+                            'description' => "Store Stock Receipt #{$item->id} ({$available} pcs)",
                         ];
                     }
                 }
@@ -218,7 +219,7 @@ class WorkflowRevertController extends Controller
                 $query->where(function ($sub) use ($qStr) {
                     $sub->where('bom_items.standard_part_no', 'ilike', $qStr)
                         ->orWhere('bom_items.item_no', 'ilike', $qStr)
-                        ->orWhere('bom_items.jig_name', 'ilike', $qStr)
+                        ->orWhere('bom_items.jig_no', 'ilike', $qStr)
                         ->orWhere('bom_items.unit_no', 'ilike', $qStr)
                         ->orWhereHas('project', function ($pSub) use ($qStr) {
                             $pSub->where('name', 'ilike', $qStr)
@@ -236,17 +237,21 @@ class WorkflowRevertController extends Controller
                     ->whereHas('bomItem', $applyBomFilters)
                     ->whereIn('status', ['pending_qc', 'store_received', 'received'])
                     ->where('received_quantity', '>', 0)
-                    ->whereDoesntHave('qcInspections')
                     ->orderBy('id', 'desc');
 
                 if ($side) {
                     $q->where(fn($sQ) => $sQ->where('side', $side)->orWhere('side', 'COMMON'));
                 }
 
-                $records = $q->take($perPage)->get();
+                $records = $q->take($perPage * 2)->get();
                 foreach ($records as $r) {
                     $bom = $r->bomItem;
                     if (!$bom) continue;
+
+                    $inspected = (int) QcInspection::where('receipt_item_id', $r->id)->sum(DB::raw('approved_quantity + rejected_quantity + rework_quantity'));
+                    $avail = max(0, $r->received_quantity - $inspected);
+                    if ($avail <= 0) continue;
+
                     $rawItems[] = [
                         'id' => "store_receipt_{$r->id}",
                         'bom_item_id' => $bom->id,
@@ -256,10 +261,11 @@ class WorkflowRevertController extends Controller
                         'project_id' => $bom->project_id,
                         'project_code' => $bom->project?->project_code ?? 'N/A',
                         'project_name' => $bom->project?->name ?? '',
-                        'jig_name' => $bom->jig_name ?? '',
+                        'jig_no' => $bom->jig_no ?? ($bom->jig_name ?? ''),
+                        'jig_name' => $bom->jig_no ?? ($bom->jig_name ?? ''),
                         'unit_no' => $bom->unit_no ?? '',
                         'supplier_name' => $bom->supplier?->name ?? 'Standard',
-                        'available_quantity' => (int) $r->received_quantity,
+                        'available_quantity' => $avail,
                         'from_department' => 'STORE',
                         'to_department' => 'PENDING_ARRIVAL',
                         'target_label' => 'Pending Supplier Arrival',
@@ -268,13 +274,14 @@ class WorkflowRevertController extends Controller
                         'revert_options' => [[
                             'source_type' => 'receipt_item',
                             'source_id' => $r->id,
-                            'available_quantity' => (int) $r->received_quantity,
+                            'available_quantity' => $avail,
                             'from_department' => 'STORE',
                             'to_department' => 'PENDING_ARRIVAL',
                             'target_label' => 'Pending Supplier Arrival',
-                            'description' => "Receipt #{$r->id} ({$r->received_quantity} pcs)",
+                            'description' => "Store Stock Receipt #{$r->id} ({$avail} pcs)",
                         ]],
                     ];
+                    if (count($rawItems) >= $perPage) break;
                 }
                 break;
 
@@ -716,7 +723,6 @@ class WorkflowRevertController extends Controller
         $query = ReceiptItem::where('bom_item_id', $bomItem->id)
             ->where(fn($q) => $q->where('side', $side)->orWhere('side', 'COMMON'))
             ->whereIn('status', ['pending_qc', 'store_received', 'received'])
-            ->whereDoesntHave('qcInspections')
             ->lockForUpdate();
 
         if ($sourceId) {
@@ -724,7 +730,15 @@ class WorkflowRevertController extends Controller
         }
 
         $items = $query->get();
-        $totalAvailable = (int) $items->sum('received_quantity');
+        $availableMap = [];
+
+        foreach ($items as $item) {
+            $inspected = (int) QcInspection::where('receipt_item_id', $item->id)->sum(DB::raw('approved_quantity + rejected_quantity + rework_quantity'));
+            $avail = max(0, $item->received_quantity - $inspected);
+            $availableMap[$item->id] = $avail;
+        }
+
+        $totalAvailable = (int) array_sum($availableMap);
 
         if ($totalAvailable < $qty) {
             return response()->json([
@@ -735,8 +749,10 @@ class WorkflowRevertController extends Controller
 
         $qtyRemaining = $qty;
         foreach ($items as $item) {
-            if ($qtyRemaining <= 0) break;
-            $consume = min($qtyRemaining, $item->received_quantity);
+            $avail = $availableMap[$item->id] ?? 0;
+            if ($qtyRemaining <= 0 || $avail <= 0) continue;
+
+            $consume = min($qtyRemaining, $avail);
             $qtyRemaining -= $consume;
 
             if ($item->received_quantity === $consume) {
