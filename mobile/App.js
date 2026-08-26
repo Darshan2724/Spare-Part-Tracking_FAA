@@ -315,8 +315,6 @@ function App() {
   const [assemblySubTab, setAssemblySubTab] = useState('queue'); // 'queue' | 'completed' | 'revert'
   const [summary, setSummary] = useState(null);
   const [items, setItems] = useState([]);
-  const [historyItems, setHistoryItems] = useState([]);
-  const [returnedItems, setReturnedItems] = useState([]);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -506,17 +504,20 @@ function App() {
 
   const getSearchPlaceholder = () => {
     if (activeTab === 'store') {
-      if (storeSubTab === 'history') return '🔍 Search receipts history...';
-      if (storeSubTab === 'returned') return '🔍 Search QC-returned parts...';
+      if (storeSubTab === 'revert') return '🔍 Search revertible parts in Store...';
       if (!selectedProject) return '🔍 Search projects by name / code...';
       if (!selectedJig) return '🔍 Search JIGs (e.g. ST7)...';
       if (!selectedUnit) return '🔍 Search units (e.g. 07, Unit 07)...';
       return '🔍 Search pending parts in this unit...';
     }
-    if (activeTab === 'qc') return qcSubTab === 'arrival' ? '🔍 Search arrival queue...' : '🔍 Search inspection queue...';
-    if (activeTab === 'paint') return '🔍 Search Paint queue...';
-    if (activeTab === 'assembly') return '🔍 Search Assembly queue...';
-    if (activeTab === 'rework') return '🔍 Search Rework items...';
+    if (activeTab === 'qc') {
+      if (qcSubTab === 'arrival') return '🔍 Search arrival queue...';
+      if (qcSubTab === 'inspection') return '🔍 Search inspection queue...';
+      return '🔍 Search revertible parts in QC...';
+    }
+    if (activeTab === 'paint') return paintSubTab === 'revert' ? '🔍 Search revertible parts in Paint...' : '🔍 Search Paint queue...';
+    if (activeTab === 'assembly') return assemblySubTab === 'revert' ? '🔍 Search revertible parts in Assembly...' : '🔍 Search Assembly queue...';
+    if (activeTab === 'rework') return reworkSubTab === 'revert' ? '🔍 Search revertible parts in Rework...' : '🔍 Search Rework items...';
     if (activeTab === 'purchase') return '🔍 Search Purchase queue...';
     return '🔍 Search items...';
   };
@@ -633,7 +634,6 @@ function App() {
           setAuthToken(null);
           setSummary(null);
           setItems([]);
-          setHistoryItems([]);
           setSelectedJig(null);
           setSelectedUnit(null);
           setSelectedProject('');
@@ -663,10 +663,6 @@ function App() {
     if (cachedEntry && !forceFresh) {
       if (tab === 'dashboard') {
         setSummary(cachedEntry);
-      } else if (tab === 'store' && storeSubTab === 'history') {
-        setHistoryItems(cachedEntry);
-      } else if (tab === 'store' && storeSubTab === 'returned') {
-        setReturnedItems(cachedEntry);
       } else if (tab === 'purchase') {
         setItems(cachedEntry);
       } else {
@@ -692,16 +688,6 @@ function App() {
         const data = res.data.summary || res.data;
         mobileCacheRef.current.set(cacheKey, data);
         setSummary(data);
-      } else if (tab === 'store' && storeSubTab === 'history') {
-        const res = await apiClient.get('/store/history', { params });
-        const data = extractArray(res.data);
-        mobileCacheRef.current.set(cacheKey, data);
-        setHistoryItems(data);
-      } else if (tab === 'store' && storeSubTab === 'returned') {
-        const res = await apiClient.get('/store/returned', { params });
-        const data = extractArray(res.data);
-        mobileCacheRef.current.set(cacheKey, data);
-        setReturnedItems(data);
       } else if (tab === 'purchase') {
         const res = await apiClient.get('/purchase/items', { params });
         const data = extractArray(res.data);
@@ -889,32 +875,6 @@ function App() {
     } catch (err) {
       Alert.alert('Error', err.response?.data?.message || 'Failed to dispatch item to QC.');
     }
-  };
-
-  const handleRevertReceipt = (historyItem) => {
-    Alert.alert(
-      'Revert Stock Receipt',
-      `Are you sure you want to revert receipt of ${historyItem.received_quantity} pcs (${historyItem.side}) for ${historyItem.bom_item?.standard_part_no || 'this part'}?\n\nThis will undo the receipt and restore pending arrival stock.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Revert / Undo',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const res = await apiClient.post(`/store/items/${historyItem.id}/revert`);
-              showToast(res.data.message || 'Stock receipt successfully undone.');
-              invalidateMobileCache('store');
-              invalidateMobileCache('dashboard');
-              invalidateMobileCache('qc');
-              loadData('store', false, null, true);
-            } catch (err) {
-              Alert.alert('Revert Failed', err.response?.data?.message || 'Could not revert stock receipt.');
-            }
-          }
-        }
-      ]
-    );
   };
 
   // --- QC ACTIONS ---
@@ -1802,22 +1762,6 @@ function App() {
         </View>
       )}
 
-      {/* Store Sub-Tabs (Pending vs History & Revert) */}
-      {activeTab === 'store' && (
-        <View style={styles.subTabsContainer}>
-          <TouchableOpacity
-            style={[styles.subTab, storeSubTab === 'pending' && styles.activeSubTab]}
-            onPress={() => { setStoreSubTab('pending'); loadData('store'); }}>
-            <Text style={[styles.subTabText, storeSubTab === 'pending' && styles.activeSubTabText]}>📦 Pending Intake</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.subTab, storeSubTab === 'history' && styles.activeSubTab]}
-            onPress={() => { setStoreSubTab('history'); loadData('store'); }}>
-            <Text style={[styles.subTabText, storeSubTab === 'history' && styles.activeSubTabText]}>📜 Recent Receipts</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
       {/* STICKY HIERARCHY CONTEXT HEADER (Always fixed outside ScrollView while content scrolls) */}
       {selectedProject && (
         <View style={styles.hierarchyNavRow}>
@@ -1882,7 +1826,7 @@ function App() {
               <Text style={styles.cardValue}>{summary?.pending_purchase || 0}</Text>
             </View>
           </View>
-        ) : ['store', 'qc', 'rework', 'paint', 'assembly'].includes(activeTab) && !(activeTab === 'store' && (storeSubTab === 'history' || storeSubTab === 'returned')) ? (
+        ) : ['store', 'qc', 'rework', 'paint', 'assembly'].includes(activeTab) ? (
           // MOBILE UNIFIED 4-LEVEL DRILLDOWN VIEW (Page-wise Search Enabled across all departments)
           <View style={styles.listContainer}>
             {/* LEVEL 1: PROJECTS GRID (when no project selected) */}
