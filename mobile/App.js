@@ -175,6 +175,130 @@ const swipeCardStyles = StyleSheet.create({
   reworkBtnText: { color: '#92400e', fontWeight: '700', fontSize: 13 },
 });
 
+function CompactQuantitySelector({
+  available = 1,
+  value = '1',
+  onChange,
+  color = '#2563eb',
+  label = 'Quantity',
+  remainingLabel = 'Remaining in Queue',
+}) {
+  const num = parseInt(value, 10) || 1;
+  const maxAvail = Math.max(1, parseInt(available, 10) || 1);
+  const remaining = Math.max(0, maxAvail - num);
+
+  return (
+    <View style={compactQtyStyles.container}>
+      <View style={compactQtyStyles.metaRow}>
+        <Text style={[compactQtyStyles.label, { color }]}>
+          {label} <Text style={compactQtyStyles.maxBadge}>(Max: {maxAvail})</Text>
+        </Text>
+        <Text style={compactQtyStyles.remainingText}>
+          {remainingLabel}: <Text style={compactQtyStyles.remainingValue}>{remaining} pcs</Text>
+        </Text>
+      </View>
+
+      <View style={compactQtyStyles.stepperRow}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          style={[compactQtyStyles.stepBtn, { borderColor: color }]}
+          onPress={() => onChange(String(Math.max(1, num - 1)))}>
+          <Text style={[compactQtyStyles.stepBtnText, { color }]}>−</Text>
+        </TouchableOpacity>
+
+        <TextInput
+          style={[compactQtyStyles.input, { borderColor: color }]}
+          keyboardType="numeric"
+          value={String(value)}
+          onChangeText={(txt) => {
+            const clean = txt.replace(/[^0-9]/g, '');
+            if (clean === '') {
+              onChange('');
+              return;
+            }
+            const val = parseInt(clean, 10);
+            onChange(String(Math.min(maxAvail, Math.max(1, val))));
+          }}
+        />
+
+        <TouchableOpacity
+          activeOpacity={0.7}
+          style={[compactQtyStyles.stepBtn, { borderColor: color }]}
+          onPress={() => onChange(String(Math.min(maxAvail, num + 1)))}>
+          <Text style={[compactQtyStyles.stepBtnText, { color }]}>+</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const compactQtyStyles = StyleSheet.create({
+  container: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 10,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  maxBadge: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  remainingText: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  remainingValue: {
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  stepBtn: {
+    width: 44,
+    height: 40,
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepBtnText: {
+    fontSize: 20,
+    fontWeight: '900',
+    lineHeight: 22,
+  },
+  input: {
+    flex: 1,
+    maxWidth: 120,
+    height: 40,
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderRadius: 8,
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+});
+
 function App() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
@@ -184,8 +308,11 @@ function App() {
   const [password, setPassword] = useState('password123');
 
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [storeSubTab, setStoreSubTab] = useState('pending'); // 'pending' | 'returned' | 'history'
-  const [qcSubTab, setQcSubTab] = useState('arrival'); // 'arrival' | 'inspection'
+  const [storeSubTab, setStoreSubTab] = useState('pending'); // 'pending' | 'revert'
+  const [qcSubTab, setQcSubTab] = useState('arrival'); // 'arrival' | 'inspection' | 'revert'
+  const [reworkSubTab, setReworkSubTab] = useState('queue'); // 'queue' | 'revert'
+  const [paintSubTab, setPaintSubTab] = useState('queue'); // 'queue' | 'revert'
+  const [assemblySubTab, setAssemblySubTab] = useState('queue'); // 'queue' | 'completed' | 'revert'
   const [summary, setSummary] = useState(null);
   const [items, setItems] = useState([]);
   const [historyItems, setHistoryItems] = useState([]);
@@ -198,13 +325,17 @@ function App() {
   // Search & Filter state - Per-Tab Isolated Search State (Part 13)
   const [tabSearches, setTabSearches] = useState({
     store_pending: '',
-    store_returned: '',
-    store_history: '',
+    store_revert: '',
     qc_arrival: '',
     qc_inspection: '',
-    rework: '',
-    paint: '',
-    assembly: '',
+    qc_revert: '',
+    rework_queue: '',
+    rework_revert: '',
+    paint_queue: '',
+    paint_revert: '',
+    assembly_queue: '',
+    assembly_completed: '',
+    assembly_revert: '',
     purchase: '',
   });
 
@@ -221,13 +352,27 @@ function App() {
     }
   }, []);
 
-  const getCurrentSearchKey = (tab = activeTab, storeSub = storeSubTab, qcSub = qcSubTab) => {
-    if (tab === 'store') {
-      if (storeSub === 'history') return 'store_history';
-      if (storeSub === 'returned') return 'store_returned';
-      return 'store_pending';
+  const getCurrentSearchKey = (
+    tab = activeTab,
+    storeSub = storeSubTab,
+    qcSub = qcSubTab,
+    reworkSub = reworkSubTab,
+    paintSub = paintSubTab,
+    assemblySub = assemblySubTab
+  ) => {
+    if (tab === 'store') return storeSub === 'revert' ? 'store_revert' : 'store_pending';
+    if (tab === 'qc') {
+      if (qcSub === 'arrival') return 'qc_arrival';
+      if (qcSub === 'inspection') return 'qc_inspection';
+      return 'qc_revert';
     }
-    if (tab === 'qc') return qcSub === 'arrival' ? 'qc_arrival' : 'qc_inspection';
+    if (tab === 'rework') return reworkSub === 'revert' ? 'rework_revert' : 'rework_queue';
+    if (tab === 'paint') return paintSub === 'revert' ? 'paint_revert' : 'paint_queue';
+    if (tab === 'assembly') {
+      if (assemblySub === 'completed') return 'assembly_completed';
+      if (assemblySub === 'revert') return 'assembly_revert';
+      return 'assembly_queue';
+    }
     return tab;
   };
 
@@ -1104,14 +1249,14 @@ function App() {
   };
 
   // --- STRICT LINEAGE REVERT ACTIONS ---
-  const openRevertModal = (part, dept, side = unitSideTab) => {
+  const openRevertModal = (part, dept, side = unitSideTab, specificOption = null) => {
     setRevertTargetItem(part);
     setRevertDept(dept);
     setRevertSide(side);
     const sideStat = part.side_stats?.[side] || part.side_stats?.COMMON || {};
     const options = sideStat.revert_options || [];
     setRevertOptionsList(options);
-    const initialOption = options[0] || null;
+    const initialOption = specificOption || options[0] || null;
     setSelectedRevertOption(initialOption);
     setRevertQty(String(initialOption?.available_quantity || 1));
     setRevertReason('');
@@ -1884,42 +2029,80 @@ function App() {
                     let buttonText = `Open ${side} ›`;
 
                     if (activeTab === 'paint') {
-                      const readyQty = sideMetrics.paint_ready ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.paint_ready || p.side_stats?.COMMON?.paint_ready || 0), 0);
-                      const compQty = sideMetrics.paint_completed ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.paint_completed || p.side_stats?.COMMON?.paint_completed || 0), 0);
-                      count = readyQty;
-                      label = `${readyQty} Ready • ${compQty} Done`;
-                      buttonText = readyQty > 0 ? `Open ${side} (${readyQty} Ready) ›` : `Open ${side} ›`;
+                      if (paintSubTab === 'revert') {
+                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || p.side_stats?.COMMON?.total_revertible || 0), 0);
+                        count = revQty;
+                        label = `${revQty} Revertible to QC`;
+                        buttonText = revQty > 0 ? `Open ${side} (${revQty} Revert) ›` : `Open ${side} ›`;
+                      } else {
+                        const readyQty = sideMetrics.paint_ready ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.paint_ready || p.side_stats?.COMMON?.paint_ready || 0), 0);
+                        const compQty = sideMetrics.paint_completed ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.paint_completed || p.side_stats?.COMMON?.paint_completed || 0), 0);
+                        count = readyQty;
+                        label = `${readyQty} Ready • ${compQty} Done`;
+                        buttonText = readyQty > 0 ? `Open ${side} (${readyQty} Ready) ›` : `Open ${side} ›`;
+                      }
                     } else if (activeTab === 'assembly') {
-                      const readyQty = sideMetrics.assembly_ready ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.assembly_ready || p.side_stats?.COMMON?.assembly_ready || 0), 0);
-                      const compQty = sideMetrics.assembly_completed ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.assembly_completed || p.side_stats?.COMMON?.assembly_completed || 0), 0);
-                      count = readyQty;
-                      label = `${readyQty} Ready • ${compQty} Assembled`;
-                      buttonText = readyQty > 0 ? `Open ${side} (${readyQty} Ready) ›` : `Open ${side} ›`;
+                      if (assemblySubTab === 'revert') {
+                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || p.side_stats?.COMMON?.total_revertible || 0), 0);
+                        count = revQty;
+                        label = `${revQty} Revertible`;
+                        buttonText = revQty > 0 ? `Open ${side} (${revQty} Revert) ›` : `Open ${side} ›`;
+                      } else if (assemblySubTab === 'completed') {
+                        const compQty = sideMetrics.assembly_completed ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.assembly_completed || p.side_stats?.COMMON?.assembly_completed || 0), 0);
+                        count = compQty;
+                        label = `${compQty} Assembled`;
+                        buttonText = compQty > 0 ? `Open ${side} (${compQty} Done) ›` : `Open ${side} ›`;
+                      } else {
+                        const readyQty = sideMetrics.assembly_ready ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.assembly_ready || p.side_stats?.COMMON?.assembly_ready || 0), 0);
+                        const compQty = sideMetrics.assembly_completed ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.assembly_completed || p.side_stats?.COMMON?.assembly_completed || 0), 0);
+                        count = readyQty;
+                        label = `${readyQty} Ready • ${compQty} Assembled`;
+                        buttonText = readyQty > 0 ? `Open ${side} (${readyQty} Ready) ›` : `Open ${side} ›`;
+                      }
                     } else if (activeTab === 'qc') {
-                      const pendingArrival = sideMetrics.qc_pending_arrival ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.qc_pending_arrival || p.side_stats?.COMMON?.qc_pending_arrival || 0), 0);
-                      const pendingInsp = sideMetrics.qc_pending_inspection ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.qc_pending_inspection || p.side_stats?.COMMON?.qc_pending_inspection || 0), 0);
-                      const approved = sideMetrics.qc_approved ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.qc_approved || p.side_stats?.COMMON?.qc_approved || 0), 0);
-                      if (qcSubTab === 'arrival') {
+                      if (qcSubTab === 'revert') {
+                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || p.side_stats?.COMMON?.total_revertible || 0), 0);
+                        count = revQty;
+                        label = `${revQty} Revertible to Store`;
+                        buttonText = revQty > 0 ? `Open ${side} (${revQty} Revert) ›` : `Open ${side} ›`;
+                      } else if (qcSubTab === 'arrival') {
+                        const pendingArrival = sideMetrics.qc_pending_arrival ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.qc_pending_arrival || p.side_stats?.COMMON?.qc_pending_arrival || 0), 0);
                         count = pendingArrival;
                         label = `${pendingArrival} Pending Arrival`;
                         buttonText = pendingArrival > 0 ? `Open ${side} (${pendingArrival} Arrival) ›` : `Open ${side} ›`;
                       } else {
+                        const pendingInsp = sideMetrics.qc_pending_inspection ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.qc_pending_inspection || p.side_stats?.COMMON?.qc_pending_inspection || 0), 0);
+                        const approved = sideMetrics.qc_approved ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.qc_approved || p.side_stats?.COMMON?.qc_approved || 0), 0);
                         count = pendingInsp;
                         label = `${pendingInsp} Pending QC • ${approved} App`;
                         buttonText = pendingInsp > 0 ? `Open ${side} (${pendingInsp} Inspect) ›` : `Open ${side} ›`;
                       }
                     } else if (activeTab === 'rework') {
-                      const rewPend = sideMetrics.rework_pending ?? 0;
-                      const rewProg = sideMetrics.rework_in_progress ?? 0;
-                      const rewComp = sideMetrics.rework_completed ?? 0;
-                      count = rewPend + rewProg;
-                      label = count > 0 ? `${count} in Rework` : `${rewComp} Completed`;
-                      buttonText = count > 0 ? `Open ${side} (${count}) ›` : `Open ${side} ›`;
+                      if (reworkSubTab === 'revert') {
+                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || p.side_stats?.COMMON?.total_revertible || 0), 0);
+                        count = revQty;
+                        label = `${revQty} Revertible to QC`;
+                        buttonText = revQty > 0 ? `Open ${side} (${revQty} Revert) ›` : `Open ${side} ›`;
+                      } else {
+                        const rewPend = sideMetrics.rework_pending ?? 0;
+                        const rewProg = sideMetrics.rework_in_progress ?? 0;
+                        const rewComp = sideMetrics.rework_completed ?? 0;
+                        count = rewPend + rewProg;
+                        label = count > 0 ? `${count} in Rework` : `${rewComp} Completed`;
+                        buttonText = count > 0 ? `Open ${side} (${count}) ›` : `Open ${side} ›`;
+                      }
                     } else {
                       // Store
-                      count = totalPending;
-                      label = `Req: ${totalRequired} • Rec: ${totalReceived}`;
-                      buttonText = totalPending > 0 ? `Open ${side} (${totalPending} Pen) ›` : `Open ${side} (Done) ›`;
+                      if (storeSubTab === 'revert') {
+                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || p.side_stats?.COMMON?.total_revertible || 0), 0);
+                        count = revQty;
+                        label = `${revQty} Revertible to Supplier`;
+                        buttonText = revQty > 0 ? `Open ${side} (${revQty} Revert) ›` : `Open ${side} ›`;
+                      } else {
+                        count = totalPending;
+                        label = `Req: ${totalRequired} • Rec: ${totalReceived}`;
+                        buttonText = totalPending > 0 ? `Open ${side} (${totalPending} Pen) ›` : `Open ${side} (Done) ›`;
+                      }
                     }
 
                     return {
@@ -2071,30 +2254,36 @@ function App() {
 
                     const currentSideStats = unitSideTab === 'LH' ? (item.side_stats?.LH || item.side_stats?.COMMON) : (item.side_stats?.RH || item.side_stats?.COMMON);
 
-                    // Store pending filter: Only show parts with remaining pending quantity
-                    if (activeTab === 'store' && storeSubTab === 'pending') {
-                      if (!(currentSideStats && currentSideStats.pending > 0)) return false;
+                    // Store subtabs
+                    if (activeTab === 'store') {
+                      if (storeSubTab === 'pending' && !(currentSideStats && currentSideStats.pending > 0)) return false;
+                      if (storeSubTab === 'revert' && !(currentSideStats && (currentSideStats.total_revertible || 0) > 0)) return false;
                     }
 
-                    // Department-specific subtab filter for QC: Strictly side-isolated
+                    // QC subtabs
                     if (activeTab === 'qc') {
                       if (qcSubTab === 'arrival' && !(currentSideStats?.qc_pending_arrival > 0)) return false;
                       if (qcSubTab === 'inspection' && !(currentSideStats?.qc_pending_inspection > 0)) return false;
+                      if (qcSubTab === 'revert' && !(currentSideStats && (currentSideStats.total_revertible || 0) > 0)) return false;
                     }
 
-                    // Department-specific filter for Rework: Strictly side-isolated
+                    // Rework subtabs
                     if (activeTab === 'rework') {
-                      if (!(currentSideStats && ((currentSideStats.rework_pending || 0) + (currentSideStats.rework_in_progress || 0) > 0))) return false;
+                      if (reworkSubTab === 'queue' && !(currentSideStats && ((currentSideStats.rework_pending || 0) + (currentSideStats.rework_in_progress || 0) > 0))) return false;
+                      if (reworkSubTab === 'revert' && !(currentSideStats && (currentSideStats.total_revertible || 0) > 0)) return false;
                     }
 
-                    // Department-specific filter for Paint: Strictly side-isolated
+                    // Paint subtabs
                     if (activeTab === 'paint') {
-                      if (!(currentSideStats && (currentSideStats.paint_ready || 0) > 0)) return false;
+                      if (paintSubTab === 'queue' && !(currentSideStats && (currentSideStats.paint_ready || 0) > 0)) return false;
+                      if (paintSubTab === 'revert' && !(currentSideStats && (currentSideStats.total_revertible || 0) > 0)) return false;
                     }
 
-                    // Department-specific filter for Assembly: Strictly side-isolated
+                    // Assembly subtabs
                     if (activeTab === 'assembly') {
-                      if (!(currentSideStats && (currentSideStats.assembly_ready || 0) > 0)) return false;
+                      if (assemblySubTab === 'queue' && !(currentSideStats && (currentSideStats.assembly_ready || 0) > 0)) return false;
+                      if (assemblySubTab === 'completed' && !(currentSideStats && (currentSideStats.assembly_completed || 0) > 0)) return false;
+                      if (assemblySubTab === 'revert' && !(currentSideStats && (currentSideStats.total_revertible || 0) > 0)) return false;
                     }
 
                     if (!currentSearchQuery) return true;
@@ -2104,68 +2293,230 @@ function App() {
                            (item.supplier?.name || item.supplier_name_raw || '').toLowerCase().includes(q);
                   });
 
+                  const getEligibleQty = (p) => {
+                    const s = unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON || {}) : (p.side_stats?.RH || p.side_stats?.COMMON || {});
+                    if (activeTab === 'store') {
+                      return storeSubTab === 'revert' ? (s.total_revertible || 0) : (s.pending || 0);
+                    }
+                    if (activeTab === 'qc') {
+                      if (qcSubTab === 'arrival') return s.qc_pending_arrival || 0;
+                      if (qcSubTab === 'inspection') return s.qc_pending_inspection || 0;
+                      if (qcSubTab === 'revert') return s.total_revertible || 0;
+                    }
+                    if (activeTab === 'rework') {
+                      return reworkSubTab === 'revert' ? (s.total_revertible || 0) : ((s.parts_in_rework || 0) || ((s.rework_pending || 0) + (s.rework_in_progress || 0)));
+                    }
+                    if (activeTab === 'paint') {
+                      return paintSubTab === 'revert' ? (s.total_revertible || 0) : (s.paint_ready || 0);
+                    }
+                    if (activeTab === 'assembly') {
+                      return assemblySubTab === 'revert' ? (s.total_revertible || 0) : (s.assembly_ready || 0);
+                    }
+                    return 1;
+                  };
+
                   const selectedItemsList = visibleParts.filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
+                  const selectedPartsCount = selectedItemsList.length;
+                  const selectedTotalQuantity = selectedItemsList.reduce((sum, item) => sum + getEligibleQty(item), 0);
+
+                  const isCurrentRevertTab = (activeTab === 'store' && storeSubTab === 'revert') ||
+                                             (activeTab === 'qc' && qcSubTab === 'revert') ||
+                                             (activeTab === 'rework' && reworkSubTab === 'revert') ||
+                                             (activeTab === 'paint' && paintSubTab === 'revert') ||
+                                             (activeTab === 'assembly' && assemblySubTab === 'revert');
 
                   return (
                     <View>
-                      {/* Multi-Selection Control Bar (Compact) */}
-                      <View style={styles.selectionControlBar}>
-                        <TouchableOpacity
-                          style={styles.selectionToggleBtn}
-                          onPress={() => {
-                            if (isSelectionMode) {
-                              clearSelection();
-                            } else {
-                              setIsSelectionMode(true);
-                            }
-                          }}>
-                          <Text style={styles.selectionToggleText}>
-                            {isSelectionMode ? '✕ Cancel Selection' : '☑ Multi-Select'}
-                          </Text>
-                        </TouchableOpacity>
-
-                        {isSelectionMode && (
-                          <View style={{ flexDirection: 'row', gap: 6 }}>
-                            <TouchableOpacity
-                              style={styles.selectAllBtn}
-                              onPress={() => selectAllVisible(visibleParts, unitSideTab)}>
-                              <Text style={styles.selectAllBtnText}>Select All ({visibleParts.length})</Text>
-                            </TouchableOpacity>
-                            {selectedItemIds.size > 0 && (
-                              <TouchableOpacity style={styles.clearSelectBtn} onPress={clearSelection}>
-                                <Text style={styles.clearSelectBtnText}>Clear ({selectedItemIds.size})</Text>
-                              </TouchableOpacity>
-                            )}
-                          </View>
-                        )}
-                      </View>
-
-                      {/* QC Operational Mode Switcher (Physical Arrival vs Quality Inspection) */}
-                      {activeTab === 'qc' && (() => {
+                      {/* Department Subtab Switchers */}
+                      {activeTab === 'store' && (() => {
                         const getSideStat = (p) => (unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON) : (p.side_stats?.RH || p.side_stats?.COMMON));
-                        const arrivalCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.qc_pending_arrival || 0) > 0).length;
-                        const inspectionCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.qc_pending_inspection || 0) > 0).length;
+                        const pendingCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.pending || 0) > 0).length;
+                        const revertCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.total_revertible || 0) > 0).length;
 
                         return (
-                          <View style={styles.qcModeRow}>
+                          <View style={styles.deptSubtabRow}>
                             <TouchableOpacity
-                              style={[styles.qcModeBtn, qcSubTab === 'arrival' && styles.qcModeBtnActiveArrival]}
-                              onPress={() => { setQcSubTab('arrival'); clearSelection(); }}>
-                              <Text style={[styles.qcModeBtnText, qcSubTab === 'arrival' && styles.qcModeBtnTextActiveArrival]}>
-                                📦 1. Physical Arrival ({arrivalCount})
+                              style={[styles.deptSubtabBtn, storeSubTab === 'pending' && styles.deptSubtabBtnActive]}
+                              onPress={() => { setStoreSubTab('pending'); clearSelection(); }}>
+                              <Text style={[styles.deptSubtabBtnText, storeSubTab === 'pending' && styles.deptSubtabBtnTextActive]}>
+                                📦 Pending Intake ({pendingCount})
                               </Text>
                             </TouchableOpacity>
-
                             <TouchableOpacity
-                              style={[styles.qcModeBtn, qcSubTab === 'inspection' && styles.qcModeBtnActiveInspection]}
-                              onPress={() => { setQcSubTab('inspection'); clearSelection(); }}>
-                              <Text style={[styles.qcModeBtnText, qcSubTab === 'inspection' && styles.qcModeBtnTextActiveInspection]}>
-                                🔬 2. Quality Inspection ({inspectionCount})
+                              style={[styles.deptSubtabBtn, storeSubTab === 'revert' && styles.deptSubtabBtnActiveRevert]}
+                              onPress={() => { setStoreSubTab('revert'); clearSelection(); }}>
+                              <Text style={[styles.deptSubtabBtnText, storeSubTab === 'revert' && styles.deptSubtabBtnTextActiveRevert]}>
+                                ↩ Revert ({revertCount})
                               </Text>
                             </TouchableOpacity>
                           </View>
                         );
                       })()}
+
+                      {activeTab === 'qc' && (() => {
+                        const getSideStat = (p) => (unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON) : (p.side_stats?.RH || p.side_stats?.COMMON));
+                        const arrivalCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.qc_pending_arrival || 0) > 0).length;
+                        const inspectionCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.qc_pending_inspection || 0) > 0).length;
+                        const revertCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.total_revertible || 0) > 0).length;
+
+                        return (
+                          <View style={styles.deptSubtabRow}>
+                            <TouchableOpacity
+                              style={[styles.deptSubtabBtn, qcSubTab === 'arrival' && styles.qcModeBtnActiveArrival]}
+                              onPress={() => { setQcSubTab('arrival'); clearSelection(); }}>
+                              <Text style={[styles.deptSubtabBtnText, qcSubTab === 'arrival' && styles.qcModeBtnTextActiveArrival]}>
+                                📦 1. Arrival ({arrivalCount})
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.deptSubtabBtn, qcSubTab === 'inspection' && styles.qcModeBtnActiveInspection]}
+                              onPress={() => { setQcSubTab('inspection'); clearSelection(); }}>
+                              <Text style={[styles.deptSubtabBtnText, qcSubTab === 'inspection' && styles.qcModeBtnTextActiveInspection]}>
+                                🔬 2. Inspection ({inspectionCount})
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.deptSubtabBtn, qcSubTab === 'revert' && styles.deptSubtabBtnActiveRevert]}
+                              onPress={() => { setQcSubTab('revert'); clearSelection(); }}>
+                              <Text style={[styles.deptSubtabBtnText, qcSubTab === 'revert' && styles.deptSubtabBtnTextActiveRevert]}>
+                                ↩ Revert ({revertCount})
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })()}
+
+                      {activeTab === 'rework' && (() => {
+                        const getSideStat = (p) => (unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON) : (p.side_stats?.RH || p.side_stats?.COMMON));
+                        const queueCount = (selectedUnit.parts || []).filter(p => ((getSideStat(p)?.rework_pending || 0) + (getSideStat(p)?.rework_in_progress || 0)) > 0).length;
+                        const revertCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.total_revertible || 0) > 0).length;
+
+                        return (
+                          <View style={styles.deptSubtabRow}>
+                            <TouchableOpacity
+                              style={[styles.deptSubtabBtn, reworkSubTab === 'queue' && styles.deptSubtabBtnActiveRework]}
+                              onPress={() => { setReworkSubTab('queue'); clearSelection(); }}>
+                              <Text style={[styles.deptSubtabBtnText, reworkSubTab === 'queue' && styles.deptSubtabBtnTextActiveRework]}>
+                                🛠️ Rework Queue ({queueCount})
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.deptSubtabBtn, reworkSubTab === 'revert' && styles.deptSubtabBtnActiveRevert]}
+                              onPress={() => { setReworkSubTab('revert'); clearSelection(); }}>
+                              <Text style={[styles.deptSubtabBtnText, reworkSubTab === 'revert' && styles.deptSubtabBtnTextActiveRevert]}>
+                                ↩ Revert ({revertCount})
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })()}
+
+                      {activeTab === 'paint' && (() => {
+                        const getSideStat = (p) => (unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON) : (p.side_stats?.RH || p.side_stats?.COMMON));
+                        const queueCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.paint_ready || 0) > 0).length;
+                        const revertCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.total_revertible || 0) > 0).length;
+
+                        return (
+                          <View style={styles.deptSubtabRow}>
+                            <TouchableOpacity
+                              style={[styles.deptSubtabBtn, paintSubTab === 'queue' && styles.deptSubtabBtnActivePaint]}
+                              onPress={() => { setPaintSubTab('queue'); clearSelection(); }}>
+                              <Text style={[styles.deptSubtabBtnText, paintSubTab === 'queue' && styles.deptSubtabBtnTextActivePaint]}>
+                                🎨 Paint Queue ({queueCount})
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.deptSubtabBtn, paintSubTab === 'revert' && styles.deptSubtabBtnActiveRevert]}
+                              onPress={() => { setPaintSubTab('revert'); clearSelection(); }}>
+                              <Text style={[styles.deptSubtabBtnText, paintSubTab === 'revert' && styles.deptSubtabBtnTextActiveRevert]}>
+                                ↩ Revert ({revertCount})
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })()}
+
+                      {activeTab === 'assembly' && (() => {
+                        const getSideStat = (p) => (unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON) : (p.side_stats?.RH || p.side_stats?.COMMON));
+                        const queueCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.assembly_ready || 0) > 0).length;
+                        const completedCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.assembly_completed || 0) > 0).length;
+                        const revertCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.total_revertible || 0) > 0).length;
+
+                        return (
+                          <View style={styles.deptSubtabRow}>
+                            <TouchableOpacity
+                              style={[styles.deptSubtabBtn, assemblySubTab === 'queue' && styles.deptSubtabBtnActiveAssembly]}
+                              onPress={() => { setAssemblySubTab('queue'); clearSelection(); }}>
+                              <Text style={[styles.deptSubtabBtnText, assemblySubTab === 'queue' && styles.deptSubtabBtnTextActiveAssembly]}>
+                                ⚙️ Queue ({queueCount})
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.deptSubtabBtn, assemblySubTab === 'completed' && styles.deptSubtabBtnActiveCompleted]}
+                              onPress={() => { setAssemblySubTab('completed'); clearSelection(); }}>
+                              <Text style={[styles.deptSubtabBtnText, assemblySubTab === 'completed' && styles.deptSubtabBtnTextActiveCompleted]}>
+                                🏁 Done ({completedCount})
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.deptSubtabBtn, assemblySubTab === 'revert' && styles.deptSubtabBtnActiveRevert]}
+                              onPress={() => { setAssemblySubTab('revert'); clearSelection(); }}>
+                              <Text style={[styles.deptSubtabBtnText, assemblySubTab === 'revert' && styles.deptSubtabBtnTextActiveRevert]}>
+                                ↩ Revert ({revertCount})
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })()}
+
+                      {/* Multi-Selection Control Bar (Dual Metric: Parts Count + Physical Quantity) */}
+                      {!isCurrentRevertTab && (
+                        <View style={styles.selectionControlBar}>
+                          <TouchableOpacity
+                            style={styles.selectionToggleBtn}
+                            onPress={() => {
+                              if (isSelectionMode) {
+                                clearSelection();
+                              } else {
+                                setIsSelectionMode(true);
+                              }
+                            }}>
+                            <Text style={styles.selectionToggleText}>
+                              {isSelectionMode ? '✕ Cancel Selection' : '☑ Multi-Select'}
+                            </Text>
+                          </TouchableOpacity>
+
+                          {isSelectionMode && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              {selectedPartsCount > 0 && (
+                                <Text style={styles.bulkSelectionDualText}>
+                                  {selectedPartsCount} parts • {selectedTotalQuantity} pcs
+                                </Text>
+                              )}
+                              <TouchableOpacity
+                                style={styles.selectAllBtn}
+                                onPress={() => selectAllVisible(visibleParts, unitSideTab)}>
+                                <Text style={styles.selectAllBtnText}>Select All ({visibleParts.length})</Text>
+                              </TouchableOpacity>
+                              {selectedItemIds.size > 0 && (
+                                <TouchableOpacity style={styles.clearSelectBtn} onPress={clearSelection}>
+                                  <Text style={styles.clearSelectBtnText}>Clear ({selectedItemIds.size})</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          )}
+                        </View>
+                      )}
+
+                      {/* Revert Tab Header Banner */}
+                      {isCurrentRevertTab && (
+                        <View style={styles.revertTabHeaderBanner}>
+                          <Text style={styles.revertTabHeaderTitle}>↩ Dedicated Revert Section</Text>
+                          <Text style={styles.revertTabHeaderSubtitle}>
+                            Move parts back to their previous department according to server-verified lineage.
+                          </Text>
+                        </View>
+                      )}
 
                       {/* Parts Cards (High-Density Industrial Layout) */}
                       {visibleParts.map((item) => {
@@ -2175,23 +2526,28 @@ function App() {
                         const req = currentSideStats.required ?? 0;
                         const rec = currentSideStats.received ?? 0;
                         const pen = currentSideStats.pending ?? 0;
+                        const revertOpts = currentSideStats.revert_options || [];
+                        const totalRevertible = currentSideStats.total_revertible || 0;
 
                         return (
                           <TouchableOpacity
                             key={`part-${item.id}-side-${unitSideTab}`}
                             activeOpacity={0.85}
-                            onLongPress={() => toggleSelection(item, unitSideTab)}
+                            onLongPress={() => {
+                              if (!isCurrentRevertTab) toggleSelection(item, unitSideTab);
+                            }}
                             onPress={() => {
-                              if (isSelectionMode) toggleSelection(item, unitSideTab);
+                              if (isSelectionMode && !isCurrentRevertTab) toggleSelection(item, unitSideTab);
                             }}
                             style={[
                               styles.itemCard,
-                              isSelected && { borderColor: '#2563eb', borderWidth: 2, backgroundColor: '#eff6ff' }
+                              isSelected && { borderColor: '#2563eb', borderWidth: 2, backgroundColor: '#eff6ff' },
+                              isCurrentRevertTab && { borderColor: '#fed7aa', backgroundColor: '#fffbf5' }
                             ]}>
                             {/* Row 1: Part No + Side Pill + Status Badge + Checkbox */}
                             <View style={styles.itemHeader}>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                                {isSelectionMode && (
+                                {isSelectionMode && !isCurrentRevertTab && (
                                   <View style={[styles.checkboxCircle, isSelected && styles.checkboxCircleSelected]}>
                                     {isSelected && <Text style={styles.checkmarkText}>✓</Text>}
                                   </View>
@@ -2203,8 +2559,8 @@ function App() {
                                   </Text>
                                 </View>
                               </View>
-                              <Text style={styles.itemStatus}>
-                                {item.is_complete ? 'FULFILLED' : 'ACTIVE'}
+                              <Text style={[styles.itemStatus, isCurrentRevertTab && { backgroundColor: '#ffedd5', color: '#c2410c' }]}>
+                                {isCurrentRevertTab ? `${totalRevertible} REVERSIBLE` : (item.is_complete ? 'FULFILLED' : 'ACTIVE')}
                               </Text>
                             </View>
 
@@ -2218,236 +2574,234 @@ function App() {
                                   {item.supplier?.name || item.supplier_name_raw || 'Standard'}
                                 </Text>
                               </View>
-                              {/* Department Location Breakdown */}
-                              {(() => {
-                                const sStat = item.side_stats?.[unitSideTab] || {};
-                                if (activeTab === 'qc') {
-                                  const arr = sStat.qc_pending_arrival || 0;
-                                  const insp = sStat.qc_pending_inspection || 0;
-                                  const app = sStat.qc_approved || 0;
-                                  const rew = sStat.parts_in_rework || 0;
-                                  const rej = sStat.qc_rejected || 0;
-                                  return (
-                                    <Text style={{ fontSize: 10.5, color: '#0369a1', marginTop: 1.5, fontWeight: '600' }}>
-                                      📍 {qcSubTab === 'arrival' ? `Awaiting Arrival: ${arr} pcs` : `In QC Inspection: ${insp} pcs`}
-                                      {app > 0 ? ` • ${app} Approved` : ''}
-                                      {rew > 0 ? ` • ${rew} in Rework` : ''}
-                                      {rej > 0 ? ` • ${rej} Rejected` : ''}
-                                    </Text>
-                                  );
-                                }
-                                if (activeTab === 'rework') {
-                                  const rew = sStat.parts_in_rework || 0;
-                                  const comp = sStat.rework_completed || 0;
-                                  return (
-                                    <Text style={{ fontSize: 10.5, color: '#b45309', marginTop: 1.5, fontWeight: '600' }}>
-                                      📍 Active Rework: <Text style={{ fontWeight: '800' }}>{rew} pcs</Text>
-                                      {comp > 0 ? ` • ${comp} Returned to QC` : ''}
-                                    </Text>
-                                  );
-                                }
-                                return null;
-                              })()}
                             </View>
 
-                            {/* Store Level 4 Single Action */}
-                            {activeTab === 'store' && pen > 0 && !isSelectionMode && (
-                              <TouchableOpacity style={styles.smallReceiveBtn} onPress={() => openReceiveModal(item, unitSideTab)}>
-                                <Text style={styles.smallReceiveBtnText}>RECEIVE {unitSideTab} STOCK ({pen})</Text>
-                              </TouchableOpacity>
-                            )}
-
-                            {/* QC Actions (Separated strictly by subtab & isolated by side) */}
-                            {activeTab === 'qc' && !isSelectionMode && (() => {
-                              const sideStat = item.side_stats?.[unitSideTab] || {};
-                              const pendingArrival = sideStat.qc_pending_arrival || 0;
-                              const pendingInsp = sideStat.qc_pending_inspection || 0;
-                              const sideReceipts = sideStat.receipt_items || (item.receipt_items || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
-
-                              return (
-                                <View style={{ marginTop: 6 }}>
-                                  {qcSubTab === 'arrival' && pendingArrival > 0 ? (
-                                    <View style={{ marginTop: 2 }}>
+                            {/* DEDICATED REVERT TAB CARDS (Multi-Segment Lineage Support) */}
+                            {isCurrentRevertTab && (
+                              <View style={styles.revertCardContainer}>
+                                {revertOpts.length > 1 ? (
+                                  <View style={{ gap: 8 }}>
+                                    {revertOpts.map((opt, idx) => (
+                                      <View key={`revert-segment-${idx}`} style={styles.revertSegmentBox}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                          <View style={{ flex: 1, marginRight: 8 }}>
+                                            <Text style={styles.revertSegmentLineageText}>
+                                              Lineage: <Text style={{ fontWeight: '800', color: '#0f172a' }}>{opt.description || opt.source_type}</Text>
+                                            </Text>
+                                            <Text style={styles.revertSegmentQtyText}>
+                                              Reversible: <Text style={{ fontWeight: '900', color: '#c2410c' }}>{opt.available_quantity} pcs</Text>
+                                            </Text>
+                                            <View style={styles.revertTargetBadge}>
+                                              <Text style={styles.revertTargetBadgeText}>↩ Target: {opt.target_label || opt.to_department}</Text>
+                                            </View>
+                                          </View>
+                                          <TouchableOpacity
+                                            style={styles.revertCardActionBtn}
+                                            onPress={() => openRevertModal(item, activeTab, unitSideTab, opt)}>
+                                            <Text style={styles.revertCardActionBtnText}>Revert</Text>
+                                          </TouchableOpacity>
+                                        </View>
+                                      </View>
+                                    ))}
+                                  </View>
+                                ) : (
+                                  <View style={styles.revertSegmentBox}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <View style={{ flex: 1, marginRight: 8 }}>
+                                        <Text style={styles.revertSegmentQtyText}>
+                                          Available to Revert: <Text style={{ fontWeight: '900', color: '#c2410c' }}>{totalRevertible} pcs</Text>
+                                        </Text>
+                                        <View style={styles.revertTargetBadge}>
+                                          <Text style={styles.revertTargetBadgeText}>
+                                            ↩ Target: {revertOpts[0]?.target_label || (activeTab === 'store' ? 'Pending Supplier Arrival' : (activeTab === 'qc' ? 'Store Bay' : 'QC Bay'))}
+                                          </Text>
+                                        </View>
+                                      </View>
                                       <TouchableOpacity
-                                        style={[styles.actionBtn, { backgroundColor: '#10b981' }]}
-                                        onPress={() => openPhysicalArrivalModal(item)}>
-                                        <Text style={styles.actionBtnText}>RECEIVE PHYSICAL ARRIVAL ({pendingArrival} pcs)</Text>
+                                        style={styles.revertCardActionBtn}
+                                        onPress={() => openRevertModal(item, activeTab, unitSideTab, revertOpts[0])}>
+                                        <Text style={styles.revertCardActionBtnText}>Revert</Text>
                                       </TouchableOpacity>
                                     </View>
-                                  ) : null}
+                                  </View>
+                                )}
+                              </View>
+                            )}
 
-                                  {qcSubTab === 'inspection' && pendingInsp > 0 ? (
-                                    <View style={{ marginTop: 2, gap: 4 }}>
-                                      <View style={{ flexDirection: 'row', gap: 6 }}>
-                                        <TouchableOpacity
-                                          style={[styles.actionBtn, { flex: 1, backgroundColor: '#10b981' }]}
-                                          onPress={() => {
-                                            const rec = sideReceipts.find(r => r.status === 'qc_received') || {
-                                              id: null,
-                                              bom_item_id: item.id,
-                                              received_quantity: pendingInsp,
-                                              bom_item: item,
-                                              side: unitSideTab
-                                            };
-                                            openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'approved');
-                                          }}>
-                                          <Text style={styles.actionBtnText}>APPROVE ({pendingInsp})</Text>
-                                        </TouchableOpacity>
-
-                                        <TouchableOpacity
-                                          style={[styles.actionBtn, { flex: 1, backgroundColor: '#f59e0b' }]}
-                                          onPress={() => {
-                                            const rec = sideReceipts.find(r => r.status === 'qc_received') || {
-                                              id: null,
-                                              bom_item_id: item.id,
-                                              received_quantity: pendingInsp,
-                                              bom_item: item,
-                                              side: unitSideTab
-                                            };
-                                            openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'rework');
-                                          }}>
-                                          <Text style={styles.actionBtnText}>REWORK ({pendingInsp})</Text>
-                                        </TouchableOpacity>
-
-                                        <TouchableOpacity
-                                          style={[styles.actionBtn, { flex: 1, backgroundColor: '#ef4444' }]}
-                                          onPress={() => {
-                                            const rec = sideReceipts.find(r => r.status === 'qc_received') || {
-                                              id: null,
-                                              bom_item_id: item.id,
-                                              received_quantity: pendingInsp,
-                                              bom_item: item,
-                                              side: unitSideTab
-                                            };
-                                            openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'rejected');
-                                          }}>
-                                          <Text style={styles.actionBtnText}>REJECT ({pendingInsp})</Text>
-                                        </TouchableOpacity>
-                                      </View>
-                                    </View>
-                                  ) : null}
-                                </View>
-                              );
-                            })()}
-
-                            {/* Rework Actions (Strictly side-isolated, Single Action: COMPLETE REWORK) */}
-                            {activeTab === 'rework' && !isSelectionMode && (() => {
-                              const sideStat = item.side_stats?.[unitSideTab] || {};
-                              const rewPending = sideStat.rework_pending || 0;
-                              const rewProg = sideStat.rework_in_progress || 0;
-                              const rewActive = (sideStat.parts_in_rework || 0) || (rewPending + rewProg);
-                              const rewComp = sideStat.rework_completed || 0;
-                              const sideReworks = sideStat.rework_records || (item.rework_records || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
-
-                              return (
-                                <View style={{ marginTop: 6 }}>
-                                  {rewActive > 0 ? (
-                                    <TouchableOpacity
-                                      style={[styles.actionBtn, { backgroundColor: '#f59e0b' }]}
-                                      onPress={() => {
-                                        const rew = sideReworks.find(r => ['pending', 'in_progress'].includes(r.status)) || {
-                                          id: null,
-                                          quantity: rewActive,
-                                          bom_item_id: item.id,
-                                          side: unitSideTab,
-                                        };
-                                        openReworkModal({ ...rew, bom_item_id: item.id, quantity: rewActive }, item);
-                                      }}>
-                                      <Text style={styles.actionBtnText}>COMPLETE REWORK ({rewActive} pcs)</Text>
-                                    </TouchableOpacity>
-                                  ) : (
-                                    <Text style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
-                                      {rewComp > 0 ? `✓ ${rewComp} pcs Rework Completed (Returned to QC)` : '✓ No Active Rework'}
-                                    </Text>
-                                  )}
-                                </View>
-                              );
-                            })()}
-
-                            {/* Paint Actions (Strictly side-isolated) */}
-                            {activeTab === 'paint' && !isSelectionMode && (() => {
-                              const sideStat = item.side_stats?.[unitSideTab] || {};
-                              const paintReady = sideStat.paint_ready || 0;
-                              const paintComp = sideStat.paint_completed || 0;
-                              const sideInspections = sideStat.qc_inspections || (item.qc_inspections || []).filter(q => q.side === unitSideTab || q.side === 'COMMON');
-                              const insp = sideInspections.find(q => q.approved_quantity > 0 && (q.destination === 'PAINT' || !q.destination));
-
-                              return (
-                                <View style={{ marginTop: 6 }}>
-                                  {paintReady > 0 && insp ? (
-                                    <TouchableOpacity
-                                      style={[styles.actionBtn, { backgroundColor: '#7c3aed' }]}
-                                      onPress={() => {
-                                        openPaintModal({
-                                          ...insp,
-                                          bom_item_id: item.id,
-                                          bom_item: item,
-                                          side: unitSideTab,
-                                          approved_quantity: paintReady,
-                                        });
-                                      }}>
-                                      <Text style={styles.actionBtnText}>COMPLETE PAINT ({paintReady} pcs)</Text>
-                                    </TouchableOpacity>
-                                  ) : (
-                                    <Text style={{ fontSize: 11, color: '#7c3aed', fontWeight: '700', marginTop: 3 }}>
-                                      {paintComp > 0 ? `✓ ${paintComp} pcs Painted` : '✓ No Paint Operations Pending'}
-                                    </Text>
-                                  )}
-                                </View>
-                              );
-                            })()}
-
-                            {/* Assembly Actions (Strictly side-isolated) */}
-                            {activeTab === 'assembly' && !isSelectionMode && (() => {
-                              const sideStat = item.side_stats?.[unitSideTab] || {};
-                              const asmReady = sideStat.assembly_ready || 0;
-                              const asmComp = sideStat.assembly_completed || 0;
-
-                              return (
-                                <View style={{ marginTop: 6 }}>
-                                  {asmReady > 0 ? (
-                                    <TouchableOpacity
-                                      style={[styles.actionBtn, { backgroundColor: '#0d9488' }]}
-                                      onPress={() => openAssemblyModal(item)}>
-                                      <Text style={styles.actionBtnText}>MARK ASSEMBLED ({asmReady} pcs)</Text>
-                                    </TouchableOpacity>
-                                  ) : (
-                                    <Text style={{ fontSize: 11, color: '#0d9488', fontWeight: '700', marginTop: 3 }}>
-                                      {asmComp > 0 ? `✓ ${asmComp} pcs Assembled` : '✓ No Assembly Operations Pending'}
-                                    </Text>
-                                  )}
-                                </View>
-                              );
-                            })()}
-
-                            {/* Strict Lineage Revert Action Button */}
-                            {!isSelectionMode && (() => {
-                              const sideStat = item.side_stats?.[unitSideTab] || item.side_stats?.COMMON || {};
-                              const revertOpts = sideStat.revert_options || [];
-                              const totalRevertible = sideStat.total_revertible || 0;
-                              if (totalRevertible <= 0 || revertOpts.length === 0) return null;
-
-                              let revertLabel = `↩ Revert (${totalRevertible})`;
-                              if (activeTab === 'store') revertLabel = `↩ Revert Store Receipt (${totalRevertible})`;
-                              else if (activeTab === 'qc') revertLabel = `↩ Revert to Store (${totalRevertible})`;
-                              else if (activeTab === 'rework') revertLabel = `↩ Revert to QC (${totalRevertible})`;
-                              else if (activeTab === 'paint') revertLabel = `↩ Revert to QC (${totalRevertible})`;
-                              else if (activeTab === 'assembly') {
-                                revertLabel = revertOpts.length > 1
-                                  ? `↩ Revert Lineage (${totalRevertible})`
-                                  : `↩ Revert to ${revertOpts[0]?.target_label || 'Prev'} (${totalRevertible})`;
-                              }
-
-                              return (
-                                <View style={{ marginTop: 6, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 5 }}>
-                                  <TouchableOpacity
-                                    style={styles.compactRevertBtn}
-                                    onPress={() => openRevertModal(item, activeTab, unitSideTab)}>
-                                    <Text style={styles.compactRevertBtnText}>{revertLabel}</Text>
+                            {/* OPERATIONAL ACTIONS (Visible ONLY in forward work queues, strictly no revert) */}
+                            {!isCurrentRevertTab && (
+                              <View>
+                                {/* Store Level 4 Single Action */}
+                                {activeTab === 'store' && pen > 0 && !isSelectionMode && (
+                                  <TouchableOpacity style={styles.smallReceiveBtn} onPress={() => openReceiveModal(item, unitSideTab)}>
+                                    <Text style={styles.smallReceiveBtnText}>RECEIVE {unitSideTab} STOCK ({pen})</Text>
                                   </TouchableOpacity>
-                                </View>
-                              );
-                            })()}
+                                )}
+
+                                {/* QC Actions (Separated strictly by subtab & isolated by side) */}
+                                {activeTab === 'qc' && !isSelectionMode && (() => {
+                                  const sideStat = item.side_stats?.[unitSideTab] || {};
+                                  const pendingArrival = sideStat.qc_pending_arrival || 0;
+                                  const pendingInsp = sideStat.qc_pending_inspection || 0;
+                                  const sideReceipts = sideStat.receipt_items || (item.receipt_items || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
+
+                                  return (
+                                    <View style={{ marginTop: 6 }}>
+                                      {qcSubTab === 'arrival' && pendingArrival > 0 ? (
+                                        <View style={{ marginTop: 2 }}>
+                                          <TouchableOpacity
+                                            style={[styles.actionBtn, { backgroundColor: '#10b981' }]}
+                                            onPress={() => openPhysicalArrivalModal(item)}>
+                                            <Text style={styles.actionBtnText}>RECEIVE PHYSICAL ARRIVAL ({pendingArrival} pcs)</Text>
+                                          </TouchableOpacity>
+                                        </View>
+                                      ) : null}
+
+                                      {qcSubTab === 'inspection' && pendingInsp > 0 ? (
+                                        <View style={{ marginTop: 2, gap: 4 }}>
+                                          <View style={{ flexDirection: 'row', gap: 6 }}>
+                                            <TouchableOpacity
+                                              style={[styles.actionBtn, { flex: 1, backgroundColor: '#10b981' }]}
+                                              onPress={() => {
+                                                const rec = sideReceipts.find(r => r.status === 'qc_received') || {
+                                                  id: null,
+                                                  bom_item_id: item.id,
+                                                  received_quantity: pendingInsp,
+                                                  bom_item: item,
+                                                  side: unitSideTab
+                                                };
+                                                openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'approved');
+                                              }}>
+                                              <Text style={styles.actionBtnText}>APPROVE ({pendingInsp})</Text>
+                                            </TouchableOpacity>
+
+                                            <TouchableOpacity
+                                              style={[styles.actionBtn, { flex: 1, backgroundColor: '#f59e0b' }]}
+                                              onPress={() => {
+                                                const rec = sideReceipts.find(r => r.status === 'qc_received') || {
+                                                  id: null,
+                                                  bom_item_id: item.id,
+                                                  received_quantity: pendingInsp,
+                                                  bom_item: item,
+                                                  side: unitSideTab
+                                                };
+                                                openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'rework');
+                                              }}>
+                                              <Text style={styles.actionBtnText}>REWORK ({pendingInsp})</Text>
+                                            </TouchableOpacity>
+
+                                            <TouchableOpacity
+                                              style={[styles.actionBtn, { flex: 1, backgroundColor: '#ef4444' }]}
+                                              onPress={() => {
+                                                const rec = sideReceipts.find(r => r.status === 'qc_received') || {
+                                                  id: null,
+                                                  bom_item_id: item.id,
+                                                  received_quantity: pendingInsp,
+                                                  bom_item: item,
+                                                  side: unitSideTab
+                                                };
+                                                openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'rejected');
+                                              }}>
+                                              <Text style={styles.actionBtnText}>REJECT ({pendingInsp})</Text>
+                                            </TouchableOpacity>
+                                          </View>
+                                        </View>
+                                      ) : null}
+                                    </View>
+                                  );
+                                })()}
+
+                                {/* Rework Actions (Strictly side-isolated, Single Action: COMPLETE REWORK) */}
+                                {activeTab === 'rework' && !isSelectionMode && (() => {
+                                  const sideStat = item.side_stats?.[unitSideTab] || {};
+                                  const rewPending = sideStat.rework_pending || 0;
+                                  const rewProg = sideStat.rework_in_progress || 0;
+                                  const rewActive = (sideStat.parts_in_rework || 0) || (rewPending + rewProg);
+                                  const rewComp = sideStat.rework_completed || 0;
+                                  const sideReworks = sideStat.rework_records || (item.rework_records || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
+
+                                  return (
+                                    <View style={{ marginTop: 6 }}>
+                                      {rewActive > 0 ? (
+                                        <TouchableOpacity
+                                          style={[styles.actionBtn, { backgroundColor: '#f59e0b' }]}
+                                          onPress={() => {
+                                            const rew = sideReworks.find(r => ['pending', 'in_progress'].includes(r.status)) || {
+                                              id: null,
+                                              quantity: rewActive,
+                                              bom_item_id: item.id,
+                                              side: unitSideTab,
+                                            };
+                                            openReworkModal({ ...rew, bom_item_id: item.id, quantity: rewActive }, item);
+                                          }}>
+                                          <Text style={styles.actionBtnText}>COMPLETE REWORK ({rewActive} pcs)</Text>
+                                        </TouchableOpacity>
+                                      ) : (
+                                        <Text style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
+                                          {rewComp > 0 ? `✓ ${rewComp} pcs Rework Completed (Returned to QC)` : '✓ No Active Rework'}
+                                        </Text>
+                                      )}
+                                    </View>
+                                  );
+                                })()}
+
+                                {/* Paint Actions (Strictly side-isolated) */}
+                                {activeTab === 'paint' && !isSelectionMode && (() => {
+                                  const sideStat = item.side_stats?.[unitSideTab] || {};
+                                  const paintReady = sideStat.paint_ready || 0;
+                                  const paintComp = sideStat.paint_completed || 0;
+                                  const sideInspections = sideStat.qc_inspections || (item.qc_inspections || []).filter(q => q.side === unitSideTab || q.side === 'COMMON');
+                                  const insp = sideInspections.find(q => q.approved_quantity > 0 && (q.destination === 'PAINT' || !q.destination));
+
+                                  return (
+                                    <View style={{ marginTop: 6 }}>
+                                      {paintReady > 0 && insp ? (
+                                        <TouchableOpacity
+                                          style={[styles.actionBtn, { backgroundColor: '#7c3aed' }]}
+                                          onPress={() => {
+                                            openPaintModal({
+                                              ...insp,
+                                              bom_item_id: item.id,
+                                              bom_item: item,
+                                              side: unitSideTab,
+                                              approved_quantity: paintReady,
+                                            });
+                                          }}>
+                                          <Text style={styles.actionBtnText}>COMPLETE PAINT ({paintReady} pcs)</Text>
+                                        </TouchableOpacity>
+                                      ) : (
+                                        <Text style={{ fontSize: 11, color: '#7c3aed', fontWeight: '700', marginTop: 3 }}>
+                                          {paintComp > 0 ? `✓ ${paintComp} pcs Painted` : '✓ No Paint Operations Pending'}
+                                        </Text>
+                                      )}
+                                    </View>
+                                  );
+                                })()}
+
+                                {/* Assembly Actions (Strictly side-isolated) */}
+                                {activeTab === 'assembly' && !isSelectionMode && (() => {
+                                  const sideStat = item.side_stats?.[unitSideTab] || {};
+                                  const asmReady = sideStat.assembly_ready || 0;
+                                  const asmComp = sideStat.assembly_completed || 0;
+
+                                  return (
+                                    <View style={{ marginTop: 6 }}>
+                                      {asmReady > 0 ? (
+                                        <TouchableOpacity
+                                          style={[styles.actionBtn, { backgroundColor: '#0d9488' }]}
+                                          onPress={() => openAssemblyModal(item)}>
+                                          <Text style={styles.actionBtnText}>MARK ASSEMBLED ({asmReady} pcs)</Text>
+                                        </TouchableOpacity>
+                                      ) : (
+                                        <Text style={{ fontSize: 11, color: '#0d9488', fontWeight: '700', marginTop: 3 }}>
+                                          {asmComp > 0 ? `✓ ${asmComp} pcs Assembled` : '✓ No Assembly Operations Pending'}
+                                        </Text>
+                                      )}
+                                    </View>
+                                  );
+                                })()}
+                              </View>
+                            )}
                           </TouchableOpacity>
                         );
                       })}
@@ -2472,6 +2826,15 @@ function App() {
                                 All parts for this unit have completed physical arrival.
                               </Text>
                             </>
+                          ) : isCurrentRevertTab ? (
+                            <>
+                              <Text style={[styles.emptyStateText, { fontWeight: '700', fontSize: 15, color: '#1e293b', marginBottom: 4, textAlign: 'center' }]}>
+                                No Reversible Parts in {activeTab.toUpperCase()}
+                              </Text>
+                              <Text style={[styles.emptyStateText, { color: '#64748b', fontSize: 12, textAlign: 'center' }]}>
+                                No parts currently have eligible reverse lineage in this unit.
+                              </Text>
+                            </>
                           ) : (
                             <Text style={styles.emptyStateText}>No active {unitSideTab} parts found for this unit{currentSearchQuery ? ` matching "${currentSearchQuery}"` : ''}.</Text>
                           )}
@@ -2489,60 +2852,6 @@ function App() {
                   );
                 })()}
               </View>
-            )}
-          </View>
-        ) : activeTab === 'store' && storeSubTab === 'history' ? (
-          // STORE RECEIPT HISTORY & REVERT VIEW
-          <View style={styles.listContainer}>
-            <Text style={styles.sectionHeader}>
-              RECENT STORE RECEIPTS ({
-                historyItems.filter(item => {
-                  if (!currentSearchQuery) return true;
-                  const q = currentSearchQuery.toLowerCase().trim();
-                  return (item.bom_item?.standard_part_no || '').toLowerCase().includes(q) ||
-                         (item.bom_item?.project?.name || '').toLowerCase().includes(q) ||
-                         (item.side || '').toLowerCase().includes(q) ||
-                         (item.status || '').toLowerCase().includes(q);
-                }).length
-              })
-            </Text>
-            {historyItems.filter(item => {
-              if (!currentSearchQuery) return true;
-              const q = currentSearchQuery.toLowerCase().trim();
-              return (item.bom_item?.standard_part_no || '').toLowerCase().includes(q) ||
-                     (item.bom_item?.project?.name || '').toLowerCase().includes(q) ||
-                     (item.side || '').toLowerCase().includes(q) ||
-                     (item.status || '').toLowerCase().includes(q);
-            }).length === 0 ? (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyStateText}>No receipt history found{currentSearchQuery ? ` matching "${currentSearchQuery}"` : ''}.</Text>
-              </View>
-            ) : (
-              historyItems
-                .filter(item => {
-                  if (!currentSearchQuery) return true;
-                  const q = currentSearchQuery.toLowerCase().trim();
-                  return (item.bom_item?.standard_part_no || '').toLowerCase().includes(q) ||
-                         (item.bom_item?.project?.name || '').toLowerCase().includes(q) ||
-                         (item.side || '').toLowerCase().includes(q) ||
-                         (item.status || '').toLowerCase().includes(q);
-                })
-                .map((item) => (
-                <View key={item.id} style={styles.itemCard}>
-                  <View style={styles.itemHeader}>
-                    <Text style={styles.itemPartNo}>{item.bom_item?.standard_part_no || `Item #${item.id}`}</Text>
-                    <Text style={styles.itemStatus}>{(item.status || 'Received').toUpperCase()}</Text>
-                  </View>
-                  <Text style={styles.itemSubText}>Side: {item.side} | Qty Received: {item.received_quantity}</Text>
-                  <Text style={styles.itemSubText}>Date: {new Date(item.created_at).toLocaleString()}</Text>
-                  
-                  {['received', 'sent_to_qc'].includes(item.status) && (
-                    <TouchableOpacity style={styles.revertBtn} onPress={() => handleRevertReceipt(item)}>
-                      <Text style={styles.revertBtnText}>↩️ Revert / Undo Receipt</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              ))
             )}
           </View>
         ) : (
@@ -2745,15 +3054,18 @@ function App() {
             <Text style={styles.itemPartNo}>{selectedItemForReceive?.standard_part_no}</Text>
             <Text style={styles.itemSubText}>Side: {receiveSide} | Delivery Note: {deliveryNote}</Text>
 
-            <Text style={[styles.label, { marginTop: 12 }]}>Received Quantity</Text>
-            <TextInput
-              style={styles.input}
-              value={receiveQty}
-              onChangeText={setReceiveQty}
-              keyboardType="number-pad"
-            />
+            <View style={{ marginTop: 12 }}>
+              <CompactQuantitySelector
+                label="Received Quantity"
+                value={receiveQty}
+                onChange={setReceiveQty}
+                max={selectedItemForReceive?.side_stats?.[receiveSide]?.pending || 99999}
+                min={1}
+                color="#2563eb"
+              />
+            </View>
 
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
               <TouchableOpacity style={[styles.button, { flex: 1, backgroundColor: '#94a3b8' }]} onPress={() => setShowReceiveModal(false)}>
                 <Text style={styles.buttonText}>Cancel</Text>
               </TouchableOpacity>
@@ -2834,32 +3146,16 @@ function App() {
                       </View>
                     </View>
 
-                    {/* Quantity To Receive Input */}
+                    {/* Quantity To Receive Input with Compact Selector */}
                     <View style={{ marginTop: 12 }}>
-                      <Text style={[styles.label, { color: '#0f172a', fontWeight: '800' }]}>
-                        Quantity to Receive (1 to {pending})
-                      </Text>
-                      <View style={styles.qtyStepperRow}>
-                        <TouchableOpacity
-                          style={[styles.qtyBtn, { borderColor: '#10b981' }]}
-                          onPress={() => setPhysicalArrivalQty(String(Math.max(1, curQty - 1)))}>
-                          <Text style={[styles.qtyBtnText, { color: '#10b981' }]}>−</Text>
-                        </TouchableOpacity>
-                        <TextInput
-                          style={[styles.qtyInput, { borderColor: '#10b981' }]}
-                          keyboardType="numeric"
-                          value={physicalArrivalQty}
-                          onChangeText={setPhysicalArrivalQty}
-                        />
-                        <TouchableOpacity
-                          style={[styles.qtyBtn, { borderColor: '#10b981' }]}
-                          onPress={() => setPhysicalArrivalQty(String(Math.min(pending, curQty + 1)))}>
-                          <Text style={[styles.qtyBtnText, { color: '#10b981' }]}>+</Text>
-                        </TouchableOpacity>
-                      </View>
-                      <Text style={styles.qtyRemainingText}>
-                        Remaining in Physical Arrival queue: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{Math.max(0, pending - curQty)} pcs</Text>
-                      </Text>
+                      <CompactQuantitySelector
+                        label={`Quantity to Receive (Max ${pending})`}
+                        value={physicalArrivalQty}
+                        onChange={setPhysicalArrivalQty}
+                        max={pending}
+                        min={1}
+                        color="#10b981"
+                      />
                     </View>
 
                     {/* Action Buttons */}
@@ -2925,45 +3221,19 @@ function App() {
                     {/* APPROVAL QUANTITY & SPLIT ROUTING */}
                     {qcResult === 'approved' && (
                       <View style={{ marginTop: 10 }}>
-                        <Text style={[styles.label, { color: '#0f172a', fontWeight: '800' }]}>
-                          Approve Quantity (1 to {avail})
-                        </Text>
-                        <View style={styles.qtyStepperRow}>
-                          <TouchableOpacity
-                            style={styles.qtyBtn}
-                            onPress={() => {
-                              const nextApp = Math.max(1, app - 1);
-                              setQcApprovedQty(String(nextApp));
-                              setQcPaintQty(String(nextApp));
-                              setQcAssemblyQty('0');
-                            }}>
-                            <Text style={styles.qtyBtnText}>−</Text>
-                          </TouchableOpacity>
-                          <TextInput
-                            style={styles.qtyInput}
-                            keyboardType="numeric"
-                            value={qcApprovedQty}
-                            onChangeText={(t) => {
-                              const val = parseInt(t, 10) || 0;
-                              setQcApprovedQty(t);
-                              setQcPaintQty(String(val));
-                              setQcAssemblyQty('0');
-                            }}
-                          />
-                          <TouchableOpacity
-                            style={styles.qtyBtn}
-                            onPress={() => {
-                              const nextApp = Math.min(avail, app + 1);
-                              setQcApprovedQty(String(nextApp));
-                              setQcPaintQty(String(nextApp));
-                              setQcAssemblyQty('0');
-                            }}>
-                            <Text style={styles.qtyBtnText}>+</Text>
-                          </TouchableOpacity>
-                        </View>
-                        <Text style={styles.qtyRemainingText}>
-                          Remaining in QC after approval: <Text style={{ fontWeight: '700' }}>{Math.max(0, avail - app)} pcs</Text>
-                        </Text>
+                        <CompactQuantitySelector
+                          label={`Approve Quantity (1 to ${avail})`}
+                          value={qcApprovedQty}
+                          onChange={(t) => {
+                            const val = parseInt(t, 10) || 0;
+                            setQcApprovedQty(t);
+                            setQcPaintQty(String(val));
+                            setQcAssemblyQty('0');
+                          }}
+                          max={avail}
+                          min={1}
+                          color="#10b981"
+                        />
 
                         {/* SPLIT ROUTING CONTROLS */}
                         <View style={{ marginTop: 14, padding: 12, backgroundColor: '#f8fafc', borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0' }}>
@@ -2973,76 +3243,34 @@ function App() {
 
                           {/* Paint Quantity */}
                           <View style={{ marginBottom: 8 }}>
-                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#7c3aed' }}>
-                              PAINT SHOP Quantity
-                            </Text>
-                            <View style={styles.qtyStepperRow}>
-                              <TouchableOpacity
-                                style={[styles.qtyBtn, { borderColor: '#7c3aed' }]}
-                                onPress={() => {
-                                  const nextP = Math.max(0, paint - 1);
-                                  setQcPaintQty(String(nextP));
-                                  setQcAssemblyQty(String(Math.max(0, app - nextP)));
-                                }}>
-                                <Text style={[styles.qtyBtnText, { color: '#7c3aed' }]}>−</Text>
-                              </TouchableOpacity>
-                              <TextInput
-                                style={[styles.qtyInput, { borderColor: '#7c3aed' }]}
-                                keyboardType="numeric"
-                                value={qcPaintQty}
-                                onChangeText={(t) => {
-                                  setQcPaintQty(t);
-                                  const pVal = parseInt(t, 10) || 0;
-                                  setQcAssemblyQty(String(Math.max(0, app - pVal)));
-                                }}
-                              />
-                              <TouchableOpacity
-                                style={[styles.qtyBtn, { borderColor: '#7c3aed' }]}
-                                onPress={() => {
-                                  const nextP = Math.min(app, paint + 1);
-                                  setQcPaintQty(String(nextP));
-                                  setQcAssemblyQty(String(Math.max(0, app - nextP)));
-                                }}>
-                                <Text style={[styles.qtyBtnText, { color: '#7c3aed' }]}>+</Text>
-                              </TouchableOpacity>
-                            </View>
+                            <CompactQuantitySelector
+                              label="PAINT SHOP Quantity"
+                              value={qcPaintQty}
+                              onChange={(t) => {
+                                setQcPaintQty(t);
+                                const pVal = parseInt(t, 10) || 0;
+                                setQcAssemblyQty(String(Math.max(0, app - pVal)));
+                              }}
+                              max={app}
+                              min={0}
+                              color="#7c3aed"
+                            />
                           </View>
 
                           {/* Assembly Quantity */}
                           <View>
-                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#0d9488' }}>
-                              DIRECT ASSEMBLY Quantity
-                            </Text>
-                            <View style={styles.qtyStepperRow}>
-                              <TouchableOpacity
-                                style={[styles.qtyBtn, { borderColor: '#0d9488' }]}
-                                onPress={() => {
-                                  const nextA = Math.max(0, asm - 1);
-                                  setQcAssemblyQty(String(nextA));
-                                  setQcPaintQty(String(Math.max(0, app - nextA)));
-                                }}>
-                                <Text style={[styles.qtyBtnText, { color: '#0d9488' }]}>−</Text>
-                              </TouchableOpacity>
-                              <TextInput
-                                style={[styles.qtyInput, { borderColor: '#0d9488' }]}
-                                keyboardType="numeric"
-                                value={qcAssemblyQty}
-                                onChangeText={(t) => {
-                                  setQcAssemblyQty(t);
-                                  const aVal = parseInt(t, 10) || 0;
-                                  setQcPaintQty(String(Math.max(0, app - aVal)));
-                                }}
-                              />
-                              <TouchableOpacity
-                                style={[styles.qtyBtn, { borderColor: '#0d9488' }]}
-                                onPress={() => {
-                                  const nextA = Math.min(app, asm + 1);
-                                  setQcAssemblyQty(String(nextA));
-                                  setQcPaintQty(String(Math.max(0, app - nextA)));
-                                }}>
-                                <Text style={[styles.qtyBtnText, { color: '#0d9488' }]}>+</Text>
-                              </TouchableOpacity>
-                            </View>
+                            <CompactQuantitySelector
+                              label="DIRECT ASSEMBLY Quantity"
+                              value={qcAssemblyQty}
+                              onChange={(t) => {
+                                setQcAssemblyQty(t);
+                                const aVal = parseInt(t, 10) || 0;
+                                setQcPaintQty(String(Math.max(0, app - aVal)));
+                              }}
+                              max={app}
+                              min={0}
+                              color="#0d9488"
+                            />
                           </View>
 
                           {/* Validation Status Indicator */}
@@ -3068,30 +3296,14 @@ function App() {
                     {/* REJECTED QUANTITY CONTROLS */}
                     {qcResult === 'rejected' && (
                       <View style={{ marginTop: 10 }}>
-                        <Text style={[styles.label, { color: '#ef4444', fontWeight: '800' }]}>
-                          Reject Quantity (1 to {avail})
-                        </Text>
-                        <View style={styles.qtyStepperRow}>
-                          <TouchableOpacity
-                            style={[styles.qtyBtn, { borderColor: '#ef4444' }]}
-                            onPress={() => setQcRejectedQty(String(Math.max(1, rej - 1)))}>
-                            <Text style={[styles.qtyBtnText, { color: '#ef4444' }]}>−</Text>
-                          </TouchableOpacity>
-                          <TextInput
-                            style={[styles.qtyInput, { borderColor: '#ef4444' }]}
-                            keyboardType="numeric"
-                            value={qcRejectedQty}
-                            onChangeText={setQcRejectedQty}
-                          />
-                          <TouchableOpacity
-                            style={[styles.qtyBtn, { borderColor: '#ef4444' }]}
-                            onPress={() => setQcRejectedQty(String(Math.min(avail, rej + 1)))}>
-                            <Text style={[styles.qtyBtnText, { color: '#ef4444' }]}>+</Text>
-                          </TouchableOpacity>
-                        </View>
-                        <Text style={styles.qtyRemainingText}>
-                          Remaining in QC after rejection: <Text style={{ fontWeight: '700' }}>{Math.max(0, avail - rej)} pcs</Text>
-                        </Text>
+                        <CompactQuantitySelector
+                          label={`Reject Quantity (1 to ${avail})`}
+                          value={qcRejectedQty}
+                          onChange={setQcRejectedQty}
+                          max={avail}
+                          min={1}
+                          color="#ef4444"
+                        />
 
                         <Text style={[styles.label, { marginTop: 10 }]}>Rejection Defect Reason</Text>
                         <TextInput
@@ -3106,30 +3318,14 @@ function App() {
                     {/* REWORK QUANTITY CONTROLS */}
                     {qcResult === 'rework' && (
                       <View style={{ marginTop: 10 }}>
-                        <Text style={[styles.label, { color: '#f59e0b', fontWeight: '800' }]}>
-                          Rework Quantity (1 to {avail})
-                        </Text>
-                        <View style={styles.qtyStepperRow}>
-                          <TouchableOpacity
-                            style={[styles.qtyBtn, { borderColor: '#f59e0b' }]}
-                            onPress={() => setQcReworkQty(String(Math.max(1, rew - 1)))}>
-                            <Text style={[styles.qtyBtnText, { color: '#f59e0b' }]}>−</Text>
-                          </TouchableOpacity>
-                          <TextInput
-                            style={[styles.qtyInput, { borderColor: '#f59e0b' }]}
-                            keyboardType="numeric"
-                            value={qcReworkQty}
-                            onChangeText={setQcReworkQty}
-                          />
-                          <TouchableOpacity
-                            style={[styles.qtyBtn, { borderColor: '#f59e0b' }]}
-                            onPress={() => setQcReworkQty(String(Math.min(avail, rew + 1)))}>
-                            <Text style={[styles.qtyBtnText, { color: '#f59e0b' }]}>+</Text>
-                          </TouchableOpacity>
-                        </View>
-                        <Text style={styles.qtyRemainingText}>
-                          Remaining in QC after rework: <Text style={{ fontWeight: '700' }}>{Math.max(0, avail - rew)} pcs</Text>
-                        </Text>
+                        <CompactQuantitySelector
+                          label={`Rework Quantity (1 to ${avail})`}
+                          value={qcReworkQty}
+                          onChange={setQcReworkQty}
+                          max={avail}
+                          min={1}
+                          color="#f59e0b"
+                        />
 
                         <Text style={[styles.label, { marginTop: 10 }]}>Rework Instructions / Defect Reason</Text>
                         <TextInput
@@ -3271,20 +3467,16 @@ function App() {
                         <Text style={[styles.qtyBtnText, { color: '#f59e0b' }]}>−</Text>
                       </TouchableOpacity>
                       <TextInput
-                        style={[styles.qtyInput, { borderColor: '#f59e0b' }]}
-                        keyboardType="numeric"
+                    <View style={{ marginTop: 10 }}>
+                      <CompactQuantitySelector
+                        label={`Completed Quantity to Return to QC (1 to ${avail})`}
                         value={reworkQty}
-                        onChangeText={setReworkQty}
+                        onChange={setReworkQty}
+                        max={avail}
+                        min={1}
+                        color="#f59e0b"
                       />
-                      <TouchableOpacity
-                        style={[styles.qtyBtn, { borderColor: '#f59e0b' }]}
-                        onPress={() => setReworkQty(String(Math.min(avail, rQty + 1)))}>
-                        <Text style={[styles.qtyBtnText, { color: '#f59e0b' }]}>+</Text>
-                      </TouchableOpacity>
                     </View>
-                    <Text style={styles.qtyRemainingText}>
-                      Remaining in Rework queue: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{Math.max(0, avail - rQty)} pcs</Text>
-                    </Text>
 
                     <Text style={[styles.label, { marginTop: 10 }]}>Corrective Action / Completion Notes</Text>
                     <TextInput
@@ -3335,30 +3527,16 @@ function App() {
                     </Text>
                   </View>
 
-                  <Text style={[styles.label, { marginTop: 10, color: '#7c3aed', fontWeight: '800' }]}>
-                    Painted Quantity (1 to {avail})
-                  </Text>
-                  <View style={styles.qtyStepperRow}>
-                    <TouchableOpacity
-                      style={[styles.qtyBtn, { borderColor: '#7c3aed' }]}
-                      onPress={() => setPaintQty(String(Math.max(1, pQty - 1)))}>
-                      <Text style={[styles.qtyBtnText, { color: '#7c3aed' }]}>−</Text>
-                    </TouchableOpacity>
-                    <TextInput
-                      style={[styles.qtyInput, { borderColor: '#7c3aed' }]}
-                      keyboardType="numeric"
+                  <View style={{ marginTop: 10 }}>
+                    <CompactQuantitySelector
+                      label={`Painted Quantity to Push to Assembly (1 to ${avail})`}
                       value={paintQty}
-                      onChangeText={setPaintQty}
+                      onChange={setPaintQty}
+                      max={avail}
+                      min={1}
+                      color="#7c3aed"
                     />
-                    <TouchableOpacity
-                      style={[styles.qtyBtn, { borderColor: '#7c3aed' }]}
-                      onPress={() => setPaintQty(String(Math.min(avail, pQty + 1)))}>
-                      <Text style={[styles.qtyBtnText, { color: '#7c3aed' }]}>+</Text>
-                    </TouchableOpacity>
                   </View>
-                  <Text style={styles.qtyRemainingText}>
-                    Remaining in Paint after action: <Text style={{ fontWeight: '700' }}>{Math.max(0, avail - pQty)} pcs</Text>
-                  </Text>
 
                   <Text style={[styles.label, { marginTop: 10 }]}>Paint Type / Color Code</Text>
                   <TextInput
@@ -3413,30 +3591,16 @@ function App() {
                     </Text>
                   </View>
 
-                  <Text style={[styles.label, { marginTop: 10, color: '#0d9488', fontWeight: '800' }]}>
-                    Assembled Quantity (1 to {avail})
-                  </Text>
-                  <View style={styles.qtyStepperRow}>
-                    <TouchableOpacity
-                      style={[styles.qtyBtn, { borderColor: '#0d9488' }]}
-                      onPress={() => setAssemblyQty(String(Math.max(1, aQty - 1)))}>
-                      <Text style={[styles.qtyBtnText, { color: '#0d9488' }]}>−</Text>
-                    </TouchableOpacity>
-                    <TextInput
-                      style={[styles.qtyInput, { borderColor: '#0d9488' }]}
-                      keyboardType="numeric"
+                  <View style={{ marginTop: 10 }}>
+                    <CompactQuantitySelector
+                      label={`Assembled Quantity (1 to ${avail})`}
                       value={assemblyQty}
-                      onChangeText={setAssemblyQty}
+                      onChange={setAssemblyQty}
+                      max={avail}
+                      min={1}
+                      color="#0d9488"
                     />
-                    <TouchableOpacity
-                      style={[styles.qtyBtn, { borderColor: '#0d9488' }]}
-                      onPress={() => setAssemblyQty(String(Math.min(avail, aQty + 1)))}>
-                      <Text style={[styles.qtyBtnText, { color: '#0d9488' }]}>+</Text>
-                    </TouchableOpacity>
                   </View>
-                  <Text style={styles.qtyRemainingText}>
-                    Remaining in Assembly queue: <Text style={{ fontWeight: '700' }}>{Math.max(0, avail - aQty)} pcs</Text>
-                  </Text>
 
                   <Text style={[styles.label, { marginTop: 10 }]}>Assembly Process Remarks</Text>
                   <TextInput
@@ -3597,31 +3761,17 @@ function App() {
                     </Text>
                   </View>
 
-                  {/* Quantity Stepper */}
-                  <Text style={[styles.label, { marginTop: 10, color: '#dc2626', fontWeight: '800' }]}>
-                    Quantity to Revert (1 to {maxAvail})
-                  </Text>
-                  <View style={[styles.qtyStepperRow, { borderColor: '#fca5a5' }]}>
-                    <TouchableOpacity
-                      style={[styles.qtyBtn, { borderColor: '#dc2626' }]}
-                      onPress={() => setRevertQty(String(Math.max(1, rQty - 1)))}>
-                      <Text style={[styles.qtyBtnText, { color: '#dc2626' }]}>−</Text>
-                    </TouchableOpacity>
-                    <TextInput
-                      style={[styles.qtyInput, { borderColor: '#dc2626' }]}
-                      keyboardType="numeric"
+                  {/* Quantity Stepper with Compact Selector */}
+                  <View style={{ marginTop: 10 }}>
+                    <CompactQuantitySelector
+                      label={`Quantity to Revert (1 to ${maxAvail})`}
                       value={revertQty}
-                      onChangeText={setRevertQty}
+                      onChange={setRevertQty}
+                      max={maxAvail}
+                      min={1}
+                      color="#dc2626"
                     />
-                    <TouchableOpacity
-                      style={[styles.qtyBtn, { borderColor: '#dc2626' }]}
-                      onPress={() => setRevertQty(String(Math.min(maxAvail, rQty + 1)))}>
-                      <Text style={[styles.qtyBtnText, { color: '#dc2626' }]}>+</Text>
-                    </TouchableOpacity>
                   </View>
-                  <Text style={styles.qtyRemainingText}>
-                    Remaining in current department: <Text style={{ fontWeight: '700', color: '#1e293b' }}>{Math.max(0, maxAvail - rQty)} pcs</Text>
-                  </Text>
 
                   {/* Reason Input */}
                   <Text style={[styles.label, { marginTop: 8 }]}>Reason for Revert (Audit Trail)</Text>
@@ -4660,5 +4810,171 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#dc2626',
     marginTop: 2,
+  },
+  // Dual Metric Bulk Selection Text
+  bulkSelectionDualText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#1d4ed8',
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  // Department Subtab Switcher Styles
+  deptSubtabRow: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 9,
+    padding: 3,
+    marginBottom: 10,
+    gap: 4,
+  },
+  deptSubtabBtn: {
+    flex: 1,
+    paddingVertical: 7,
+    paddingHorizontal: 6,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  deptSubtabBtnActive: {
+    backgroundColor: '#2563eb',
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  deptSubtabBtnActiveRevert: {
+    backgroundColor: '#ea580c',
+    shadowColor: '#ea580c',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  deptSubtabBtnActiveRework: {
+    backgroundColor: '#d97706',
+    shadowColor: '#d97706',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  deptSubtabBtnActivePaint: {
+    backgroundColor: '#7c3aed',
+    shadowColor: '#7c3aed',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  deptSubtabBtnActiveAssembly: {
+    backgroundColor: '#0d9488',
+    shadowColor: '#0d9488',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  deptSubtabBtnActiveCompleted: {
+    backgroundColor: '#16a34a',
+    shadowColor: '#16a34a',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  deptSubtabBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  deptSubtabBtnTextActive: {
+    color: '#ffffff',
+    fontWeight: '800',
+  },
+  deptSubtabBtnTextActiveRevert: {
+    color: '#ffffff',
+    fontWeight: '800',
+  },
+  // Dedicated Revert Section Header Banner
+  revertTabHeaderBanner: {
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderColor: '#ffedd5',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  revertTabHeaderTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#c2410c',
+    marginBottom: 2,
+  },
+  revertTabHeaderSubtitle: {
+    fontSize: 11,
+    color: '#9a3412',
+    lineHeight: 15,
+  },
+  // Dedicated Revert Card Components
+  revertCardContainer: {
+    marginTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#fed7aa',
+    paddingTop: 8,
+  },
+  revertSegmentBox: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+    borderRadius: 8,
+    padding: 9,
+  },
+  revertSegmentLineageText: {
+    fontSize: 11,
+    color: '#475569',
+    marginBottom: 2,
+  },
+  revertSegmentQtyText: {
+    fontSize: 11.5,
+    color: '#1e293b',
+    marginBottom: 3,
+  },
+  revertTargetBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#ffedd5',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  revertTargetBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#c2410c',
+  },
+  revertCardActionBtn: {
+    backgroundColor: '#ea580c',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#ea580c',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  revertCardActionBtnText: {
+    color: '#ffffff',
+    fontWeight: '800',
+    fontSize: 12,
   },
 });
