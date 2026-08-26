@@ -146,6 +146,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
         Route::prefix('workflow')->group(function () {
             Route::get('/revert-options', [\App\Http\Controllers\WorkflowRevertController::class, 'getRevertOptions']);
             Route::post('/revert', [\App\Http\Controllers\WorkflowRevertController::class, 'revert']);
+            Route::post('/bulk-revert', [\App\Http\Controllers\WorkflowRevertController::class, 'bulkRevert']);
         });
     });
 });

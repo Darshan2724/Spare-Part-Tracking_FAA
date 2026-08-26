@@ -261,6 +261,103 @@ class WorkflowRevertController extends Controller
     }
 
     /**
+     * Execute atomic bulk revert for multiple items in a department.
+     */
+    public function bulkRevert(Request $request)
+    {
+        $request->validate([
+            'department' => ['required', 'in:store,qc,rework,paint,assembly'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.bom_item_id' => ['required', 'exists:bom_items,id'],
+            'items.*.side' => ['required', 'in:RH,LH,COMMON'],
+            'items.*.quantity' => ['required', 'integer', 'min:1'],
+            'items.*.source_type' => ['nullable', 'in:receipt_item,qc_inspection,paint_record'],
+            'items.*.source_id' => ['nullable', 'integer'],
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $dept = strtolower($request->input('department'));
+        $user = $request->user();
+
+        // Authorization Gate
+        switch ($dept) {
+            case 'store':
+                $user?->hasAnyRole(['ADMIN', 'STORE']) ?: abort(403, 'Unauthorized. Store operational permission required.');
+                break;
+            case 'qc':
+                $user?->hasAnyRole(['ADMIN', 'QC']) ?: abort(403, 'Unauthorized. QC operational permission required.');
+                break;
+            case 'rework':
+                $user?->hasAnyRole(['ADMIN', 'REWORK', 'QC']) ?: abort(403, 'Unauthorized. Rework operational permission required.');
+                break;
+            case 'paint':
+                $user?->hasAnyRole(['ADMIN', 'PAINT', 'QC']) ?: abort(403, 'Unauthorized. Paint operational permission required.');
+                break;
+            case 'assembly':
+                $user?->hasAnyRole(['ADMIN', 'ASSEMBLY', 'QC']) ?: abort(403, 'Unauthorized. Assembly operational permission required.');
+                break;
+        }
+
+        $itemsData = $request->input('items');
+        $reason = $request->input('reason') ?? 'Bulk operational revert';
+
+        try {
+            return DB::transaction(function () use ($dept, $itemsData, $reason, $user) {
+                $results = [];
+                $totalReverted = 0;
+
+                foreach ($itemsData as $itemInput) {
+                    $bomItem = BomItem::with('project')->findOrFail($itemInput['bom_item_id']);
+                    $side = $itemInput['side'];
+                    $qty = (int) $itemInput['quantity'];
+                    $sourceType = $itemInput['source_type'] ?? null;
+                    $sourceId = isset($itemInput['source_id']) ? (int) $itemInput['source_id'] : null;
+
+                    $res = null;
+                    switch ($dept) {
+                        case 'store':
+                            $res = $this->executeStoreRevert($bomItem, $side, $qty, $sourceId, $reason, $user);
+                            break;
+                        case 'qc':
+                            $res = $this->executeQcRevert($bomItem, $side, $qty, $sourceId, $reason, $user);
+                            break;
+                        case 'rework':
+                            $res = $this->executeReworkRevert($bomItem, $side, $qty, $sourceId, $reason, $user);
+                            break;
+                        case 'paint':
+                            $res = $this->executePaintRevert($bomItem, $side, $qty, $sourceId, $reason, $user);
+                            break;
+                        case 'assembly':
+                            $res = $this->executeAssemblyRevert($bomItem, $side, $qty, $sourceType, $sourceId, $reason, $user);
+                            break;
+                    }
+
+                    $resData = json_decode($res->getContent(), true);
+                    if (!$resData['success']) {
+                        throw new \Exception($resData['message'] ?? 'Failed to revert item ' . $bomItem->standard_part_no);
+                    }
+
+                    $results[] = $resData;
+                    $totalReverted += $qty;
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'message' => "Successfully bulk reverted {$totalReverted} units across " . count($itemsData) . " items in {$dept}.",
+                    'total_reverted' => $totalReverted,
+                    'items_count' => count($itemsData),
+                    'details' => $results,
+                ]);
+            });
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
      * Store -> Pending Arrival Revert
      */
     protected function executeStoreRevert(BomItem $bomItem, string $side, int $qty, ?int $sourceId, string $reason, $user)
