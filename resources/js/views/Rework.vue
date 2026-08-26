@@ -689,6 +689,15 @@ const submitCompletion = async () => {
 
 onMounted(() => {
   loadHierarchy();
+  if (window.Echo) {
+    window.Echo.channel('workflow')
+      .listen('.part.reverted', () => {
+        loadHierarchy();
+      })
+      .listen('.qc.inspected', () => {
+        loadHierarchy();
+      });
+  }
 });
 </script>
 

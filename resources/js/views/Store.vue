@@ -1008,6 +1008,18 @@ const submitReceipt = async () => {
 
 onMounted(() => {
   checkAndLoadStoreData();
+  if (window.Echo) {
+    window.Echo.channel('workflow')
+      .listen('.part.reverted', () => {
+        checkAndLoadStoreData();
+      })
+      .listen('.store.received', () => {
+        checkAndLoadStoreData();
+      })
+      .listen('.qc.inspected', () => {
+        checkAndLoadStoreData();
+      });
+  }
 });
 </script>
 

@@ -829,4 +829,185 @@ class WorkflowStrictRevertSystemTest extends TestCase
         $filterResp->assertStatus(200);
         $this->assertGreaterThanOrEqual(1, $filterResp->json('total'));
     }
+
+    /**
+     * Test 21: Full End-to-End Revert Destination Queue Verification (Assembly -> QC).
+     * Proves that reverting from Assembly to QC makes the part immediately visible in:
+     * 1. QC Quality Inspection Queue API (/qc/queue?stage=inspection)
+     * 2. QC Department Hierarchy API (/qc/hierarchy)
+     * 3. QC Revert Inside Unit API (/workflow/revert-options?department=qc)
+     * 4. QC Global Department Revert Queue API (/workflow/revert-items?department=qc)
+     */
+    public function test_assembly_revert_to_qc_makes_part_immediately_visible_in_qc_queues(): void
+    {
+        // 1. Initial intake in Store -> QC arrival
+        $rec = $this->createStoreReceipt('LH', 2);
+        $rec->update(['status' => 'qc_received']);
+
+        // 2. QC inspects and approves directly for Assembly
+        $insp = QcInspection::create([
+            'bom_item_id' => $this->bomItem->id,
+            'receipt_item_id' => $rec->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'approved_quantity' => 2,
+            'assembly_quantity' => 2,
+            'destination' => 'ASSEMBLY',
+            'result' => 'approved',
+            'inspected_by' => $this->adminUser->id,
+            'inspection_date' => now(),
+        ]);
+        $rec->update(['status' => 'qc_approved']);
+
+        // Before revert: QC queue has 0 uninspected parts
+        $qcQueueBefore = $this->actingAs($this->adminUser)->getJson('/api/v1/qc/queue?stage=inspection');
+        $qcQueueBefore->assertStatus(200);
+        $this->assertEmpty($qcQueueBefore->json('data'));
+
+        // 3. User reverts 1 part from Assembly to QC
+        $revertResp = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'assembly',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'source_type' => 'qc_inspection',
+            'source_id' => $insp->id,
+            'quantity' => 1,
+            'reason' => 'Assembly fitment error - return to QC',
+        ]);
+        $revertResp->assertStatus(200);
+        $revertResp->assertJson([
+            'success' => true,
+            'from_department' => 'ASSEMBLY',
+            'to_department' => 'QC',
+            'reverted_quantity' => 1,
+        ]);
+
+        // 4. Verify QC Inspection Operational Queue (/qc/queue?stage=inspection)
+        $qcQueueAfter = $this->actingAs($this->adminUser)->getJson('/api/v1/qc/queue?stage=inspection');
+        $qcQueueAfter->assertStatus(200);
+        $qcItems = $qcQueueAfter->json('data');
+        $this->assertCount(1, $qcItems);
+        $this->assertEquals($this->bomItem->id, $qcItems[0]['bom_item_id']);
+        $this->assertEquals('qc_received', $qcItems[0]['status']);
+        $this->assertEquals(1, $qcItems[0]['received_quantity']);
+
+        // 5. Verify QC Hierarchy Breakdown (/qc/hierarchy)
+        $hierarchyResp = $this->actingAs($this->adminUser)->getJson("/api/v1/qc/hierarchy?project_id={$this->project->id}&side=LH");
+        $hierarchyResp->assertStatus(200);
+        $jigs = $hierarchyResp->json('jigs');
+        $this->assertNotEmpty($jigs);
+        $unit = $jigs[0]['units'][0];
+        $part = $unit['parts'][0];
+        $this->assertEquals(1, $part['side_stats']['LH']['qc_pending_inspection']);
+
+        // 6. Verify QC Revert Inside Unit (/workflow/revert-options?department=qc)
+        $unitRevertResp = $this->actingAs($this->adminUser)->getJson("/api/v1/workflow/revert-options?department=qc&bom_item_id={$this->bomItem->id}&side=LH");
+        $unitRevertResp->assertStatus(200);
+        $options = $unitRevertResp->json('options');
+        $this->assertCount(1, $options);
+        $this->assertEquals('QC', $options[0]['from_department']);
+        $this->assertEquals('STORE', $options[0]['to_department']);
+        $this->assertEquals(1, $options[0]['available_quantity']);
+
+        // 7. Verify QC Global Department Revert Queue (/workflow/revert-items?department=qc)
+        $globalRevertResp = $this->actingAs($this->adminUser)->getJson("/api/v1/workflow/revert-items?department=qc&project_id={$this->project->id}");
+        $globalRevertResp->assertStatus(200);
+        $globalItems = $globalRevertResp->json('items');
+        $this->assertCount(1, $globalItems);
+        $this->assertEquals('QC', $globalItems[0]['from_department']);
+        $this->assertEquals('STORE', $globalItems[0]['to_department']);
+        $this->assertEquals(1, $globalItems[0]['available_quantity']);
+    }
+
+    /**
+     * Test 22: Paint -> QC Revert Destination Queue Verification.
+     */
+    public function test_paint_revert_to_qc_makes_part_immediately_visible_in_qc_queues(): void
+    {
+        $rec = $this->createStoreReceipt('LH', 2);
+        $rec->update(['status' => 'qc_received']);
+
+        $insp = QcInspection::create([
+            'bom_item_id' => $this->bomItem->id,
+            'receipt_item_id' => $rec->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'approved_quantity' => 2,
+            'paint_quantity' => 2,
+            'destination' => 'PAINT',
+            'result' => 'approved',
+            'inspected_by' => $this->adminUser->id,
+            'inspection_date' => now(),
+        ]);
+        $rec->update(['status' => 'qc_approved']);
+
+        // Revert 1 unit from Paint to QC
+        $revertResp = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'paint',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'source_type' => 'qc_inspection',
+            'source_id' => $insp->id,
+            'quantity' => 1,
+            'reason' => 'Paint shop batch rejected before spray',
+        ]);
+        $revertResp->assertStatus(200);
+
+        // Verify QC Queue has 1 uninspected part
+        $qcQueueAfter = $this->actingAs($this->adminUser)->getJson('/api/v1/qc/queue?stage=inspection');
+        $qcQueueAfter->assertStatus(200);
+        $qcItems = $qcQueueAfter->json('data');
+        $this->assertCount(1, $qcItems);
+        $this->assertEquals('qc_received', $qcItems[0]['status']);
+        $this->assertEquals(1, $qcItems[0]['received_quantity']);
+
+        // Verify Paint still has 1 unit
+        $paintQueueResp = $this->actingAs($this->adminUser)->getJson("/api/v1/paint/queue?project_id={$this->project->id}&side=LH");
+        $paintQueueResp->assertStatus(200);
+        $paintItems = $paintQueueResp->json('data');
+        $this->assertCount(1, $paintItems);
+        $this->assertEquals(1, $paintItems[0]['available_paint_quantity']);
+    }
+
+    /**
+     * Test 23: Rework -> QC Revert Destination Queue Verification.
+     */
+    public function test_rework_revert_to_qc_makes_part_immediately_visible_in_qc_queues(): void
+    {
+        $rec = $this->createStoreReceipt('LH', 2);
+        $rec->update(['status' => 'qc_received']);
+
+        $insp = QcInspection::create([
+            'bom_item_id' => $this->bomItem->id,
+            'receipt_item_id' => $rec->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'approved_quantity' => 0,
+            'rework_quantity' => 2,
+            'result' => 'rework',
+            'inspected_by' => $this->adminUser->id,
+            'inspection_date' => now(),
+        ]);
+        $rec->update(['status' => 'qc_rework']);
+
+        // Revert 1 unit from Rework to QC
+        $revertResp = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/revert', [
+            'department' => 'rework',
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'source_type' => 'qc_inspection',
+            'source_id' => $insp->id,
+            'quantity' => 1,
+            'reason' => 'Rework deemed unnecessary by QC Lead',
+        ]);
+        $revertResp->assertStatus(200);
+
+        // Verify QC Queue has 1 uninspected part
+        $qcQueueAfter = $this->actingAs($this->adminUser)->getJson('/api/v1/qc/queue?stage=inspection');
+        $qcQueueAfter->assertStatus(200);
+        $qcItems = $qcQueueAfter->json('data');
+        $this->assertCount(1, $qcItems);
+        $this->assertEquals('qc_received', $qcItems[0]['status']);
+        $this->assertEquals(1, $qcItems[0]['received_quantity']);
+    }
 }

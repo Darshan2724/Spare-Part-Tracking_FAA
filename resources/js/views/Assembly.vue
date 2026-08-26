@@ -587,6 +587,9 @@ onMounted(() => {
       })
       .listen('.qc.inspected', () => {
         loadHierarchy();
+      })
+      .listen('.part.reverted', () => {
+        loadHierarchy();
       });
   }
 });

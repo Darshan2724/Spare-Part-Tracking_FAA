@@ -698,6 +698,7 @@ function App() {
 
   const loadGlobalRevertItems = useCallback(async (dept = activeTab, showSpinner = true) => {
     if (!token) return;
+    const thisGlobalReqId = ++currentGlobalRevertReqIdRef.current;
     if (showSpinner) setIsLoadingGlobalRevert(true);
     try {
       const activeSearch = tabSearches[getCurrentSearchKey(dept, storeSubTab, qcSubTab)] || '';
@@ -710,15 +711,19 @@ function App() {
       if (activeSearch) params.search = activeSearch;
 
       const res = await apiClient.get('/workflow/revert-items', { params });
-      if (res.data && Array.isArray(res.data.items)) {
-        setGlobalRevertItems(res.data.items);
-      } else {
-        setGlobalRevertItems([]);
+      if (thisGlobalReqId === currentGlobalRevertReqIdRef.current && activeTabRef.current === dept) {
+        if (res.data && Array.isArray(res.data.items)) {
+          setGlobalRevertItems(res.data.items);
+        } else {
+          setGlobalRevertItems([]);
+        }
       }
     } catch (err) {
       console.log('Error loading global revert items:', err);
     } finally {
-      if (showSpinner) setIsLoadingGlobalRevert(false);
+      if (thisGlobalReqId === currentGlobalRevertReqIdRef.current) {
+        if (showSpinner) setIsLoadingGlobalRevert(false);
+      }
     }
   }, [token, activeTab, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab, tabSearches, selectedProject, selectedSide]);
 
@@ -750,13 +755,10 @@ function App() {
           ]
         );
       } else {
-        Alert.alert(
-          'App Up to Date',
-          `Running latest build.\nUpdate ID: ${Updates.updateId ? Updates.updateId.slice(0, 8) : 'Embedded'}\nChannel: ${Updates.channel || 'Active'}\nStore Revert & Units Active.`
-        );
+        Alert.alert('Up to Date', 'You are already running the latest version of SpareTrack.');
       }
-    } catch (e) {
-      Alert.alert('App Version Info', `Update Status:\n${e.message || 'Latest bundle active.'}`);
+    } catch (err) {
+      Alert.alert('Update Check Failed', err.message || 'Could not check for OTA updates.');
     } finally {
       setOtaChecking(false);
     }
@@ -791,29 +793,32 @@ function App() {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Missing Fields', 'Please enter email and password.');
+      Alert.alert('Validation Error', 'Please enter email and password.');
       return;
     }
 
-    setErrorMsg('');
     setLoading(true);
-
+    setErrorMsg('');
     try {
       if (serverHost) {
-        setBaseUrl(serverHost);
+        let cleanHost = serverHost.trim();
+        cleanHost = cleanHost.replace(/^https?:\/\//i, '');
+        cleanHost = cleanHost.replace(/\/api\/v1\/?$/i, '');
+        cleanHost = cleanHost.replace(/\/+$/, '');
+        const newBase = `http://${cleanHost}/api/v1`;
+        apiClient.defaults.baseURL = newBase;
       }
 
       const res = await apiClient.post('/auth/login', { email, password });
-      const userToken = res.data.token;
-      const loggedUser = res.data.user;
-      const role = loggedUser?.roles?.[0]?.name || res.data.role || 'USER';
+      const { token: receivedToken, user: receivedUser } = res.data;
 
-      setToken(userToken);
-      setUser(loggedUser);
+      setToken(receivedToken);
+      setUser(receivedUser);
+      setAuthToken(receivedToken);
+
+      const role = receivedUser.role?.name || (receivedUser.roles && receivedUser.roles[0]?.name) || '';
       setUserRole(role);
-      setAuthToken(userToken);
 
-      // Auto-set tab based on role
       if (role === 'STORE') setActiveTab('store');
       else if (role === 'QC') setActiveTab('qc');
       else if (role === 'REWORK') setActiveTab('rework');
@@ -867,21 +872,26 @@ function App() {
   };
 
   const loadData = async (tab = activeTab, showSpinner = true, customSearch = null, forceFresh = false) => {
+    const subTab = getCurrentSubTabForDept(tab);
     const activeSearch = customSearch !== null ? customSearch : (tabSearches[getCurrentSearchKey(tab, storeSubTab, qcSubTab)] || '');
-    const cacheKey = `${tab}_${storeSubTab}_${qcSubTab}_${selectedProject || ''}_${selectedSide || ''}_${activeSearch}`;
+    const cacheKey = `${tab}_${subTab}_${selectedProject || ''}_${selectedSide || ''}_${activeSearch}`;
+
+    const thisRequestId = ++currentRequestIdRef.current;
 
     // 1. Check in-memory cache for instant zero-delay render
     const cachedEntry = mobileCacheRef.current.get(cacheKey);
     if (cachedEntry && !forceFresh) {
-      if (tab === 'dashboard') {
-        setSummary(cachedEntry);
-      } else if (tab === 'purchase') {
-        setItems(cachedEntry);
-      } else {
-        if (cachedEntry.projects) setProjects(cachedEntry.projects);
-        if (cachedEntry.is_hierarchical) {
-          setHierarchyJigs(cachedEntry.jigs || []);
-          setHierarchyProject(cachedEntry.project || null);
+      if (tab === activeTabRef.current) {
+        if (tab === 'dashboard') {
+          setSummary(cachedEntry);
+        } else if (tab === 'purchase') {
+          setItems(cachedEntry);
+        } else {
+          if (cachedEntry.projects) setProjects(cachedEntry.projects);
+          if (cachedEntry.is_hierarchical) {
+            setHierarchyJigs(cachedEntry.jigs || []);
+            setHierarchyProject(cachedEntry.project || null);
+          }
         }
       }
       if (showSpinner) setLoading(false);
@@ -899,51 +909,56 @@ function App() {
         const res = await apiClient.get('/dashboard/summary', { params });
         const data = res.data.summary || res.data;
         mobileCacheRef.current.set(cacheKey, data);
-        setSummary(data);
+        if (thisRequestId === currentRequestIdRef.current && activeTabRef.current === 'dashboard') {
+          setSummary(data);
+        }
       } else if (tab === 'purchase') {
         const res = await apiClient.get('/purchase/items', { params });
         const data = extractArray(res.data);
         mobileCacheRef.current.set(cacheKey, data);
-        setItems(data);
+        if (thisRequestId === currentRequestIdRef.current && activeTabRef.current === 'purchase') {
+          setItems(data);
+        }
       } else {
         // Operational department hierarchy: store, qc, rework, paint, assembly
         const hierarchyEndpoint = `/${tab}/hierarchy`;
         const res = await apiClient.get(hierarchyEndpoint, { params: { project_id: selectedProject, side: selectedSide, search: activeSearch } });
         mobileCacheRef.current.set(cacheKey, res.data);
-        if (res.data.projects) setProjects(res.data.projects);
-        if (res.data.is_hierarchical) {
-          const updatedJigs = res.data.jigs || [];
-          setHierarchyJigs(updatedJigs);
-          setHierarchyProject(res.data.project || null);
 
-          // Sync selectedJig and selectedUnit references with newly fetched data
-          if (selectedJig) {
-            const newJig = updatedJigs.find(j => j.jig_name === selectedJig.jig_name);
-            if (newJig) {
-              setSelectedJig(newJig);
-              if (selectedUnit) {
-                const newUnit = newJig.units?.find(u => u.unit_no === selectedUnit.unit_no);
-                if (newUnit) {
-                  setSelectedUnit(newUnit);
-                } else {
-                  setSelectedUnit(null);
+        // Guard against stale responses from previous tabs or rapid switches
+        if (thisRequestId === currentRequestIdRef.current && activeTabRef.current === tab) {
+          if (res.data.projects) setProjects(res.data.projects);
+          if (res.data.is_hierarchical) {
+            const updatedJigs = res.data.jigs || [];
+            setHierarchyJigs(updatedJigs);
+            setHierarchyProject(res.data.project || null);
+
+            // Sync selectedJig and selectedUnit references with newly fetched data
+            if (selectedJig) {
+              const newJig = updatedJigs.find(j => j.jig_name === selectedJig.jig_name);
+              if (newJig) {
+                setSelectedJig(newJig);
+                if (selectedUnit) {
+                  const newUnit = newJig.units?.find(u => u.unit_no === selectedUnit.unit_no);
+                  if (newUnit) {
+                    setSelectedUnit(newUnit);
+                  }
                 }
               }
-            } else {
-              setSelectedJig(null);
-              setSelectedUnit(null);
             }
+          } else if (!selectedProject) {
+            setHierarchyJigs([]);
+            setHierarchyProject(null);
           }
-        } else {
-          setHierarchyJigs([]);
-          setHierarchyProject(null);
         }
       }
     } catch (err) {
       console.log(`Error loading ${tab} data:`, err);
     } finally {
-      if (showSpinner) setLoading(false);
-      setRefreshing(false);
+      if (thisRequestId === currentRequestIdRef.current) {
+        if (showSpinner) setLoading(false);
+        setRefreshing(false);
+      }
     }
   };
 
@@ -976,21 +991,26 @@ function App() {
     setSelectedProject(projId);
     setSelectedJig(null);
     setSelectedUnit(null);
+    const thisReqId = ++currentRequestIdRef.current;
     setLoading(true);
     try {
       const hierarchyEndpoint = `/${activeTab === 'dashboard' ? 'store' : activeTab}/hierarchy`;
       const res = await apiClient.get(hierarchyEndpoint, { params: { project_id: projId, side: selectedSide } });
-      if (res.data.is_hierarchical) {
-        setHierarchyJigs(res.data.jigs || []);
-        setHierarchyProject(res.data.project || null);
-      } else {
-        setHierarchyJigs([]);
-        setHierarchyProject(null);
+      if (thisReqId === currentRequestIdRef.current) {
+        if (res.data.is_hierarchical) {
+          setHierarchyJigs(res.data.jigs || []);
+          setHierarchyProject(res.data.project || null);
+        } else {
+          setHierarchyJigs([]);
+          setHierarchyProject(null);
+        }
       }
     } catch (err) {
       console.log("Error selecting project:", err);
     } finally {
-      setLoading(false);
+      if (thisReqId === currentRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 
