@@ -72,7 +72,14 @@ class HierarchyService
             $search = trim($filters['search']);
             $query->where(function ($q) use ($search) {
                 $q->where('standard_part_no', 'LIKE', "%{$search}%")
-                  ->orWhere('item_no', 'LIKE', "%{$search}%");
+                  ->orWhere('item_no', 'LIKE', "%{$search}%")
+                  ->orWhere('jig_no', 'LIKE', "%{$search}%")
+                  ->orWhere('unit_no', 'LIKE', "%{$search}%")
+                  ->orWhere('part_description', 'LIKE', "%{$search}%")
+                  ->orWhere('size', 'LIKE', "%{$search}%")
+                  ->orWhereHas('supplier', function ($sq) use ($search) {
+                      $sq->where('name', 'LIKE', "%{$search}%");
+                  });
             });
         }
 
