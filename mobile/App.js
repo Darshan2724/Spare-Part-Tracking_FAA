@@ -1573,6 +1573,63 @@ function App() {
     }
   };
 
+  const handleBulkRevert = async (targetItems, dept = activeTab) => {
+    if (isSubmittingBulk) return;
+    const revertPayload = [];
+
+    for (const item of targetItems) {
+      const sideStat = item.side_stats?.[unitSideTab] || item.side_stats?.COMMON || {};
+      const options = sideStat.revert_options || [];
+      for (const opt of options) {
+        if (opt.available_quantity > 0) {
+          revertPayload.push({
+            bom_item_id: item.id,
+            side: unitSideTab,
+            quantity: opt.available_quantity,
+            source_type: opt.source_type,
+            source_id: opt.source_id,
+          });
+        }
+      }
+    }
+
+    if (!revertPayload.length) {
+      Alert.alert('No Revertible Items', 'None of the selected items currently have eligible revert lineage.');
+      return;
+    }
+
+    Alert.alert(
+      'Confirm Bulk Revert',
+      `Revert ${revertPayload.length} segments across ${targetItems.length} parts back to their previous department?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Confirm Bulk Revert',
+          style: 'destructive',
+          onPress: async () => {
+            setIsSubmittingBulk(true);
+            try {
+              const res = await apiClient.post('/workflow/bulk-revert', {
+                department: dept,
+                items: revertPayload,
+                reason: 'Bulk Revert operation from mobile app',
+              });
+              showToast(res.data.message || `Successfully reverted ${revertPayload.length} items`);
+              clearSelection();
+              invalidateMobileCache(dept);
+              invalidateMobileCache('dashboard');
+              await loadData(dept, false, null, true);
+            } catch (err) {
+              Alert.alert('Bulk Revert Failed', err.response?.data?.message || err.message || 'Could not complete bulk revert.');
+            } finally {
+              setIsSubmittingBulk(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   if (!token) {
     return (
       <SafeAreaView style={styles.container}>
@@ -1735,6 +1792,116 @@ function App() {
           </TouchableOpacity>
         )}
       </ScrollView>
+
+      {/* TOP-LEVEL DEPARTMENT SUBTABS BAR */}
+      {activeTab === 'store' && (
+        <View style={styles.subTabsContainer}>
+          <TouchableOpacity
+            style={[styles.subTab, storeSubTab === 'pending' && styles.activeSubTab]}
+            onPress={() => { setStoreSubTab('pending'); clearSelection(); }}>
+            <Text style={[styles.subTabText, storeSubTab === 'pending' && styles.activeSubTabText]}>
+              📦 Pending Intake
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.subTab, storeSubTab === 'revert' && styles.activeSubTabRevert]}
+            onPress={() => { setStoreSubTab('revert'); clearSelection(); }}>
+            <Text style={[styles.subTabText, storeSubTab === 'revert' && styles.activeSubTabTextRevert]}>
+              ↩ Revert
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {activeTab === 'qc' && (
+        <View style={styles.subTabsContainer}>
+          <TouchableOpacity
+            style={[styles.subTab, qcSubTab === 'arrival' && styles.activeSubTab]}
+            onPress={() => { setQcSubTab('arrival'); clearSelection(); }}>
+            <Text style={[styles.subTabText, qcSubTab === 'arrival' && styles.activeSubTabText]}>
+              📦 1. Arrival
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.subTab, qcSubTab === 'inspection' && styles.activeSubTab]}
+            onPress={() => { setQcSubTab('inspection'); clearSelection(); }}>
+            <Text style={[styles.subTabText, qcSubTab === 'inspection' && styles.activeSubTabText]}>
+              🔬 2. Inspection
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.subTab, qcSubTab === 'revert' && styles.activeSubTabRevert]}
+            onPress={() => { setQcSubTab('revert'); clearSelection(); }}>
+            <Text style={[styles.subTabText, qcSubTab === 'revert' && styles.activeSubTabTextRevert]}>
+              ↩ Revert
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {activeTab === 'rework' && (
+        <View style={styles.subTabsContainer}>
+          <TouchableOpacity
+            style={[styles.subTab, reworkSubTab === 'queue' && styles.activeSubTab]}
+            onPress={() => { setReworkSubTab('queue'); clearSelection(); }}>
+            <Text style={[styles.subTabText, reworkSubTab === 'queue' && styles.activeSubTabText]}>
+              🛠️ Rework Queue
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.subTab, reworkSubTab === 'revert' && styles.activeSubTabRevert]}
+            onPress={() => { setReworkSubTab('revert'); clearSelection(); }}>
+            <Text style={[styles.subTabText, reworkSubTab === 'revert' && styles.activeSubTabTextRevert]}>
+              ↩ Revert
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {activeTab === 'paint' && (
+        <View style={styles.subTabsContainer}>
+          <TouchableOpacity
+            style={[styles.subTab, paintSubTab === 'queue' && styles.activeSubTab]}
+            onPress={() => { setPaintSubTab('queue'); clearSelection(); }}>
+            <Text style={[styles.subTabText, paintSubTab === 'queue' && styles.activeSubTabText]}>
+              🎨 Paint Queue
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.subTab, paintSubTab === 'revert' && styles.activeSubTabRevert]}
+            onPress={() => { setPaintSubTab('revert'); clearSelection(); }}>
+            <Text style={[styles.subTabText, paintSubTab === 'revert' && styles.activeSubTabTextRevert]}>
+              ↩ Revert
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {activeTab === 'assembly' && (
+        <View style={styles.subTabsContainer}>
+          <TouchableOpacity
+            style={[styles.subTab, assemblySubTab === 'queue' && styles.activeSubTab]}
+            onPress={() => { setAssemblySubTab('queue'); clearSelection(); }}>
+            <Text style={[styles.subTabText, assemblySubTab === 'queue' && styles.activeSubTabText]}>
+              ⚙️ Queue
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.subTab, assemblySubTab === 'completed' && styles.activeSubTab]}
+            onPress={() => { setAssemblySubTab('completed'); clearSelection(); }}>
+            <Text style={[styles.subTabText, assemblySubTab === 'completed' && styles.activeSubTabText]}>
+              🏁 Done
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.subTab, assemblySubTab === 'revert' && styles.activeSubTabRevert]}
+            onPress={() => { setAssemblySubTab('revert'); clearSelection(); }}>
+            <Text style={[styles.subTabText, assemblySubTab === 'revert' && styles.activeSubTabTextRevert]}>
+              ↩ Revert
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Search & Filter Bar - Tab-Isolated Search (Part 13) */}
       {['store', 'qc', 'paint', 'assembly', 'rework', 'purchase'].includes(activeTab) && (
@@ -2889,15 +3056,15 @@ function App() {
         const selectedItemsList = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
         const getEligibleQty = (p) => {
           const s = unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON || {}) : (p.side_stats?.RH || p.side_stats?.COMMON || {});
-          if (activeTab === 'store') return s.pending || 0;
+          if (activeTab === 'store') return storeSubTab === 'revert' ? (s.total_revertible || 0) : (s.pending || 0);
           if (activeTab === 'qc') {
             if (qcSubTab === 'arrival') return s.qc_pending_arrival || 0;
             if (qcSubTab === 'inspection') return s.qc_pending_inspection || 0;
             if (qcSubTab === 'revert') return s.total_revertible || 0;
           }
-          if (activeTab === 'rework') return (s.parts_in_rework || 0) || ((s.rework_pending || 0) + (s.rework_in_progress || 0));
-          if (activeTab === 'paint') return s.paint_ready || 0;
-          if (activeTab === 'assembly') return s.assembly_ready || 0;
+          if (activeTab === 'rework') return reworkSubTab === 'revert' ? (s.total_revertible || 0) : ((s.parts_in_rework || 0) || ((s.rework_pending || 0) + (s.rework_in_progress || 0)));
+          if (activeTab === 'paint') return paintSubTab === 'revert' ? (s.total_revertible || 0) : (s.paint_ready || 0);
+          if (activeTab === 'assembly') return assemblySubTab === 'revert' ? (s.total_revertible || 0) : (s.assembly_ready || 0);
           return 1;
         };
         const totalSelectedQty = selectedItemsList.reduce((sum, item) => sum + getEligibleQty(item), 0);
@@ -2923,6 +3090,14 @@ function App() {
                       setShowBulkStoreReceiveModal(true);
                     }}>
                     <Text style={styles.bulkBtnText}>RECEIVE SELECTED ({selectedItemIds.size} PARTS)</Text>
+                  </TouchableOpacity>
+                )}
+
+                {activeTab === 'store' && storeSubTab === 'revert' && (
+                  <TouchableOpacity
+                    style={[styles.bulkBtn, { backgroundColor: '#ea580c' }]}
+                    onPress={() => handleBulkRevert(selectedItemsList, 'store')}>
+                    <Text style={styles.bulkBtnText}>REVERT SELECTED TO SUPPLIER ({selectedItemIds.size} PARTS)</Text>
                   </TouchableOpacity>
                 )}
 
@@ -2954,7 +3129,15 @@ function App() {
                   </View>
                 )}
 
-                {activeTab === 'rework' && (
+                {activeTab === 'qc' && qcSubTab === 'revert' && (
+                  <TouchableOpacity
+                    style={[styles.bulkBtn, { backgroundColor: '#ea580c' }]}
+                    onPress={() => handleBulkRevert(selectedItemsList, 'qc')}>
+                    <Text style={styles.bulkBtnText}>REVERT SELECTED TO STORE ({selectedItemIds.size} PARTS)</Text>
+                  </TouchableOpacity>
+                )}
+
+                {activeTab === 'rework' && reworkSubTab === 'queue' && (
                   <TouchableOpacity
                     style={[styles.bulkBtn, { backgroundColor: '#f59e0b' }]}
                     onPress={() => setShowBulkReworkModal(true)}>
@@ -2962,7 +3145,15 @@ function App() {
                   </TouchableOpacity>
                 )}
 
-                {activeTab === 'paint' && (
+                {activeTab === 'rework' && reworkSubTab === 'revert' && (
+                  <TouchableOpacity
+                    style={[styles.bulkBtn, { backgroundColor: '#ea580c' }]}
+                    onPress={() => handleBulkRevert(selectedItemsList, 'rework')}>
+                    <Text style={styles.bulkBtnText}>REVERT SELECTED TO QC ({selectedItemIds.size} PARTS)</Text>
+                  </TouchableOpacity>
+                )}
+
+                {activeTab === 'paint' && paintSubTab === 'queue' && (
                   <TouchableOpacity
                     style={[styles.bulkBtn, { backgroundColor: '#7c3aed' }]}
                     onPress={() => setShowBulkPaintModal(true)}>
@@ -2970,11 +3161,27 @@ function App() {
                   </TouchableOpacity>
                 )}
 
-                {activeTab === 'assembly' && (
+                {activeTab === 'paint' && paintSubTab === 'revert' && (
+                  <TouchableOpacity
+                    style={[styles.bulkBtn, { backgroundColor: '#ea580c' }]}
+                    onPress={() => handleBulkRevert(selectedItemsList, 'paint')}>
+                    <Text style={styles.bulkBtnText}>REVERT SELECTED TO QC ({selectedItemIds.size} PARTS)</Text>
+                  </TouchableOpacity>
+                )}
+
+                {activeTab === 'assembly' && assemblySubTab === 'queue' && (
                   <TouchableOpacity
                     style={[styles.bulkBtn, { backgroundColor: '#0d9488' }]}
                     onPress={() => handleBulkAssemblyComplete(selectedItemsList)}>
                     <Text style={styles.bulkBtnText}>MARK ASSEMBLED ({selectedItemIds.size} PARTS)</Text>
+                  </TouchableOpacity>
+                )}
+
+                {activeTab === 'assembly' && assemblySubTab === 'revert' && (
+                  <TouchableOpacity
+                    style={[styles.bulkBtn, { backgroundColor: '#ea580c' }]}
+                    onPress={() => handleBulkRevert(selectedItemsList, 'assembly')}>
+                    <Text style={styles.bulkBtnText}>REVERT SELECTED ({selectedItemIds.size} PARTS)</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -3985,6 +4192,15 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
+  activeSubTabRevert: {
+    backgroundColor: '#ffffff',
+    borderColor: '#ea580c',
+    borderWidth: 1,
+    shadowColor: '#ea580c',
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
+  },
   subTabText: {
     fontSize: 11,
     fontWeight: '600',
@@ -3992,6 +4208,10 @@ const styles = StyleSheet.create({
   },
   activeSubTabText: {
     color: '#2563eb',
+    fontWeight: 'bold',
+  },
+  activeSubTabTextRevert: {
+    color: '#c2410c',
     fontWeight: 'bold',
   },
   searchBarContainer: {
