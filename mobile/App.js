@@ -2469,7 +2469,7 @@ function App() {
                         );
                       })()}
 
-                      {/* Multi-Selection Control Bar (Dual Metric: Parts Count + Physical Quantity) */}
+                      {/* Multi-Selection Control Bar */}
                       {!isCurrentRevertTab && (
                         <View style={styles.selectionControlBar}>
                           <TouchableOpacity
@@ -2488,11 +2488,6 @@ function App() {
 
                           {isSelectionMode && (
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                              {selectedPartsCount > 0 && (
-                                <Text style={styles.bulkSelectionDualText}>
-                                  {selectedPartsCount} parts • {selectedTotalQuantity} pcs
-                                </Text>
-                              )}
                               <TouchableOpacity
                                 style={styles.selectAllBtn}
                                 onPress={() => selectAllVisible(visibleParts, unitSideTab)}>
@@ -2508,16 +2503,6 @@ function App() {
                         </View>
                       )}
 
-                      {/* Revert Tab Header Banner */}
-                      {isCurrentRevertTab && (
-                        <View style={styles.revertTabHeaderBanner}>
-                          <Text style={styles.revertTabHeaderTitle}>↩ Dedicated Revert Section</Text>
-                          <Text style={styles.revertTabHeaderSubtitle}>
-                            Move parts back to their previous department according to server-verified lineage.
-                          </Text>
-                        </View>
-                      )}
-
                       {/* Parts Cards (High-Density Industrial Layout) */}
                       {visibleParts.map((item) => {
                         const itemKey = `${item.id}_${unitSideTab}`;
@@ -2529,25 +2514,82 @@ function App() {
                         const revertOpts = currentSideStats.revert_options || [];
                         const totalRevertible = currentSideStats.total_revertible || 0;
 
+                        {/* COMPACT REVERT CARD (High-Density Space-Efficient Layout) */}
+                        if (isCurrentRevertTab) {
+                          return (
+                            <View
+                              key={`part-rev-${item.id}-side-${unitSideTab}`}
+                              style={styles.compactRevertCard}>
+                              {/* Row 1: Part No + Side Pill + Reversible Badge */}
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                                  <Text style={styles.itemPartNo} numberOfLines={1}>{item.standard_part_no}</Text>
+                                  <View style={unitSideTab === 'LH' ? styles.sidePillLh : styles.sidePillRh}>
+                                    <Text style={unitSideTab === 'LH' ? styles.sidePillTextLh : styles.sidePillTextRh}>
+                                      {unitSideTab}
+                                    </Text>
+                                  </View>
+                                </View>
+                                <Text style={styles.compactRevertStatusBadge}>
+                                  {totalRevertible} REVERSIBLE
+                                </Text>
+                              </View>
+
+                              {/* Row 2: Lineage Info & Compact Revert Action Button */}
+                              {revertOpts.length > 1 ? (
+                                <View style={{ marginTop: 6, gap: 5 }}>
+                                  {revertOpts.map((opt, idx) => (
+                                    <View key={`rev-seg-${idx}`} style={styles.compactRevertSegmentRow}>
+                                      <View style={{ flex: 1, marginRight: 8 }}>
+                                        <Text style={styles.compactRevertInfoText}>
+                                          Revert Qty: <Text style={{ fontWeight: '800', color: '#c2410c' }}>{opt.available_quantity} pcs</Text>  •  From: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{opt.target_label || opt.to_department}</Text>
+                                        </Text>
+                                        {opt.description ? (
+                                          <Text style={styles.compactRevertLineageSubtext}>
+                                            Lineage: {opt.description}
+                                          </Text>
+                                        ) : null}
+                                      </View>
+                                      <TouchableOpacity
+                                        style={styles.compactRevertActionBtn}
+                                        onPress={() => openRevertModal(item, activeTab, unitSideTab, opt)}>
+                                        <Text style={styles.compactRevertActionBtnText}>Revert</Text>
+                                      </TouchableOpacity>
+                                    </View>
+                                  ))}
+                                </View>
+                              ) : (
+                                <View style={styles.compactRevertSingleRow}>
+                                  <Text style={styles.compactRevertInfoText}>
+                                    Revert Qty: <Text style={{ fontWeight: '800', color: '#c2410c' }}>{totalRevertible} pcs</Text>  •  From: <Text style={{ fontWeight: '700', color: '#0f172a' }}>{revertOpts[0]?.target_label || (activeTab === 'store' ? 'Store Bay' : (activeTab === 'qc' ? 'Store Bay' : 'QC Bay'))}</Text>
+                                  </Text>
+                                  <TouchableOpacity
+                                    style={styles.compactRevertActionBtn}
+                                    onPress={() => openRevertModal(item, activeTab, unitSideTab, revertOpts[0])}>
+                                    <Text style={styles.compactRevertActionBtnText}>Revert</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              )}
+                            </View>
+                          );
+                        }
+
                         return (
                           <TouchableOpacity
                             key={`part-${item.id}-side-${unitSideTab}`}
                             activeOpacity={0.85}
-                            onLongPress={() => {
-                              if (!isCurrentRevertTab) toggleSelection(item, unitSideTab);
-                            }}
+                            onLongPress={() => toggleSelection(item, unitSideTab)}
                             onPress={() => {
-                              if (isSelectionMode && !isCurrentRevertTab) toggleSelection(item, unitSideTab);
+                              if (isSelectionMode) toggleSelection(item, unitSideTab);
                             }}
                             style={[
                               styles.itemCard,
-                              isSelected && { borderColor: '#2563eb', borderWidth: 2, backgroundColor: '#eff6ff' },
-                              isCurrentRevertTab && { borderColor: '#fed7aa', backgroundColor: '#fffbf5' }
+                              isSelected && { borderColor: '#2563eb', borderWidth: 2, backgroundColor: '#eff6ff' }
                             ]}>
                             {/* Row 1: Part No + Side Pill + Status Badge + Checkbox */}
                             <View style={styles.itemHeader}>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                                {isSelectionMode && !isCurrentRevertTab && (
+                                {isSelectionMode && (
                                   <View style={[styles.checkboxCircle, isSelected && styles.checkboxCircleSelected]}>
                                     {isSelected && <Text style={styles.checkmarkText}>✓</Text>}
                                   </View>
@@ -2559,8 +2601,8 @@ function App() {
                                   </Text>
                                 </View>
                               </View>
-                              <Text style={[styles.itemStatus, isCurrentRevertTab && { backgroundColor: '#ffedd5', color: '#c2410c' }]}>
-                                {isCurrentRevertTab ? `${totalRevertible} REVERSIBLE` : (item.is_complete ? 'FULFILLED' : 'ACTIVE')}
+                              <Text style={styles.itemStatus}>
+                                {item.is_complete ? 'FULFILLED' : 'ACTIVE'}
                               </Text>
                             </View>
 
@@ -2576,61 +2618,8 @@ function App() {
                               </View>
                             </View>
 
-                            {/* DEDICATED REVERT TAB CARDS (Multi-Segment Lineage Support) */}
-                            {isCurrentRevertTab && (
-                              <View style={styles.revertCardContainer}>
-                                {revertOpts.length > 1 ? (
-                                  <View style={{ gap: 8 }}>
-                                    {revertOpts.map((opt, idx) => (
-                                      <View key={`revert-segment-${idx}`} style={styles.revertSegmentBox}>
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                          <View style={{ flex: 1, marginRight: 8 }}>
-                                            <Text style={styles.revertSegmentLineageText}>
-                                              Lineage: <Text style={{ fontWeight: '800', color: '#0f172a' }}>{opt.description || opt.source_type}</Text>
-                                            </Text>
-                                            <Text style={styles.revertSegmentQtyText}>
-                                              Reversible: <Text style={{ fontWeight: '900', color: '#c2410c' }}>{opt.available_quantity} pcs</Text>
-                                            </Text>
-                                            <View style={styles.revertTargetBadge}>
-                                              <Text style={styles.revertTargetBadgeText}>↩ Target: {opt.target_label || opt.to_department}</Text>
-                                            </View>
-                                          </View>
-                                          <TouchableOpacity
-                                            style={styles.revertCardActionBtn}
-                                            onPress={() => openRevertModal(item, activeTab, unitSideTab, opt)}>
-                                            <Text style={styles.revertCardActionBtnText}>Revert</Text>
-                                          </TouchableOpacity>
-                                        </View>
-                                      </View>
-                                    ))}
-                                  </View>
-                                ) : (
-                                  <View style={styles.revertSegmentBox}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                      <View style={{ flex: 1, marginRight: 8 }}>
-                                        <Text style={styles.revertSegmentQtyText}>
-                                          Available to Revert: <Text style={{ fontWeight: '900', color: '#c2410c' }}>{totalRevertible} pcs</Text>
-                                        </Text>
-                                        <View style={styles.revertTargetBadge}>
-                                          <Text style={styles.revertTargetBadgeText}>
-                                            ↩ Target: {revertOpts[0]?.target_label || (activeTab === 'store' ? 'Pending Supplier Arrival' : (activeTab === 'qc' ? 'Store Bay' : 'QC Bay'))}
-                                          </Text>
-                                        </View>
-                                      </View>
-                                      <TouchableOpacity
-                                        style={styles.revertCardActionBtn}
-                                        onPress={() => openRevertModal(item, activeTab, unitSideTab, revertOpts[0])}>
-                                        <Text style={styles.revertCardActionBtnText}>Revert</Text>
-                                      </TouchableOpacity>
-                                    </View>
-                                  </View>
-                                )}
-                              </View>
-                            )}
-
                             {/* OPERATIONAL ACTIONS (Visible ONLY in forward work queues, strictly no revert) */}
-                            {!isCurrentRevertTab && (
-                              <View>
+                            <View>
                                 {/* Store Level 4 Single Action */}
                                 {activeTab === 'store' && pen > 0 && !isSelectionMode && (
                                   <TouchableOpacity style={styles.smallReceiveBtn} onPress={() => openReceiveModal(item, unitSideTab)}>
@@ -2909,23 +2898,36 @@ function App() {
       </ScrollView>
 
       {/* FIXED BOTTOM STICKY ACTION BAR */}
-      {selectedItemIds.size > 0 && selectedUnit && (
-        <View style={styles.stickyBottomActionBar}>
-          <View style={styles.stickyBarHeader}>
-            <Text style={styles.stickyBarCountBadge}>
-              Selected: {selectedItemIds.size} {selectedItemIds.size === 1 ? 'part' : 'parts'} ({unitSideTab})
-            </Text>
-            <TouchableOpacity onPress={clearSelection} style={styles.stickyBarClearBtn}>
-              <Text style={styles.stickyBarClearText}>✕ Clear</Text>
-            </TouchableOpacity>
-          </View>
+      {selectedItemIds.size > 0 && selectedUnit && (() => {
+        const selectedItemsList = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
+        const getEligibleQty = (p) => {
+          const s = unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON || {}) : (p.side_stats?.RH || p.side_stats?.COMMON || {});
+          if (activeTab === 'store') return s.pending || 0;
+          if (activeTab === 'qc') {
+            if (qcSubTab === 'arrival') return s.qc_pending_arrival || 0;
+            if (qcSubTab === 'inspection') return s.qc_pending_inspection || 0;
+            if (qcSubTab === 'revert') return s.total_revertible || 0;
+          }
+          if (activeTab === 'rework') return (s.parts_in_rework || 0) || ((s.rework_pending || 0) + (s.rework_in_progress || 0));
+          if (activeTab === 'paint') return s.paint_ready || 0;
+          if (activeTab === 'assembly') return s.assembly_ready || 0;
+          return 1;
+        };
+        const totalSelectedQty = selectedItemsList.reduce((sum, item) => sum + getEligibleQty(item), 0);
 
-          {/* Department-specific primary bulk action controls */}
-          {(() => {
-            const selectedItemsList = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
+        return (
+          <View style={styles.stickyBottomActionBar}>
+            <View style={styles.stickyBarHeader}>
+              <Text style={styles.stickyBarCountBadge}>
+                Selected: {selectedItemIds.size} {selectedItemIds.size === 1 ? 'part' : 'parts'} ({unitSideTab})   •   Total: {totalSelectedQty} pcs
+              </Text>
+              <TouchableOpacity onPress={clearSelection} style={styles.stickyBarClearBtn}>
+                <Text style={styles.stickyBarClearText}>✕ Clear</Text>
+              </TouchableOpacity>
+            </View>
 
-            return (
-              <View>
+            {/* Department-specific primary bulk action controls */}
+            <View>
                 {activeTab === 'store' && storeSubTab === 'pending' && (
                   <TouchableOpacity
                     style={[styles.bulkBtn, { backgroundColor: '#2563eb' }]}
@@ -2989,10 +2991,9 @@ function App() {
                   </TouchableOpacity>
                 )}
               </View>
-            );
-          })()}
-        </View>
-      )}
+            </View>
+          );
+        })()}
 
       {/* FILTER MODAL */}
       <Modal visible={showFilterModal} animationType="slide" transparent>
@@ -4893,78 +4894,75 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '800',
   },
-  // Dedicated Revert Section Header Banner
-  revertTabHeaderBanner: {
-    backgroundColor: '#fff7ed',
-    borderWidth: 1,
-    borderColor: '#ffedd5',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 10,
-  },
-  revertTabHeaderTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#c2410c',
-    marginBottom: 2,
-  },
-  revertTabHeaderSubtitle: {
-    fontSize: 11,
-    color: '#9a3412',
-    lineHeight: 15,
-  },
-  // Dedicated Revert Card Components
-  revertCardContainer: {
-    marginTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: '#fed7aa',
-    paddingTop: 8,
-  },
-  revertSegmentBox: {
-    backgroundColor: '#ffffff',
+  // Compact High-Density Revert Cards
+  compactRevertCard: {
+    backgroundColor: '#fffdfa',
     borderWidth: 1,
     borderColor: '#fed7aa',
     borderRadius: 8,
     padding: 9,
+    marginBottom: 8,
+    shadowColor: '#ea580c',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  revertSegmentLineageText: {
-    fontSize: 11,
-    color: '#475569',
-    marginBottom: 2,
-  },
-  revertSegmentQtyText: {
-    fontSize: 11.5,
-    color: '#1e293b',
-    marginBottom: 3,
-  },
-  revertTargetBadge: {
-    alignSelf: 'flex-start',
+  compactRevertStatusBadge: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#c2410c',
     backgroundColor: '#ffedd5',
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
-  revertTargetBadgeText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: '#c2410c',
+  compactRevertSingleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 6,
+    paddingTop: 5,
+    borderTopWidth: 1,
+    borderTopColor: '#fef3c7',
   },
-  revertCardActionBtn: {
-    backgroundColor: '#ea580c',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  compactRevertSegmentRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#ffedd5',
     borderRadius: 6,
+    padding: 6,
+  },
+  compactRevertInfoText: {
+    fontSize: 11.5,
+    color: '#334155',
+    flex: 1,
+    marginRight: 6,
+  },
+  compactRevertLineageSubtext: {
+    fontSize: 9.5,
+    color: '#64748b',
+    marginTop: 1,
+  },
+  compactRevertActionBtn: {
+    backgroundColor: '#ea580c',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 5,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#ea580c',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.15,
     shadowRadius: 2,
-    elevation: 2,
+    elevation: 1,
   },
-  revertCardActionBtnText: {
+  compactRevertActionBtnText: {
     color: '#ffffff',
     fontWeight: '800',
-    fontSize: 12,
+    fontSize: 11.5,
   },
 });

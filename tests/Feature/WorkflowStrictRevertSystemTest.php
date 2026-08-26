@@ -23,6 +23,7 @@ class WorkflowStrictRevertSystemTest extends TestCase
     protected User $adminUser;
     protected Project $project;
     protected BomItem $bomItem;
+    protected BomItem $bomItem2;
     protected QuantityCalculationService $calcService;
 
     protected function setUp(): void
@@ -75,8 +76,9 @@ class WorkflowStrictRevertSystemTest extends TestCase
     /**
      * Helper to create store receipt.
      */
-    protected function createStoreReceipt(string $side, int $quantity): ReceiptItem
+    protected function createStoreReceipt(string $side, int $quantity, ?BomItem $item = null): ReceiptItem
     {
+        $targetItem = $item ?? $this->bomItem;
         $receipt = Receipt::create([
             'project_id' => $this->project->id,
             'received_by' => $this->adminUser->id,
@@ -86,7 +88,7 @@ class WorkflowStrictRevertSystemTest extends TestCase
 
         return ReceiptItem::create([
             'receipt_id' => $receipt->id,
-            'bom_item_id' => $this->bomItem->id,
+            'bom_item_id' => $targetItem->id,
             'side' => $side,
             'received_quantity' => $quantity,
             'status' => 'received',
@@ -559,5 +561,235 @@ class WorkflowStrictRevertSystemTest extends TestCase
         ]);
         $res3->assertStatus(422);
         $res3->assertJson(['success' => false]);
+    }
+
+    /**
+     * Helper to create a secondary BOM item with requirements for bulk testing.
+     */
+    protected function createSecondaryBomItem(): BomItem
+    {
+        $item = BomItem::create([
+            'project_id' => $this->project->id,
+            'jig_no' => '169961@',
+            'unit_no' => '01',
+            'item_no' => '030',
+            'standard_part_no' => '030#R00',
+            'part_description' => 'Revert Secondary Bracket',
+        ]);
+
+        BomRequirement::create([
+            'bom_item_id' => $item->id,
+            'side' => 'LH',
+            'required_quantity' => 2,
+        ]);
+        BomRequirement::create([
+            'bom_item_id' => $item->id,
+            'side' => 'RH',
+            'required_quantity' => 2,
+        ]);
+
+        return $item;
+    }
+
+    /**
+     * Test 11: Bulk Revert in Store (multiple parts reverted atomically to supplier pending arrival).
+     */
+    public function test_bulk_revert_multiple_items_in_store_atomically(): void
+    {
+        $item2 = $this->createSecondaryBomItem();
+        $rec1 = $this->createStoreReceipt('LH', 2, $this->bomItem);
+        $rec2 = $this->createStoreReceipt('LH', 2, $item2);
+
+        $response = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/bulk-revert', [
+            'department' => 'store',
+            'items' => [
+                ['bom_item_id' => $this->bomItem->id, 'side' => 'LH', 'quantity' => 1],
+                ['bom_item_id' => $item2->id, 'side' => 'LH', 'quantity' => 1],
+            ],
+            'reason' => 'Bulk store return to vendor',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'total_reverted' => 2,
+            'items_count' => 2,
+        ]);
+
+        $metricsLh = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(2, $metricsLh['parts_in_store']); // 1 + 1 remaining
+        $this->assertEquals(2, $metricsLh['total_received']);
+        $this->assertEquals(2, $metricsLh['total_pending']); // Restored 2 pending
+    }
+
+    /**
+     * Test 12: Bulk Revert in QC (multiple parts physical arrival reverted to Store Bay).
+     */
+    public function test_bulk_revert_multiple_items_in_qc_to_store_atomically(): void
+    {
+        $item2 = $this->createSecondaryBomItem();
+        $rec1 = $this->createStoreReceipt('LH', 2, $this->bomItem);
+        $rec1->update(['status' => 'qc_received']);
+
+        $rec2 = $this->createStoreReceipt('LH', 2, $item2);
+        $rec2->update(['status' => 'qc_received']);
+
+        $response = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/bulk-revert', [
+            'department' => 'qc',
+            'items' => [
+                ['bom_item_id' => $this->bomItem->id, 'side' => 'LH', 'quantity' => 2],
+                ['bom_item_id' => $item2->id, 'side' => 'LH', 'quantity' => 1],
+            ],
+            'reason' => 'Bulk return to store inspection error',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'total_reverted' => 3,
+            'items_count' => 2,
+        ]);
+
+        $metricsLh = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(3, $metricsLh['parts_in_store']); // 2 from item1 + 1 from item2
+        $this->assertEquals(1, $metricsLh['parts_in_qc']); // 1 from item2
+    }
+
+    /**
+     * Test 13: Bulk Revert in Rework back to QC.
+     */
+    public function test_bulk_revert_multiple_items_in_rework_to_qc_atomically(): void
+    {
+        $item2 = $this->createSecondaryBomItem();
+        $rec1 = $this->createStoreReceipt('LH', 2, $this->bomItem);
+        $rec1->update(['status' => 'qc_received']);
+        QcInspection::create([
+            'receipt_item_id' => $rec1->id,
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'rework_quantity' => 2,
+            'result' => 'rework',
+            'status' => 'rework_needed',
+            'inspected_by' => $this->adminUser->id,
+        ]);
+
+        $rec2 = $this->createStoreReceipt('LH', 2, $item2);
+        $rec2->update(['status' => 'qc_received']);
+        QcInspection::create([
+            'receipt_item_id' => $rec2->id,
+            'bom_item_id' => $item2->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'rework_quantity' => 2,
+            'result' => 'rework',
+            'status' => 'rework_needed',
+            'inspected_by' => $this->adminUser->id,
+        ]);
+
+        $response = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/bulk-revert', [
+            'department' => 'rework',
+            'items' => [
+                ['bom_item_id' => $this->bomItem->id, 'side' => 'LH', 'quantity' => 1],
+                ['bom_item_id' => $item2->id, 'side' => 'LH', 'quantity' => 2],
+            ],
+            'reason' => 'False rework trigger corrected',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'total_reverted' => 3,
+            'items_count' => 2,
+        ]);
+
+        $metricsLh = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(1, $metricsLh['parts_in_rework']); // 1 left on item1
+        $this->assertEquals(3, $metricsLh['parts_in_qc']); // 1 from item1 + 2 from item2
+    }
+
+    /**
+     * Test 14: Bulk Revert in Paint back to QC.
+     */
+    public function test_bulk_revert_multiple_items_in_paint_to_qc_atomically(): void
+    {
+        $item2 = $this->createSecondaryBomItem();
+        $rec1 = $this->createStoreReceipt('LH', 2, $this->bomItem);
+        $rec1->update(['status' => 'qc_received']);
+        QcInspection::create([
+            'receipt_item_id' => $rec1->id,
+            'bom_item_id' => $this->bomItem->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'approved_quantity' => 2,
+            'destination' => 'PAINT',
+            'result' => 'approved',
+            'status' => 'approved',
+            'inspected_by' => $this->adminUser->id,
+        ]);
+
+        $rec2 = $this->createStoreReceipt('LH', 2, $item2);
+        $rec2->update(['status' => 'qc_received']);
+        QcInspection::create([
+            'receipt_item_id' => $rec2->id,
+            'bom_item_id' => $item2->id,
+            'side' => 'LH',
+            'inspected_quantity' => 2,
+            'approved_quantity' => 2,
+            'destination' => 'PAINT',
+            'result' => 'approved',
+            'status' => 'approved',
+            'inspected_by' => $this->adminUser->id,
+        ]);
+
+        $response = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/bulk-revert', [
+            'department' => 'paint',
+            'items' => [
+                ['bom_item_id' => $this->bomItem->id, 'side' => 'LH', 'quantity' => 2],
+                ['bom_item_id' => $item2->id, 'side' => 'LH', 'quantity' => 1],
+            ],
+            'reason' => 'Quality re-check required before painting',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'total_reverted' => 3,
+            'items_count' => 2,
+        ]);
+
+        $metricsLh = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(1, $metricsLh['parts_in_paint']); // 1 left on item2
+        $this->assertEquals(3, $metricsLh['parts_in_qc']); // 2 from item1 + 1 from item2
+    }
+
+    /**
+     * Test 15: Bulk Revert Failure Rollback (Atomicity guarantee).
+     */
+    public function test_bulk_revert_fails_and_rolls_back_if_any_single_item_exceeds_quantity(): void
+    {
+        $item2 = $this->createSecondaryBomItem();
+        $rec1 = $this->createStoreReceipt('LH', 2, $this->bomItem);
+        $rec1->update(['status' => 'qc_received']);
+
+        $rec2 = $this->createStoreReceipt('LH', 1, $item2);
+        $rec2->update(['status' => 'qc_received']);
+
+        // Item 1 has 2, Item 2 only has 1. We request 1 for Item 1 and 5 for Item 2.
+        $response = $this->actingAs($this->adminUser)->postJson('/api/v1/workflow/bulk-revert', [
+            'department' => 'qc',
+            'items' => [
+                ['bom_item_id' => $this->bomItem->id, 'side' => 'LH', 'quantity' => 1],
+                ['bom_item_id' => $item2->id, 'side' => 'LH', 'quantity' => 5], // Fails
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $response->assertJson(['success' => false]);
+
+        // Entire transaction rolled back: both items remain unchanged in QC
+        $metricsLh = $this->calcService->calculateProjectMetrics($this->project, 'LH');
+        $this->assertEquals(3, $metricsLh['parts_in_qc']);
+        $this->assertEquals(0, $metricsLh['parts_in_store']);
     }
 }
