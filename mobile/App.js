@@ -557,7 +557,7 @@ function App() {
       }
       const update = await Updates.checkForUpdateAsync();
       if (update.isAvailable) {
-        showToast('Downloading Phase 4 update...');
+        showToast('Downloading update...');
         await Updates.fetchUpdateAsync();
         Alert.alert(
           'Update Downloaded',
@@ -568,14 +568,42 @@ function App() {
           ]
         );
       } else {
-        Alert.alert('Up to Date', 'Your app is running the latest Phase 4 update (v2.4.0).');
+        Alert.alert(
+          'App Up to Date',
+          `Running latest build.\nUpdate ID: ${Updates.updateId ? Updates.updateId.slice(0, 8) : 'Embedded'}\nChannel: ${Updates.channel || 'Active'}\nStore Revert & Units Active.`
+        );
       }
     } catch (e) {
-      Alert.alert('App Version Info', `Running Build v2.4.0 (Phase 4).\nChannel: preview\nStatus: Latest bundle active`);
+      Alert.alert('App Version Info', `Update Status:\n${e.message || 'Latest bundle active.'}`);
     } finally {
       setOtaChecking(false);
     }
   };
+
+  // Automatic OTA update check on app launch
+  useEffect(() => {
+    async function autoCheckOta() {
+      if (__DEV__) return;
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          showToast('Downloading latest update...');
+          await Updates.fetchUpdateAsync();
+          Alert.alert(
+            'New Update Available',
+            'A new update with Store Revert and JIG Units fixes has been downloaded. Restart the app now to apply it immediately?',
+            [
+              { text: 'Later', style: 'cancel' },
+              { text: 'Restart Now', onPress: () => Updates.reloadAsync() }
+            ]
+          );
+        }
+      } catch (e) {
+        console.log('OTA Auto-check error:', e);
+      }
+    }
+    autoCheckOta();
+  }, []);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -1640,9 +1668,19 @@ function App() {
             </Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-          <Text style={styles.logoutBtnText}>Logout</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <TouchableOpacity
+            style={[styles.logoutBtn, { backgroundColor: '#f1f5f9', borderColor: '#cbd5e1' }]}
+            onPress={handleCheckOtaUpdate}
+            disabled={otaChecking}>
+            <Text style={[styles.logoutBtnText, { color: '#334155' }]}>
+              {otaChecking ? '⏳' : '🔄 Update'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+            <Text style={styles.logoutBtnText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Navigation Tabs Bar */}
