@@ -3457,16 +3457,6 @@ function App() {
                       </Text>
                     </View>
 
-                    <Text style={[styles.label, { marginTop: 10, color: '#b45309', fontWeight: '800' }]}>
-                      Completed Quantity to Return to QC (1 to {avail})
-                    </Text>
-                    <View style={styles.qtyStepperRow}>
-                      <TouchableOpacity
-                        style={[styles.qtyBtn, { borderColor: '#f59e0b' }]}
-                        onPress={() => setReworkQty(String(Math.max(1, rQty - 1)))}>
-                        <Text style={[styles.qtyBtnText, { color: '#f59e0b' }]}>−</Text>
-                      </TouchableOpacity>
-                      <TextInput
                     <View style={{ marginTop: 10 }}>
                       <CompactQuantitySelector
                         label={`Completed Quantity to Return to QC (1 to ${avail})`}
