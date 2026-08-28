@@ -958,17 +958,8 @@
                     </td>
                     <td>
                       <span 
-                        class="badge"
-                        :class="{
-                          'bg-primary': row.status === 'BOM Required',
-                          'bg-success': row.status === 'Store Received' || row.status === 'Assembly Completed',
-                          'bg-dark': row.status === 'Pending Store Receipt',
-                          'bg-warning text-dark': row.status === 'In Store Bay' || row.status === 'In Rework Queue',
-                          'bg-info text-dark': row.status === 'QC Inspection Queue',
-                          'bg-danger': row.status === 'QC Rejected',
-                          'bg-purple text-white': row.status === 'In Paint Queue',
-                          'bg-pink text-white': row.status === 'In Assembly Queue',
-                        }"
+                        class="badge fw-semibold"
+                        :class="getDrilldownStatusBadgeClass(row.status, row.substate)"
                       >
                         {{ row.status }}
                       </span>
@@ -1170,6 +1161,49 @@ const fetchKpiDrilldown = async () => {
   } finally {
     kpiDrilldownLoading.value = false;
   }
+};
+
+const getDrilldownStatusBadgeClass = (status, substate) => {
+  const s = String(status || '').toUpperCase();
+  const sub = String(substate || '').toUpperCase();
+
+  // Completed / Assembled
+  if (s.includes('COMPLET') || sub.includes('COMPLET') || s.includes('ASSEMBLED')) {
+    return 'bg-success text-white';
+  }
+  // Rejected
+  if (s.includes('REJECT') || sub.includes('REJECT')) {
+    return 'bg-danger text-white';
+  }
+  // Rework
+  if (s.includes('REWORK') || sub.includes('REWORK')) {
+    return 'bg-warning text-dark';
+  }
+  // Paint
+  if (s.includes('PAINT') || sub.includes('PAINT')) {
+    return 'bg-purple text-white';
+  }
+  // Assembly
+  if (s.includes('ASSEMBLY') || sub.includes('ASSEMBLY')) {
+    return 'bg-pink text-white';
+  }
+  // QC / Inspection
+  if (s.includes('QC') || s.includes('INSPECT') || sub.includes('QC')) {
+    return 'bg-info text-dark';
+  }
+  // Store / Received
+  if (s.includes('STORE') || s.includes('RECEIVED') || sub.includes('STORE')) {
+    return 'bg-primary text-white';
+  }
+  // Pending
+  if (s.includes('PENDING')) {
+    return 'bg-secondary text-white';
+  }
+  if (s.includes('BOM REQUIRED') || s === 'REQUIRED') {
+    return 'bg-primary text-white';
+  }
+  
+  return 'bg-dark text-white';
 };
 
 const exportKpiExcel = async () => {
