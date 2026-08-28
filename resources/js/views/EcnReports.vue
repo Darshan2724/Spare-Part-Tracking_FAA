@@ -294,39 +294,71 @@
             No ECN requirements registered for this project yet.
           </div>
 
-          <!-- ECN Nodes Accordion -->
-          <div v-else class="accordion" id="ecnAccordion">
-            <div v-for="(ecnNode, eIdx) in hierarchyNodes" :key="ecnNode.ecn_number" class="accordion-item mb-2 border rounded shadow-sm">
-              <h2 class="accordion-header" :id="'heading' + eIdx">
-                <button
-                  class="accordion-button py-2.5 px-3"
-                  type="button"
-                  data-bs-toggle="collapse"
-                  :data-bs-target="'#collapse' + eIdx"
-                  :aria-expanded="eIdx === 0 ? 'true' : 'false'"
-                >
-                  <div class="d-flex justify-content-between align-items-center w-100 me-3 flex-wrap gap-2">
-                    <div class="d-flex align-items-center gap-2">
-                      <span class="badge text-white px-2.5 py-1" style="background-color: #b45309; font-size: 0.85rem;">
-                        {{ ecnNode.ecn_number }}
-                      </span>
-                      <strong>{{ ecnNode.jigs?.length || 0 }} Jigs</strong>
-                    </div>
-                    <div class="small">
-                      <span class="badge bg-secondary me-2">Required: {{ ecnNode.total_required }} pcs</span>
-                      <span class="badge bg-success">Received: {{ ecnNode.total_received }} pcs</span>
-                    </div>
+          <!-- ECN Nodes Hierarchy -->
+          <div v-else class="d-flex flex-column gap-3" id="ecnAccordion">
+            <div v-for="(ecnNode, eIdx) in hierarchyNodes" :key="ecnNode.ecn_number" class="card border-0 shadow-sm overflow-hidden">
+              <!-- ECN Node Header -->
+              <div 
+                class="card-header py-3 px-3 d-flex justify-content-between align-items-center flex-wrap gap-2 cursor-pointer select-none bg-white border-bottom"
+                @click="toggleEcnExpand(ecnNode.ecn_number)"
+              >
+                <div class="d-flex align-items-center gap-3">
+                  <button 
+                    type="button" 
+                    class="btn btn-sm btn-light border rounded-circle p-0 d-flex align-items-center justify-content-center"
+                    style="width: 28px; height: 28px;"
+                    @click.stop="toggleEcnExpand(ecnNode.ecn_number)"
+                  >
+                    <i class="fas" :class="expandedEcns[ecnNode.ecn_number] ? 'fa-chevron-down text-primary' : 'fa-chevron-right text-muted'"></i>
+                  </button>
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="badge text-white px-2.5 py-1" style="background-color: #b45309; font-size: 0.85rem;">
+                      {{ ecnNode.ecn_number }}
+                    </span>
+                    <strong class="text-dark">{{ ecnNode.jigs?.length || 0 }} Jigs</strong>
                   </div>
-                </button>
-              </h2>
-              <div :id="'collapse' + eIdx" class="accordion-collapse collapse" :class="{ 'show': eIdx === 0 }" :data-bs-parent="'#ecnAccordion'">
-                <div class="accordion-body p-3 bg-light">
-                  <div v-for="jig in ecnNode.jigs" :key="jig.jig_no" class="card border mb-3">
-                    <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
-                      <span class="fw-bold text-primary"><i class="fas fa-layer-group me-1"></i>JIG: {{ jig.jig_no }}</span>
-                      <span class="badge bg-light text-dark border">Units: {{ jig.units?.length || 0 }}</span>
+                </div>
+                <div class="d-flex align-items-center gap-2 small">
+                  <span class="badge bg-secondary">Required: {{ ecnNode.total_required }} pcs</span>
+                  <span class="badge bg-success">Received: {{ ecnNode.total_received }} pcs</span>
+                </div>
+              </div>
+
+              <!-- ECN Node Body: JIGS -->
+              <div v-if="expandedEcns[ecnNode.ecn_number]" class="card-body p-3 bg-light">
+                <div class="d-flex flex-column gap-3">
+                  <div 
+                    v-for="jig in ecnNode.jigs" 
+                    :key="jig.jig_no" 
+                    class="card border-0 shadow-sm bg-white overflow-hidden"
+                  >
+                    <!-- JIG HEADER (Level 3) -->
+                    <div 
+                      class="card-header py-2.5 px-3 d-flex justify-content-between align-items-center flex-wrap gap-2 cursor-pointer select-none bg-white border-bottom"
+                      @click="toggleJigExpand(`${ecnNode.ecn_number}_${jig.jig_no}`)"
+                    >
+                      <div class="d-flex align-items-center gap-3">
+                        <button 
+                          type="button"
+                          class="btn btn-sm btn-light border rounded-circle p-0 d-flex align-items-center justify-content-center"
+                          style="width: 26px; height: 26px;"
+                          @click.stop="toggleJigExpand(`${ecnNode.ecn_number}_${jig.jig_no}`)"
+                        >
+                          <i class="fas" :class="expandedJigs[`${ecnNode.ecn_number}_${jig.jig_no}`] ? 'fa-chevron-down text-primary' : 'fa-chevron-right text-muted'"></i>
+                        </button>
+                        <div class="d-flex align-items-center gap-2">
+                          <span class="fw-bold text-dark"><i class="fas fa-layer-group text-primary me-1.5"></i>JIG: {{ jig.jig_no }}</span>
+                          <span class="badge bg-light text-dark border">{{ jig.units?.length || 0 }} Units</span>
+                        </div>
+                      </div>
+                      <div class="d-flex align-items-center gap-2 small">
+                        <span class="badge bg-light text-dark border">Req: <strong>{{ jig.total_required }}</strong></span>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle">Rec: <strong>{{ jig.total_received }}</strong></span>
+                      </div>
                     </div>
-                    <div class="card-body p-2">
+
+                    <!-- JIG BODY: UNITS & PARTS (Hidden until Jig arrow is clicked) -->
+                    <div v-if="expandedJigs[`${ecnNode.ecn_number}_${jig.jig_no}`]" class="card-body p-3 bg-light">
                       <div class="row g-2">
                         <div v-for="unit in jig.units" :key="unit.unit_no" class="col-12 col-md-6 col-xl-4">
                           <div class="p-2 border rounded bg-white shadow-xs">
@@ -502,6 +534,17 @@ const drilldownTitle = ref('');
 const drilldownData = ref([]);
 const drilldownSearch = ref('');
 
+const expandedEcns = ref({});
+const expandedJigs = ref({});
+
+const toggleEcnExpand = (ecnNumber) => {
+  expandedEcns.value[ecnNumber] = !expandedEcns.value[ecnNumber];
+};
+
+const toggleJigExpand = (jigKey) => {
+  expandedJigs.value[jigKey] = !expandedJigs.value[jigKey];
+};
+
 const selectedProjectObj = computed(() => {
   if (!filters.value.project_id) return null;
   return allProjects.value.find(p => p.id === Number(filters.value.project_id));
@@ -576,6 +619,8 @@ const fetchEcnData = async () => {
 };
 
 const onProjectChange = () => {
+  expandedEcns.value = {};
+  expandedJigs.value = {};
   fetchEcnData();
 };
 
@@ -586,6 +631,8 @@ const resetFilters = () => {
     date_from: '',
     date_to: '',
   };
+  expandedEcns.value = {};
+  expandedJigs.value = {};
   fetchEcnData();
 };
 
