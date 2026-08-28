@@ -143,8 +143,19 @@ class HierarchyService
         foreach ($ecnReqs as $er) {
             $jKey = strtoupper(trim($er->jig_no));
             $uRaw = trim($er->unit_no);
-            $uKey = str_starts_with(strtoupper($uRaw), 'UNIT') ? $uRaw : ('Unit ' . $uRaw);
-            $ecnReqsByUnit[$jKey . '|' . $uKey][] = $er;
+            $cleanNo = trim(str_ireplace('unit', '', $uRaw));
+            $paddedNo = is_numeric($cleanNo) ? sprintf('%02d', (int)$cleanNo) : $cleanNo;
+
+            $aliases = array_unique([
+                $jKey . '|' . $uRaw,
+                $jKey . '|' . $cleanNo,
+                $jKey . '|Unit ' . $cleanNo,
+                $jKey . '|Unit ' . $paddedNo,
+            ]);
+
+            foreach ($aliases as $aKey) {
+                $ecnReqsByUnit[$aKey][] = $er;
+            }
         }
 
         $jigsTree = [];
@@ -598,8 +609,8 @@ class HierarchyService
                     }
                 }
 
-                // Attach ECN parts for this Unit directly to Unit parts AND sides
-                $unitEcnReqs = $ecnReqsByUnit[$jigName . '|' . $unitNo] ?? [];
+                $rawU = trim(str_ireplace('unit', '', $unitNo));
+                $unitEcnReqs = $ecnReqsByUnit[$jigName . '|' . $unitNo] ?? ($ecnReqsByUnit[$jigName . '|' . $rawU] ?? []);
                 $allUnitParts = $unitData['parts']; // starts with regular parts
 
                 foreach ($unitEcnReqs as $er) {

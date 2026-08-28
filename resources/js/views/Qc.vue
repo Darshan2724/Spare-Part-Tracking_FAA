@@ -397,7 +397,10 @@
                         <tbody>
                           <tr v-for="part in (selectedUnitSide === 'LH' ? selectedUnitLhParts : selectedUnitRhParts)" :key="selectedUnitSide + '_' + part.id">
                             <td>
-                              <div class="fw-bold text-primary">{{ part.standard_part_no }}</div>
+                              <div class="fw-bold text-primary d-flex align-items-center gap-1.5 flex-wrap">
+                                <span>{{ part.standard_part_no }}</span>
+                                <span v-if="part.is_ecn" class="badge bg-warning text-dark extra-small">⚡ {{ part.ecn_number || 'ECN' }}</span>
+                              </div>
                               <small class="text-muted" v-if="part.item_no">Item #: {{ part.item_no }}</small>
                             </td>
                             <td>
