@@ -22,9 +22,7 @@ const routes = [
     },
     {
         path: '/ecn-import',
-        name: 'ecn-import',
-        component: () => import('@/views/EcnImport.vue'),
-        meta: { requiresAuth: true }
+        redirect: '/bom-import'
     },
     {
         path: '/reports',

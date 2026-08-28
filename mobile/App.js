@@ -1134,17 +1134,27 @@ function App() {
 
     setIsSubmittingReceive(true);
     try {
-      await apiClient.post('/store/receipts', {
-        project_id: selectedItemForReceive.project_id,
-        delivery_note_number: deliveryNote,
-        items: [
-          {
-            bom_item_id: selectedItemForReceive.id,
-            side: receiveSide,
-            received_quantity: qty,
-          }
-        ]
-      });
+      if (selectedItemForReceive.is_ecn) {
+        const ecnReqId = selectedItemForReceive.ecn_requirement_id || Number(String(selectedItemForReceive.id).replace('ecn_', ''));
+        await apiClient.post('/ecn/store/receive', {
+          ecn_requirement_id: ecnReqId,
+          received_quantity: qty,
+          delivery_note_number: deliveryNote,
+          remarks: 'Mobile ECN Store Intake',
+        });
+      } else {
+        await apiClient.post('/store/receipts', {
+          project_id: selectedItemForReceive.project_id,
+          delivery_note_number: deliveryNote,
+          items: [
+            {
+              bom_item_id: selectedItemForReceive.id,
+              side: receiveSide,
+              received_quantity: qty,
+            }
+          ]
+        });
+      }
 
       // Optimistic update for partial receipts in current unit view
       if (selectedUnit && selectedUnit.parts) {
@@ -1191,7 +1201,12 @@ function App() {
 
   const handleSendToQc = async (itemId) => {
     try {
-      await apiClient.post(`/store/items/${itemId}/send-to-qc`);
+      if (String(itemId).startsWith('ecn_')) {
+        const ecnReqId = Number(String(itemId).replace('ecn_', ''));
+        await apiClient.post('/ecn/store/send-to-qc', { ecn_requirement_id: ecnReqId });
+      } else {
+        await apiClient.post(`/store/items/${itemId}/send-to-qc`);
+      }
       showToast('Item dispatched to QC queue');
       invalidateMobileCache('store');
       invalidateMobileCache('qc');
@@ -1222,16 +1237,23 @@ function App() {
       return;
     }
 
-    const sideReceipts = sideStat.receipt_items || (item.receipt_items || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
-    const rec = sideReceipts.find(r => ['received', 'sent_to_qc'].includes(r.status));
-
     try {
-      await apiClient.post('/qc/receive', {
-        receipt_item_id: rec ? rec.id : null,
-        bom_item_id: item.id,
-        side: unitSideTab,
-        quantity: qty,
-      });
+      if (item.is_ecn) {
+        const ecnReqId = item.ecn_requirement_id || Number(String(item.id).replace('ecn_', ''));
+        await apiClient.post('/ecn/qc/receive', {
+          ecn_requirement_id: ecnReqId,
+          quantity: qty,
+        });
+      } else {
+        const sideReceipts = sideStat.receipt_items || (item.receipt_items || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
+        const rec = sideReceipts.find(r => ['received', 'sent_to_qc'].includes(r.status));
+        await apiClient.post('/qc/receive', {
+          receipt_item_id: rec ? rec.id : null,
+          bom_item_id: item.id,
+          side: unitSideTab,
+          quantity: qty,
+        });
+      }
       setShowPhysicalArrivalModal(false);
       showToast(`Physical Arrival Confirmed: ${qty} pcs of ${item.standard_part_no} (${unitSideTab})`);
       loadData('qc', false);
@@ -1336,24 +1358,41 @@ function App() {
     const payloadBomId = selectedQcItem.bom_item_id || selectedQcItem.bom_item?.id;
 
     try {
-      await apiClient.post('/qc/inspect', {
-        receipt_item_id: payloadReceiptId,
-        bom_item_id: payloadBomId,
-        side: payloadSide,
-        result: qcResult,
-        destination: paint > 0 ? (asm > 0 ? null : 'PAINT') : 'ASSEMBLY',
-        approved_quantity: qcResult === 'approved' ? app : 0,
-        paint_quantity: qcResult === 'approved' ? paint : 0,
-        assembly_quantity: qcResult === 'approved' ? asm : 0,
-        rejected_quantity: qcResult === 'rejected' ? rej : 0,
-        rework_quantity: qcResult === 'rework' ? rew : 0,
-        rejection_reason: qcReason,
-        rework_reason: qcReason,
-        remarks: qcRemarks,
-      });
+      if (selectedQcItem.is_ecn || selectedQcItem.bom_item?.is_ecn || String(payloadBomId).startsWith('ecn_')) {
+        const ecnReqId = selectedQcItem.ecn_requirement_id || selectedQcItem.bom_item?.ecn_requirement_id || Number(String(payloadBomId || payloadReceiptId).replace('ecn_', ''));
+        await apiClient.post('/ecn/qc/inspect', {
+          ecn_requirement_id: ecnReqId,
+          result: qcResult,
+          destination: paint > 0 ? (asm > 0 ? null : 'PAINT') : 'ASSEMBLY',
+          approved_quantity: qcResult === 'approved' ? app : 0,
+          paint_quantity: qcResult === 'approved' ? paint : 0,
+          assembly_quantity: qcResult === 'approved' ? asm : 0,
+          rejected_quantity: qcResult === 'rejected' ? rej : 0,
+          rework_quantity: qcResult === 'rework' ? rew : 0,
+          rejection_reason: qcReason,
+          rework_reason: qcReason,
+          remarks: qcRemarks,
+        });
+      } else {
+        await apiClient.post('/qc/inspect', {
+          receipt_item_id: payloadReceiptId,
+          bom_item_id: payloadBomId,
+          side: payloadSide,
+          result: qcResult,
+          destination: paint > 0 ? (asm > 0 ? null : 'PAINT') : 'ASSEMBLY',
+          approved_quantity: qcResult === 'approved' ? app : 0,
+          paint_quantity: qcResult === 'approved' ? paint : 0,
+          assembly_quantity: qcResult === 'approved' ? asm : 0,
+          rejected_quantity: qcResult === 'rejected' ? rej : 0,
+          rework_quantity: qcResult === 'rework' ? rew : 0,
+          rejection_reason: qcReason,
+          rework_reason: qcReason,
+          remarks: qcRemarks,
+        });
+      }
 
       setShowQcModal(false);
-      showToast(`QC ${qcResult.toUpperCase()}: ${selectedQcItem.bom_item?.standard_part_no || 'Item'} (${payloadSide})`);
+      showToast(`QC ${qcResult.toUpperCase()}: ${selectedQcItem.bom_item?.standard_part_no || selectedQcItem.standard_part_no || 'Item'} (${payloadSide})`);
       invalidateMobileCache('qc');
       invalidateMobileCache('dashboard');
       invalidateMobileCache('paint');
@@ -1391,7 +1430,14 @@ function App() {
     const payloadSide = selectedReworkItem.side || unitSideTab || 'COMMON';
 
     try {
-      if (payloadId) {
+      if (selectedReworkItem.is_ecn || selectedReworkItem.bom_item?.is_ecn || String(payloadBomId).startsWith('ecn_')) {
+        const ecnReqId = selectedReworkItem.ecn_requirement_id || selectedReworkItem.bom_item?.ecn_requirement_id || Number(String(payloadBomId || payloadId).replace('ecn_', ''));
+        await apiClient.post('/ecn/rework/complete', {
+          ecn_requirement_id: ecnReqId,
+          quantity: qty,
+          completion_notes: reworkNotes || 'Rework completed.',
+        });
+      } else if (payloadId) {
         await apiClient.post(`/rework/items/${payloadId}/complete`, {
           quantity: qty,
           completion_notes: reworkNotes || 'Rework completed.',
@@ -1465,18 +1511,29 @@ function App() {
     }
 
     try {
-      const payload = {
-        bom_item_id: selectedPaintItem.bom_item_id || selectedPaintItem.bom_item?.id || selectedPaintItem.id,
-        side: selectedPaintItem.side || unitSideTab || 'COMMON',
-        quantity: qty,
-        paint_type: paintType,
-        remarks: paintRemarks,
-      };
-      if (selectedPaintItem.approved_quantity && selectedPaintItem.id) {
-        payload.qc_inspection_id = selectedPaintItem.id;
+      const isEcn = selectedPaintItem.is_ecn || selectedPaintItem.bom_item?.is_ecn || String(selectedPaintItem.id).startsWith('ecn_');
+      if (isEcn) {
+        const ecnReqId = selectedPaintItem.ecn_requirement_id || selectedPaintItem.bom_item?.ecn_requirement_id || Number(String(selectedPaintItem.id).replace('ecn_', ''));
+        await apiClient.post('/ecn/paint/complete', {
+          ecn_requirement_id: ecnReqId,
+          quantity: qty,
+          paint_type: paintType,
+          remarks: paintRemarks,
+        });
+      } else {
+        const payload = {
+          bom_item_id: selectedPaintItem.bom_item_id || selectedPaintItem.bom_item?.id || selectedPaintItem.id,
+          side: selectedPaintItem.side || unitSideTab || 'COMMON',
+          quantity: qty,
+          paint_type: paintType,
+          remarks: paintRemarks,
+        };
+        if (selectedPaintItem.approved_quantity && selectedPaintItem.id) {
+          payload.qc_inspection_id = selectedPaintItem.id;
+        }
+        await apiClient.post('/paint/items', payload);
       }
 
-      await apiClient.post('/paint/items', payload);
       setShowPaintModal(false);
       showToast(`Paint Completed: ${qty} pcs of ${selectedPaintItem.bom_item?.standard_part_no || selectedPaintItem.standard_part_no || 'Part'}`);
       invalidateMobileCache('paint');
@@ -1512,16 +1569,26 @@ function App() {
 
     setIsSubmittingAssembly(true);
     try {
-      const payload = {
-        bom_item_id: part.id,
-        side: unitSideTab,
-        quantity: qty,
-        remarks: assemblyRemarks || 'Mobile Assembly Complete',
-      };
+      if (part.is_ecn || String(part.id).startsWith('ecn_')) {
+        const ecnReqId = part.ecn_requirement_id || Number(String(part.id).replace('ecn_', ''));
+        const res = await apiClient.post('/ecn/assembly/complete', {
+          ecn_requirement_id: ecnReqId,
+          quantity: qty,
+          remarks: assemblyRemarks || 'Mobile ECN Assembly Complete',
+        });
+        showToast(res.data?.message || `ECN Assembly Completed: ${qty} pcs of ${part.standard_part_no} (${unitSideTab})`);
+      } else {
+        const payload = {
+          bom_item_id: part.id,
+          side: unitSideTab,
+          quantity: qty,
+          remarks: assemblyRemarks || 'Mobile Assembly Complete',
+        };
+        const res = await apiClient.post('/assembly/items', payload);
+        showToast(res.data?.message || `Assembly Completed: ${qty} pcs of ${part.standard_part_no} (${unitSideTab})`);
+      }
 
-      const res = await apiClient.post('/assembly/items', payload);
       setShowAssemblyModal(false);
-      showToast(res.data?.message || `Assembly Completed: ${qty} pcs of ${part.standard_part_no} (${unitSideTab})`);
       invalidateMobileCache('assembly');
       invalidateMobileCache('dashboard');
       await loadData('assembly', false, null, true);
@@ -1558,19 +1625,32 @@ function App() {
 
     setIsSubmittingRevert(true);
     try {
-      const payload = {
-        department: revertDept,
-        bom_item_id: revertTargetItem.id,
-        side: revertSide,
-        quantity: qty,
-        source_type: selectedRevertOption?.source_type,
-        source_id: selectedRevertOption?.source_id,
-        reason: revertReason || 'Mobile workflow revert',
-      };
+      if (revertTargetItem.is_ecn || selectedRevertOption?.is_ecn || String(revertTargetItem.id).startsWith('ecn_')) {
+        const ecnReqId = revertTargetItem.ecn_requirement_id || Number(String(revertTargetItem.id).replace('ecn_', ''));
+        const res = await apiClient.post('/ecn/revert', {
+          department: revertDept,
+          ecn_requirement_id: ecnReqId,
+          quantity: qty,
+          source_type: selectedRevertOption?.source_type,
+          source_id: selectedRevertOption?.source_id,
+          reason: revertReason || 'Mobile ECN revert',
+        });
+        showToast(res.data?.message || `Successfully reverted ${qty} pcs of ECN ${revertTargetItem.standard_part_no}`);
+      } else {
+        const payload = {
+          department: revertDept,
+          bom_item_id: revertTargetItem.id,
+          side: revertSide,
+          quantity: qty,
+          source_type: selectedRevertOption?.source_type,
+          source_id: selectedRevertOption?.source_id,
+          reason: revertReason || 'Mobile workflow revert',
+        };
+        const res = await apiClient.post('/workflow/revert', payload);
+        showToast(res.data?.message || `Successfully reverted ${qty} pcs of ${revertTargetItem.standard_part_no}`);
+      }
 
-      const res = await apiClient.post('/workflow/revert', payload);
       setShowRevertModal(false);
-      showToast(res.data?.message || `Successfully reverted ${qty} pcs of ${revertTargetItem.standard_part_no}`);
 
       // Invalidate relevant department caches
       invalidateMobileCache('store');
@@ -2024,71 +2104,15 @@ function App() {
               </View>
             ) : null}
 
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-              <Text style={styles.label}>Server Host / IP</Text>
-              <TouchableOpacity onPress={() => handleTestConnection()} disabled={testingConnection}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: '#2563eb' }}>
-                  {testingConnection ? 'Testing...' : '⚡ Test Connection'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Quick Server Presets */}
-            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8, marginTop: 2 }}>
-              <TouchableOpacity
-                style={[styles.chipBtn, serverHost.includes('192.168.100.36') && styles.chipBtnActive]}
-                onPress={() => {
-                  setServerHost('192.168.100.36:8080');
-                  setBaseUrl('192.168.100.36:8080');
-                  handleTestConnection('192.168.100.36:8080');
-                }}>
-                <Text style={[styles.chipBtnText, serverHost.includes('192.168.100.36') && styles.chipBtnTextActive]}>
-                  📶 Wi-Fi (192.168.100.36)
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.chipBtn, serverHost.includes('192.168.9.200') && styles.chipBtnActive]}
-                onPress={() => {
-                  setServerHost('192.168.9.200:8080');
-                  setBaseUrl('192.168.9.200:8080');
-                  handleTestConnection('192.168.9.200:8080');
-                }}>
-                <Text style={[styles.chipBtnText, serverHost.includes('192.168.9.200') && styles.chipBtnTextActive]}>
-                  🏭 Plant LAN (192.168.9.200)
-                </Text>
-              </TouchableOpacity>
-            </View>
-
+            <Text style={[styles.label, { marginTop: 8 }]}>Server Host / IP</Text>
             <TextInput
               style={styles.input}
               value={serverHost}
-              onChangeText={(txt) => {
-                setServerHost(txt);
-                setConnectionStatus(null);
-              }}
+              onChangeText={setServerHost}
               placeholder="e.g. 192.168.100.36:8080"
               autoCapitalize="none"
               autoCorrect={false}
             />
-
-            {connectionStatus && (
-              <View style={{
-                padding: 8,
-                borderRadius: 6,
-                marginBottom: 8,
-                backgroundColor: connectionStatus.success ? '#f0fdf4' : '#fef2f2',
-                borderColor: connectionStatus.success ? '#22c55e' : '#ef4444',
-                borderWidth: 1,
-              }}>
-                <Text style={{
-                  fontSize: 11.5,
-                  fontWeight: '600',
-                  color: connectionStatus.success ? '#15803d' : '#b91c1c',
-                }}>
-                  {connectionStatus.msg}
-                </Text>
-              </View>
-            )}
 
             <Text style={styles.label}>Email Address</Text>
             <TextInput
@@ -3239,14 +3263,22 @@ function App() {
                           return (
                             <View
                               key={`part-rev-${item.id}-side-${unitSideTab}`}
-                              style={styles.compactRevertCard}>
-                              {/* Row 1: Part No + Side Pill + Reversible Badge */}
+                              style={[
+                                styles.compactRevertCard,
+                                item.is_ecn && { borderColor: '#f59e0b', backgroundColor: '#fffdf5' }
+                              ]}>
+                              {/* Row 1: Part No + ECN Badge + Side Pill + Reversible Badge */}
                               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                                  {item.is_ecn && (
+                                    <View style={styles.ecnBadge}>
+                                      <Text style={styles.ecnBadgeText}>⚡ {item.ecn_number || 'ECN'}</Text>
+                                    </View>
+                                  )}
                                   <Text style={styles.itemPartNo} numberOfLines={1}>{item.standard_part_no}</Text>
                                   <View style={unitSideTab === 'LH' ? styles.sidePillLh : styles.sidePillRh}>
                                     <Text style={unitSideTab === 'LH' ? styles.sidePillTextLh : styles.sidePillTextRh}>
-                                      {unitSideTab}
+                                      {unitSideTab}{item.original_side && item.original_side !== unitSideTab ? ` (${item.original_side})` : ''}
                                     </Text>
                                   </View>
                                 </View>
@@ -3304,9 +3336,10 @@ function App() {
                             }}
                             style={[
                               styles.itemCard,
+                              item.is_ecn && { borderColor: '#f59e0b', borderWidth: 1.5, backgroundColor: '#fffdf5' },
                               isSelected && { borderColor: '#2563eb', borderWidth: 2, backgroundColor: '#eff6ff' }
                             ]}>
-                            {/* Row 1: Part No + Side Pill + Status Badge + Checkbox */}
+                            {/* Row 1: Part No + ECN Badge + Side Pill + Status Badge + Checkbox */}
                             <View style={styles.itemHeader}>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                                 {isSelectionMode && (
@@ -3314,15 +3347,20 @@ function App() {
                                     {isSelected && <Text style={styles.checkmarkText}>✓</Text>}
                                   </View>
                                 )}
+                                {item.is_ecn && (
+                                  <View style={styles.ecnBadge}>
+                                    <Text style={styles.ecnBadgeText}>⚡ {item.ecn_number || 'ECN'}</Text>
+                                  </View>
+                                )}
                                 <Text style={styles.itemPartNo} numberOfLines={1}>{item.standard_part_no}</Text>
                                 <View style={unitSideTab === 'LH' ? styles.sidePillLh : styles.sidePillRh}>
                                   <Text style={unitSideTab === 'LH' ? styles.sidePillTextLh : styles.sidePillTextRh}>
-                                    {unitSideTab}
+                                    {unitSideTab}{item.original_side && item.original_side !== unitSideTab ? ` (${item.original_side})` : ''}
                                   </Text>
                                 </View>
                               </View>
-                              <Text style={styles.itemStatus}>
-                                {item.is_complete ? 'FULFILLED' : 'ACTIVE'}
+                              <Text style={[styles.itemStatus, item.is_ecn && { color: '#b45309', backgroundColor: '#fef3c7' }]}>
+                                {item.is_ecn ? (item.is_complete ? 'ECN DONE' : '⚡ ECN') : (item.is_complete ? 'FULFILLED' : 'ACTIVE')}
                               </Text>
                             </View>
 
@@ -3333,7 +3371,7 @@ function App() {
                                   <Text style={{ fontWeight: '700', color: '#1e293b' }}>Req: {req}</Text> • Rec: {rec} • Pen: {pen}
                                 </Text>
                                 <Text style={[styles.itemSubText, { fontSize: 10, color: '#64748b', maxWidth: '45%' }]} numberOfLines={1}>
-                                  {item.supplier?.name || item.supplier_name_raw || 'Standard'}
+                                  {item.is_ecn ? `⚡ ECN Revision • ${item.ecn_number || ''}` : (item.supplier?.name || item.supplier_name_raw || 'Standard')}
                                 </Text>
                               </View>
                             </View>
@@ -5844,5 +5882,31 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#475569',
+  },
+  ecnBadge: {
+    backgroundColor: '#fef3c7',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  ecnBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#92400e',
+  },
+  ecnCounterBadge: {
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+  },
+  ecnCounterBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#b45309',
   },
 });

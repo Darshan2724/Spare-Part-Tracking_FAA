@@ -12,11 +12,45 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+
 class BomImportService
 {
     public function __construct(
-        protected ProjectIdentityResolver $projectResolver
+        protected ProjectIdentityResolver $projectResolver = new ProjectIdentityResolver(),
+        protected ?EcnImportService $ecnImportService = null
     ) {
+        if ($this->ecnImportService === null) {
+            $this->ecnImportService = new EcnImportService($this->projectResolver);
+        }
+    }
+
+    /**
+     * Inspect workbook header structure to auto-detect if this is an ECN workbook.
+     */
+    public function isEcnWorkbook(string $path): bool
+    {
+        try {
+            $reader = IOFactory::createReaderForFile($path);
+            $reader->setReadDataOnly(true);
+            $spreadsheet = $reader->load($path);
+            $sheet = $spreadsheet->getActiveSheet();
+            $highestRow = min(25, (int)$sheet->getHighestRow());
+            $highestColStr = $sheet->getHighestColumn();
+            $highestCol = min(20, Coordinate::columnIndexFromString($highestColStr));
+
+            for ($r = 1; $r <= $highestRow; $r++) {
+                for ($c = 1; $c <= $highestCol; $c++) {
+                    $val = trim((string)$sheet->getCellByColumnAndRow($c, $r)->getValue());
+                    if (preg_match('/ecn\s*no/i', $val) || preg_match('/ecn\s*number/i', $val) || preg_match('/mfg\s*ecn\s*master\s*sheet/i', $val)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            return false;
+        }
+        return false;
     }
 
     /**
@@ -118,11 +152,19 @@ class BomImportService
     {
         $filename = $filename ? basename(str_replace('\\', '/', $filename)) : basename($path);
 
+        // Check if workbook is ECN structure
+        if ($this->isEcnWorkbook($path)) {
+            $ecnPreview = $this->ecnImportService->previewFromPath($path, $filename);
+            $ecnPreview['import_type'] = 'ECN';
+            return $ecnPreview;
+        }
+
         // 1. Immediate duplicate check before parsing
         $duplicateInfo = $this->checkDuplicateFile($path, $filename);
         if ($duplicateInfo) {
             return [
                 'success' => false,
+                'import_type' => 'REGULAR',
                 'is_duplicate' => true,
                 'is_duplicate_filename' => $duplicateInfo['is_duplicate_filename'] ?? false,
                 'error_title' => $duplicateInfo['error_title'] ?? 'Duplicate Filename',
@@ -143,6 +185,7 @@ class BomImportService
         if (!empty($extracted['errors'])) {
             return [
                 'success' => false,
+                'import_type' => 'REGULAR',
                 'filename' => $filename,
                 'sheet' => $extracted['sheet_name'],
                 'summary' => $extracted['summary'],
@@ -157,6 +200,7 @@ class BomImportService
 
         return [
             'success' => empty($extracted['errors']),
+            'import_type' => 'REGULAR',
             'filename' => $filename,
             'sheet' => $extracted['sheet_name'],
             'summary' => $extracted['summary'],
@@ -455,6 +499,13 @@ class BomImportService
     {
         $filename = $data['filename'] ?? basename($path);
         $filename = basename(str_replace('\\', '/', $filename));
+
+        // Check if import is ECN
+        if (($data['import_type'] ?? '') === 'ECN' || $this->isEcnWorkbook($path)) {
+            $ecnRes = $this->ecnImportService->importFromPath($path, $data, $userId);
+            $ecnRes['import_type'] = 'ECN';
+            return $ecnRes;
+        }
 
         // 1. Strict duplicate filename and content check before transaction
         $duplicateInfo = $this->checkDuplicateFile($path, $filename);
