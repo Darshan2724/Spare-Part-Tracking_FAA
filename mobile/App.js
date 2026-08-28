@@ -438,7 +438,7 @@ function App() {
   const [serverHost, setServerHost] = useState(
     process.env.EXPO_PUBLIC_API_URL 
       ? process.env.EXPO_PUBLIC_API_URL.replace(/^https?:\/\//i, '').replace(/\/api\/v1\/?$/i, '')
-      : '192.168.100.36:8080'
+      : '192.168.9.200:8080'
   );
   const [email, setEmail] = useState('admin@sparetrack.internal');
   const [password, setPassword] = useState('password123');
