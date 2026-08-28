@@ -220,24 +220,37 @@ class EcnQuantityCalculationService
      */
     public function preloadProjectEcnHierarchyMap(int $projectId): array
     {
-        $reqs = EcnRequirement::where('project_id', $projectId)
-            ->select('jig_no', 'unit_no', 'side_display', DB::raw('SUM(required_qty) as total_qty'))
-            ->groupBy('jig_no', 'unit_no', 'side_display')
-            ->get();
+        $reqs = EcnRequirement::where('project_id', $projectId)->get();
 
         $map = [
             'project_total' => 0,
+            'project_ecn_numbers' => [],
             'jigs' => [],
+            'jig_ecn_numbers' => [],
             'units' => [],
+            'unit_ecn_numbers' => [],
             'sides' => [],
         ];
 
         foreach ($reqs as $r) {
-            $qty = (int)$r->total_qty;
+            $qty = (int)$r->required_qty;
+            if ($qty <= 0) continue;
+
+            $ecnNum = trim((string)$r->ecn_number);
+
             $map['project_total'] += $qty;
+            if ($ecnNum !== '' && !in_array($ecnNum, $map['project_ecn_numbers'])) {
+                $map['project_ecn_numbers'][] = $ecnNum;
+            }
 
             // Jig
             $map['jigs'][$r->jig_no] = ($map['jigs'][$r->jig_no] ?? 0) + $qty;
+            if ($ecnNum !== '') {
+                $map['jig_ecn_numbers'][$r->jig_no] = $map['jig_ecn_numbers'][$r->jig_no] ?? [];
+                if (!in_array($ecnNum, $map['jig_ecn_numbers'][$r->jig_no])) {
+                    $map['jig_ecn_numbers'][$r->jig_no][] = $ecnNum;
+                }
+            }
 
             // Unit (key: jig|unit)
             $unitNo = (string)$r->unit_no;
@@ -253,6 +266,12 @@ class EcnQuantityCalculationService
 
             foreach ($unitAliases as $uKey) {
                 $map['units'][$uKey] = ($map['units'][$uKey] ?? 0) + $qty;
+                if ($ecnNum !== '') {
+                    $map['unit_ecn_numbers'][$uKey] = $map['unit_ecn_numbers'][$uKey] ?? [];
+                    if (!in_array($ecnNum, $map['unit_ecn_numbers'][$uKey])) {
+                        $map['unit_ecn_numbers'][$uKey][] = $ecnNum;
+                    }
+                }
             }
 
             // Side (key: jig|unit|side)
@@ -287,12 +306,7 @@ class EcnQuantityCalculationService
                   ->orWhere('received_qty', '>', 0);
             });
         } elseif ($dept === 'qc') {
-            $query->where(function ($q) {
-                $q->whereIn('current_state', ['SENT_TO_QC', 'QC'])
-                  ->orWhere(function ($sq) {
-                      $sq->where('current_state', 'STORE')->where('received_qty', '>', 0);
-                  });
-            });
+            $query->whereIn('current_state', ['SENT_TO_QC', 'QC']);
         } elseif ($dept === 'rework') {
             $query->where('current_state', 'REWORK');
         } elseif ($dept === 'paint') {
@@ -305,15 +319,18 @@ class EcnQuantityCalculationService
 
         $map = [
             'project_total' => 0,
+            'project_ecn_numbers' => [],
             'jigs' => [],
+            'jig_ecn_numbers' => [],
             'units' => [],
+            'unit_ecn_numbers' => [],
             'sides' => [],
         ];
 
         foreach ($reqs as $r) {
             $qty = match ($dept) {
                 'store' => (int)($r->current_state === 'STORE' ? $r->received_qty : max(0, $r->required_qty - $r->received_qty)),
-                'qc' => (int)($r->current_state === 'QC' || $r->current_state === 'SENT_TO_QC' ? ($r->received_qty ?: $r->required_qty) : 0),
+                'qc' => (int)($r->current_state === 'QC' || $r->current_state === 'SENT_TO_QC' ? ($r->received_qty ?: $r->required_qty) : ($r->current_state === 'STORE' && $r->received_qty > 0 ? $r->received_qty : 0)),
                 'rework' => (int)($r->current_state === 'REWORK' ? ($r->received_qty ?: $r->required_qty) : 0),
                 'paint' => (int)($r->current_state === 'PAINT' ? ($r->received_qty ?: $r->required_qty) : 0),
                 'assembly' => (int)(in_array($r->current_state, ['ASSEMBLY', 'ASSEMBLY_COMPLETED']) ? ($r->received_qty ?: $r->required_qty) : 0),
@@ -322,10 +339,21 @@ class EcnQuantityCalculationService
 
             if ($qty <= 0) continue;
 
+            $ecnNum = trim((string)$r->ecn_number);
+
             $map['project_total'] += $qty;
+            if ($ecnNum !== '' && !in_array($ecnNum, $map['project_ecn_numbers'])) {
+                $map['project_ecn_numbers'][] = $ecnNum;
+            }
 
             // Jig
             $map['jigs'][$r->jig_no] = ($map['jigs'][$r->jig_no] ?? 0) + $qty;
+            if ($ecnNum !== '') {
+                $map['jig_ecn_numbers'][$r->jig_no] = $map['jig_ecn_numbers'][$r->jig_no] ?? [];
+                if (!in_array($ecnNum, $map['jig_ecn_numbers'][$r->jig_no])) {
+                    $map['jig_ecn_numbers'][$r->jig_no][] = $ecnNum;
+                }
+            }
 
             // Unit (key: jig|unit)
             $unitNo = (string)$r->unit_no;
@@ -341,6 +369,12 @@ class EcnQuantityCalculationService
 
             foreach ($unitAliases as $uKey) {
                 $map['units'][$uKey] = ($map['units'][$uKey] ?? 0) + $qty;
+                if ($ecnNum !== '') {
+                    $map['unit_ecn_numbers'][$uKey] = $map['unit_ecn_numbers'][$uKey] ?? [];
+                    if (!in_array($ecnNum, $map['unit_ecn_numbers'][$uKey])) {
+                        $map['unit_ecn_numbers'][$uKey][] = $ecnNum;
+                    }
+                }
             }
 
             // Side (key: jig|unit|side)
@@ -351,6 +385,29 @@ class EcnQuantityCalculationService
         }
 
         return $map;
+    }
+
+    public function getEcnNumbersForHierarchy(
+        ?int $projectId = null,
+        ?string $jigNo = null,
+        ?string $unitNo = null,
+        string $department = 'manager'
+    ): array {
+        $dept = strtolower(trim($department));
+        if (!$projectId) {
+            return [];
+        }
+        $deptMap = $this->preloadProjectDepartmentEcnMap($projectId, $dept);
+        if ($jigNo !== null && $unitNo !== null) {
+            $rawU = trim(str_ireplace('unit', '', $unitNo));
+            return $deptMap['unit_ecn_numbers'][$jigNo . '|' . $rawU] 
+                ?? $deptMap['unit_ecn_numbers'][$jigNo . '|Unit ' . $rawU] 
+                ?? $deptMap['unit_ecn_numbers'][$jigNo . '|' . $unitNo]
+                ?? [];
+        } elseif ($jigNo !== null) {
+            return $deptMap['jig_ecn_numbers'][$jigNo] ?? [];
+        }
+        return $deptMap['project_ecn_numbers'] ?? [];
     }
 
     /**

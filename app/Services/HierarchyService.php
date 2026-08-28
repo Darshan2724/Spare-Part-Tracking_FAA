@@ -847,10 +847,13 @@ class HierarchyService
 
                 $rawU = str_replace('Unit ', '', $unitNo);
                 $uEcnCount = $ecnMap['units'][$jigName . '|' . $rawU] ?? ($ecnMap['units'][$jigName . '|' . $unitNo] ?? 0);
+                $uEcnNums = $ecnMap['unit_ecn_numbers'][$jigName . '|' . $rawU] ?? ($ecnMap['unit_ecn_numbers'][$jigName . '|' . $unitNo] ?? []);
                 $lhEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|LH'] ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|LH'] ?? 0);
                 $rhEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|RH'] ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|RH'] ?? 0);
 
                 $unitData['ecn_count'] = $uEcnCount;
+                $unitData['ecn_numbers'] = $uEcnNums;
+                $unitData['ecn_number_display'] = !empty($uEcnNums) ? implode(', ', $uEcnNums) : null;
                 $unitData['sides'] = [
                     'LH' => [
                         'side' => 'LH',
@@ -908,6 +911,9 @@ class HierarchyService
             // Section 10: Jig turns green only when ALL units in it are complete
             $jigData['is_complete'] = ($totalUnitsCount > 0 && $completeUnitsCount === $totalUnitsCount);
             $jigData['ecn_count'] = $ecnMap['jigs'][$jigName] ?? 0;
+            $jigEcnNums = $ecnMap['jig_ecn_numbers'][$jigName] ?? [];
+            $jigData['ecn_numbers'] = $jigEcnNums;
+            $jigData['ecn_number_display'] = !empty($jigEcnNums) ? implode(', ', $jigEcnNums) : null;
 
             $jigReq = $jigData['total_required'];
             $jigRec = $jigData['total_received'];
@@ -986,6 +992,8 @@ class HierarchyService
             default => ($reqSum > 0 ? min(100, round(($asmCompSum / $reqSum) * 100, 1)) : 100),
         };
 
+        $projEcnNums = $this->ecnQuantityService->getEcnNumbersForHierarchy($proj->id, null, null, $department);
+
         return [
             'id' => $proj->id,
             'name' => $proj->name,
@@ -1010,6 +1018,8 @@ class HierarchyService
             'is_complete' => ($progressPercent >= 100),
             'ecn_count' => $this->ecnQuantityService->getEcnCountsForHierarchy($proj->id, null, null, null, $department),
             'ecn_total_parts' => $this->ecnQuantityService->getEcnCountsForHierarchy($proj->id, null, null, null, $department),
+            'ecn_numbers' => $projEcnNums,
+            'ecn_number_display' => !empty($projEcnNums) ? implode(', ', $projEcnNums) : null,
         ];
     }
 

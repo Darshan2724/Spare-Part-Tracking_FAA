@@ -1365,7 +1365,10 @@ function App() {
     try {
       if (selectedQcItem.is_ecn || selectedQcItem.bom_item?.is_ecn || String(payloadBomId).startsWith('ecn_')) {
         const ecnReqId = selectedQcItem.ecn_requirement_id || selectedQcItem.bom_item?.ecn_requirement_id || Number(String(payloadBomId || payloadReceiptId).replace('ecn_', ''));
+        const ecnReceiptItemId = selectedQcItem.ecn_receipt_item_id || (typeof selectedQcItem.id === 'number' ? selectedQcItem.id : null) || selectedQcItem.receipt_item_id || null;
+
         await apiClient.post('/ecn/qc/inspect', {
+          ecn_receipt_item_id: ecnReceiptItemId,
           ecn_requirement_id: ecnReqId,
           result: qcResult,
           destination: paint > 0 ? (asm > 0 ? null : 'PAINT') : 'ASSEMBLY',
@@ -2785,9 +2788,9 @@ function App() {
                       <Text style={styles.itemSubText}>
                         Project Code: {proj.project_code || 'N/A'} • Total Parts: {proj.total_required || 0}
                       </Text>
-                      {Boolean(proj.ecn_count && proj.ecn_count > 0) && (
+                      {Boolean(proj.ecn_number_display || (proj.ecn_count && proj.ecn_count > 0)) && (
                         <View style={styles.ecnBadgeCompact}>
-                          <Text style={styles.ecnBadgeCompactText}>⚡ ECN: {proj.ecn_count}</Text>
+                          <Text style={styles.ecnBadgeCompactText}>⚡ ECN: {proj.ecn_number_display || `${proj.ecn_count} parts`}</Text>
                         </View>
                       )}
                     </View>
@@ -2857,9 +2860,9 @@ function App() {
                           <Text style={styles.itemSubText}>
                             {jig.complete_units} / {jig.total_units} Units Complete • Total Parts: {jig.total_parts || jig.total_required || 0}
                           </Text>
-                          {Boolean(jig.ecn_count && jig.ecn_count > 0) && (
+                          {Boolean(jig.ecn_number_display || (jig.ecn_count && jig.ecn_count > 0)) && (
                             <View style={styles.ecnBadgeCompact}>
-                              <Text style={styles.ecnBadgeCompactText}>⚡ ECN: {jig.ecn_count}</Text>
+                              <Text style={styles.ecnBadgeCompactText}>⚡ ECN: {jig.ecn_number_display || `${jig.ecn_count} parts`}</Text>
                             </View>
                           )}
                         </View>
@@ -3038,9 +3041,9 @@ function App() {
                                   <Text style={styles.unitPartsSubText}>
                                     Total Parts: {unit.total_required || unit.total_parts || (unit.parts ? unit.parts.filter(p => !p.is_ecn).length : 0)}
                                   </Text>
-                                  {Boolean(unit.ecn_count && unit.ecn_count > 0) && (
+                                  {Boolean(unit.ecn_number_display || (unit.ecn_count && unit.ecn_count > 0)) && (
                                     <View style={styles.ecnBadgeCompact}>
-                                      <Text style={styles.ecnBadgeCompactText}>⚡ ECN: {unit.ecn_count}</Text>
+                                      <Text style={styles.ecnBadgeCompactText}>⚡ ECN: {unit.ecn_number_display || `${unit.ecn_count} parts`}</Text>
                                     </View>
                                   )}
                                 </View>
@@ -3548,14 +3551,25 @@ function App() {
                                             <TouchableOpacity
                                               style={[styles.actionBtn, { flex: 1, backgroundColor: '#10b981' }]}
                                               onPress={() => {
-                                                const rec = sideReceipts.find(r => r.status === 'qc_received') || {
-                                                  id: null,
+                                                const rec = sideReceipts.find(r => r.status === 'qc_received') || sideReceipts[0] || {
+                                                  id: item.ecn_receipt_item_id || null,
                                                   bom_item_id: item.id,
                                                   received_quantity: pendingInsp,
                                                   bom_item: item,
                                                   side: unitSideTab
                                                 };
-                                                openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'approved');
+                                                const ecnReceiptId = item.is_ecn ? (rec.id || item.ecn_receipt_item_id || (sideReceipts[0]?.id)) : rec.id;
+                                                openQcModal({
+                                                  ...rec,
+                                                  id: ecnReceiptId,
+                                                  ecn_receipt_item_id: ecnReceiptId,
+                                                  is_ecn: item.is_ecn,
+                                                  ecn_requirement_id: item.ecn_requirement_id,
+                                                  bom_item_id: item.id,
+                                                  bom_item: item,
+                                                  side: unitSideTab,
+                                                  received_quantity: pendingInsp
+                                                }, 'approved');
                                               }}>
                                               <Text style={styles.actionBtnText}>APPROVE ({pendingInsp})</Text>
                                             </TouchableOpacity>
@@ -3563,14 +3577,25 @@ function App() {
                                             <TouchableOpacity
                                               style={[styles.actionBtn, { flex: 1, backgroundColor: '#f59e0b' }]}
                                               onPress={() => {
-                                                const rec = sideReceipts.find(r => r.status === 'qc_received') || {
-                                                  id: null,
+                                                const rec = sideReceipts.find(r => r.status === 'qc_received') || sideReceipts[0] || {
+                                                  id: item.ecn_receipt_item_id || null,
                                                   bom_item_id: item.id,
                                                   received_quantity: pendingInsp,
                                                   bom_item: item,
                                                   side: unitSideTab
                                                 };
-                                                openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'rework');
+                                                const ecnReceiptId = item.is_ecn ? (rec.id || item.ecn_receipt_item_id || (sideReceipts[0]?.id)) : rec.id;
+                                                openQcModal({
+                                                  ...rec,
+                                                  id: ecnReceiptId,
+                                                  ecn_receipt_item_id: ecnReceiptId,
+                                                  is_ecn: item.is_ecn,
+                                                  ecn_requirement_id: item.ecn_requirement_id,
+                                                  bom_item_id: item.id,
+                                                  bom_item: item,
+                                                  side: unitSideTab,
+                                                  received_quantity: pendingInsp
+                                                }, 'rework');
                                               }}>
                                               <Text style={styles.actionBtnText}>REWORK ({pendingInsp})</Text>
                                             </TouchableOpacity>
@@ -3578,14 +3603,25 @@ function App() {
                                             <TouchableOpacity
                                               style={[styles.actionBtn, { flex: 1, backgroundColor: '#ef4444' }]}
                                               onPress={() => {
-                                                const rec = sideReceipts.find(r => r.status === 'qc_received') || {
-                                                  id: null,
+                                                const rec = sideReceipts.find(r => r.status === 'qc_received') || sideReceipts[0] || {
+                                                  id: item.ecn_receipt_item_id || null,
                                                   bom_item_id: item.id,
                                                   received_quantity: pendingInsp,
                                                   bom_item: item,
                                                   side: unitSideTab
                                                 };
-                                                openQcModal({ ...rec, bom_item_id: item.id, bom_item: item, side: unitSideTab, received_quantity: pendingInsp }, 'rejected');
+                                                const ecnReceiptId = item.is_ecn ? (rec.id || item.ecn_receipt_item_id || (sideReceipts[0]?.id)) : rec.id;
+                                                openQcModal({
+                                                  ...rec,
+                                                  id: ecnReceiptId,
+                                                  ecn_receipt_item_id: ecnReceiptId,
+                                                  is_ecn: item.is_ecn,
+                                                  ecn_requirement_id: item.ecn_requirement_id,
+                                                  bom_item_id: item.id,
+                                                  bom_item: item,
+                                                  side: unitSideTab,
+                                                  received_quantity: pendingInsp
+                                                }, 'rejected');
                                               }}>
                                               <Text style={styles.actionBtnText}>REJECT ({pendingInsp})</Text>
                                             </TouchableOpacity>

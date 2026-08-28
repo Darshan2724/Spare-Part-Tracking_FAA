@@ -103,23 +103,53 @@ class EcnWorkflowController extends Controller
 
     public function qcInspect(Request $request)
     {
+        $receiptItemId = $request->input('ecn_receipt_item_id');
+        $reqId = $request->input('ecn_requirement_id');
+
+        if (!$receiptItemId && $reqId) {
+            $latestItem = \App\Models\EcnReceiptItem::where('ecn_requirement_id', (int)$reqId)
+                ->whereIn('status', ['qc_received', 'sent_to_qc', 'received'])
+                ->orderByRaw("CASE WHEN status = 'qc_received' THEN 1 WHEN status = 'sent_to_qc' THEN 2 ELSE 3 END")
+                ->latest('id')
+                ->first();
+            $receiptItemId = $latestItem?->id;
+        }
+
+        if (!$receiptItemId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'ECN inspection record is incomplete (no active ECN QC receipt item found). Please refresh the QC queue and try again.',
+                'error_code' => 'ECN_RECEIPT_ITEM_ID_MISSING'
+            ], 422);
+        }
+
+        $request->merge(['ecn_receipt_item_id' => $receiptItemId]);
+
         $request->validate([
             'ecn_receipt_item_id' => ['required', 'integer', 'exists:ecn_receipt_items,id'],
             'approved_quantity' => ['nullable', 'integer', 'min:0'],
+            'paint_quantity' => ['nullable', 'integer', 'min:0'],
+            'assembly_quantity' => ['nullable', 'integer', 'min:0'],
             'destination' => ['nullable', 'string', 'in:PAINT,ASSEMBLY'],
             'rejected_quantity' => ['nullable', 'integer', 'min:0'],
             'rework_quantity' => ['nullable', 'integer', 'min:0'],
             'remarks' => ['nullable', 'string', 'max:500'],
         ]);
 
+        $paintQty = (int)($request->input('paint_quantity') ?? 0);
+        $assemblyQty = (int)($request->input('assembly_quantity') ?? 0);
+        $appQty = (int)($request->input('approved_quantity') ?? ($paintQty + $assemblyQty));
+
         $result = $this->ecnWorkflowService->qcInspect(
             (int)$request->input('ecn_receipt_item_id'),
-            (int)($request->input('approved_quantity') ?? 0),
+            $appQty,
             $request->input('destination') ?: 'ASSEMBLY',
             (int)($request->input('rejected_quantity') ?? 0),
             (int)($request->input('rework_quantity') ?? 0),
             $request->input('remarks'),
-            $request->user()?->id
+            $request->user()?->id,
+            $paintQty,
+            $assemblyQty
         );
 
         return response()->json($result);
