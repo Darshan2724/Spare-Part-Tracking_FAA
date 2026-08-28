@@ -88,7 +88,7 @@ class DatabaseSeeder extends Seeder
         $roles['PURCHASE']->syncPermissions(['view_dashboard', 'purchase_queue_manage', 'purchase_queue_export']);
 
         // 4. Create Default Users
-        $defaultPassword = Hash::make('password123');
+        $defaultPassword = 'password123';
 
         $users = [
             [
@@ -142,14 +142,18 @@ class DatabaseSeeder extends Seeder
         ];
 
         foreach ($users as $uData) {
-            $user = User::updateOrCreate(
-                ['email' => $uData['email']],
-                [
-                    'name' => $uData['name'],
-                    'password' => $defaultPassword,
-                    'department_id' => $departments[$uData['dept']]->id,
-                ]
-            );
+            $user = User::withTrashed()->where('email', $uData['email'])->first();
+            if (!$user) {
+                $user = new User();
+                $user->email = $uData['email'];
+            } else {
+                $user->restore();
+            }
+            $user->name = $uData['name'];
+            $user->password = $defaultPassword;
+            $user->department_id = $departments[$uData['dept']]->id;
+            $user->is_active = true;
+            $user->save();
             $user->syncRoles([$uData['role']]);
         }
 
