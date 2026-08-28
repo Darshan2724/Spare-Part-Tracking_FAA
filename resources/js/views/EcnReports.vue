@@ -348,7 +348,11 @@
                                 <tbody>
                                   <tr v-for="p in unit.parts" :key="p.id">
                                     <td class="font-monospace fw-bold">{{ p.part_no }}</td>
-                                    <td><span class="badge bg-light text-dark border">{{ p.side_display || p.side }}</span></td>
+                                    <td>
+                                      <span :class="['badge', ['RH', 'RA', 'AR', 'R'].includes(p.side || p.original_side) ? 'bg-primary' : ['LH', 'LA', 'AL', 'L'].includes(p.side || p.original_side) ? 'bg-info text-dark' : 'bg-secondary']">
+                                        {{ p.side || p.original_side || p.side_display }}
+                                      </span>
+                                    </td>
                                     <td class="text-end">{{ p.required_qty }}</td>
                                     <td class="text-end fw-bold text-success">{{ p.received_qty }}</td>
                                     <td>
@@ -407,6 +411,7 @@
                       <th>Jig / Unit</th>
                       <th>Part Number</th>
                       <th>Side</th>
+                      <th>Combined Identifier</th>
                       <th class="text-end">Required</th>
                       <th class="text-end">Received</th>
                       <th>Current Stage</th>
@@ -423,7 +428,16 @@
                       <td class="fw-semibold">{{ item.project?.project_code || item.project_code || '—' }}</td>
                       <td>{{ item.jig_no }} / Unit {{ item.unit_no }}</td>
                       <td class="font-monospace fw-bold">{{ item.part_no || item.standard_part_no }}</td>
-                      <td><span class="badge bg-light text-dark border">{{ item.side_display || item.side }}</span></td>
+                      <td>
+                        <span :class="['badge', ['RH', 'RA', 'AR', 'R'].includes(item.side || item.original_side) ? 'bg-primary' : ['LH', 'LA', 'AL', 'L'].includes(item.side || item.original_side) ? 'bg-info text-dark' : 'bg-secondary']">
+                          {{ item.side || item.original_side || item.side_display }}
+                        </span>
+                      </td>
+                      <td>
+                        <code class="text-dark bg-light px-1.5 py-0.5 rounded border small">
+                          {{ item.combined_identifier || `${item.ecn_number || 'ECN'} | ${item.jig_no} | Unit ${item.unit_no} | Part ${item.part_no} | ${item.side}` }}
+                        </code>
+                      </td>
                       <td class="text-end">{{ item.required_qty || item.required_quantity || 0 }}</td>
                       <td class="text-end fw-bold text-success">{{ item.received_qty || item.received_quantity || 0 }}</td>
                       <td>
@@ -433,7 +447,7 @@
                       </td>
                     </tr>
                     <tr v-if="!filteredDrilldownData.length">
-                      <td colspan="9" class="text-center py-4 text-muted">No records match drilldown filters.</td>
+                      <td colspan="10" class="text-center py-4 text-muted">No records match drilldown filters.</td>
                     </tr>
                   </tbody>
                 </table>
@@ -508,6 +522,7 @@ const filteredDrilldownData = computed(() => {
            (item.ecn_number || '').toLowerCase().includes(q) ||
            (item.jig_no || '').toLowerCase().includes(q) ||
            (item.unit_no || '').toLowerCase().includes(q) ||
+           (item.combined_identifier || '').toLowerCase().includes(q) ||
            (item.current_state || '').toLowerCase().includes(q);
   });
 });
@@ -534,7 +549,7 @@ const fetchEcnData = async () => {
       date_to: filters.value.date_to || undefined,
     };
 
-    const summaryRes = await axios.get('/api/v1/ecn/dashboard/summary', { params });
+    const summaryRes = await axios.get('/api/v1/ecn/summary', { params });
     summary.value = summaryRes.data.summary || {
       total_parts: 0,
       total_received: 0,
@@ -590,8 +605,8 @@ const fetchDrilldownData = async () => {
       date_to: filters.value.date_to || undefined,
       per_page: 200,
     };
-    const res = await axios.get('/api/v1/ecn/dashboard/drilldown', { params });
-    drilldownData.value = res.data.items || res.data.data || [];
+    const res = await axios.get('/api/v1/ecn/drilldown', { params });
+    drilldownData.value = res.data.data || res.data.items || [];
   } catch (err) {
     console.error('Failed to fetch drilldown data:', err);
     drilldownData.value = [];

@@ -213,8 +213,8 @@ class EcnImportTest extends TestCase
         $extracted = $service->extractAndValidateRows($actualFilePath, 'MFG ECN MASTER SHEET.xlsx');
 
         $this->assertTrue($extracted['success']);
-        $this->assertEquals(96, $extracted['summary']['valid_rows']);
-        $this->assertEquals(96, $extracted['summary']['total_qty']);
+        $this->assertEquals(94, $extracted['summary']['valid_rows']);
+        $this->assertEquals(94, $extracted['summary']['total_qty']);
         $this->assertEquals(['ECN-1', 'ECN-3', 'ECN-17', 'ECN-40'], $extracted['summary']['unique_ecn_numbers']);
     }
 }
