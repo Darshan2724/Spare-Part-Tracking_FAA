@@ -21,9 +21,21 @@ const routes = [
         meta: { requiresAuth: true }
     },
     {
+        path: '/ecn-import',
+        name: 'ecn-import',
+        component: () => import('@/views/EcnImport.vue'),
+        meta: { requiresAuth: true }
+    },
+    {
         path: '/reports',
         name: 'reports',
         component: () => import('@/views/Reports.vue'),
+        meta: { requiresAuth: true }
+    },
+    {
+        path: '/ecn-reports',
+        name: 'ecn-reports',
+        component: () => import('@/views/EcnReports.vue'),
         meta: { requiresAuth: true }
     },
     {

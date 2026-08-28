@@ -45,4 +45,17 @@ export const setAuthToken = (token) => {
   }
 };
 
+// ECN Workflow API Methods
+export const ecnStoreReceive = (data) => apiClient.post('/ecn/store/receive', data);
+export const ecnSendToQc = (data) => apiClient.post('/ecn/store/send-to-qc', data);
+export const ecnQcReceive = (data) => apiClient.post('/ecn/qc/receive', data);
+export const ecnQcInspect = (data) => apiClient.post('/ecn/qc/inspect', data);
+export const ecnCompleteRework = (data) => apiClient.post('/ecn/rework/complete', data);
+export const ecnCompletePaint = (data) => apiClient.post('/ecn/paint/complete', data);
+export const ecnCompleteAssembly = (data) => apiClient.post('/ecn/assembly/complete', data);
+export const ecnRevert = (data) => apiClient.post('/ecn/revert', data);
+export const getEcnRevertOptions = (params) => apiClient.get('/ecn/revert-options', { params });
+export const mixedBulkIntake = (data) => apiClient.post('/ecn/mixed-bulk-intake', data);
+export const mixedBulkRevert = (data) => apiClient.post('/ecn/mixed-bulk-revert', data);
+
 export default apiClient;

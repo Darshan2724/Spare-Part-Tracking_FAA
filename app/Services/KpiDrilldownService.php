@@ -10,6 +10,9 @@ use App\Models\QcInspection;
 use App\Models\ReworkRecord;
 use App\Models\PaintRecord;
 use App\Models\AssemblyRecord;
+use App\Models\EcnRequirement;
+use App\Models\EcnReceiptItem;
+use App\Models\EcnWorkflowRecord;
 use App\Services\QuantityCalculationService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -23,7 +26,7 @@ class KpiDrilldownService
     /**
      * Get drill-down items and metadata for a specific KPI.
      *
-     * @param string $kpiKey 'active_projects'|'completed_projects'|'delayed_projects'|'total_parts'|'total_parts_received'|'parts_pending'|'store'|'qc'|'rework'|'paint'|'assembly'
+     * @param string $kpiKey 'active_projects'|'completed_projects'|'delayed_projects'|'total_parts'|'total_parts_received'|'parts_pending'|'store'|'qc'|'rework'|'paint'|'assembly'|'ecn'
      * @param array $filters ['project_id', 'side', 'substate', 'search', 'date_from', 'date_to', 'supplier_id']
      * @param int $page
      * @param int $perPage
@@ -44,9 +47,13 @@ class KpiDrilldownService
             $projectScope = $selectedProject ? "{$selectedProject->project_code} - {$selectedProject->name}" : 'Selected Project';
         }
 
-        // Branch between Project-level KPIs vs Part-level KPIs
+        // Branch between Project-level KPIs vs ECN vs Part-level KPIs
         if (in_array($kpiKey, ['active_projects', 'completed_projects', 'delayed_projects'])) {
             return $this->getProjectLevelDrilldown($kpiKey, $filters, $projectScope, $selectedProject, $page, $perPage);
+        }
+
+        if ($kpiKey === 'ecn') {
+            return $this->getEcnDrilldown($filters, $projectScope, $selectedProject, $page, $perPage);
         }
 
         return $this->getPartLevelDrilldown($kpiKey, $filters, $projectScope, $selectedProject, $page, $perPage);
@@ -397,6 +404,95 @@ class KpiDrilldownService
     }
 
     /**
+     * Resolve ECN KPI drilldown dataset.
+     */
+    protected function getEcnDrilldown(
+        array $filters,
+        string $projectScope,
+        ?Project $selectedProject,
+        int $page,
+        int $perPage
+    ): array {
+        $projectId = $selectedProject?->id;
+        $side = $filters['side'] ?? null;
+        $search = $filters['search'] ?? null;
+
+        $query = EcnRequirement::query()->with(['project']);
+
+        if ($projectId) {
+            $query->where('project_id', $projectId);
+        }
+
+        if ($side) {
+            $sUpper = strtoupper(trim($side));
+            $query->where(function ($q) use ($sUpper) {
+                $q->where('side', $sUpper)->orWhere('side_display', $sUpper);
+            });
+        }
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('part_no', 'ILIKE', "%{$search}%")
+                  ->orWhere('jig_no', 'ILIKE', "%{$search}%")
+                  ->orWhere('unit_no', 'ILIKE', "%{$search}%")
+                  ->orWhere('ecn_number', 'ILIKE', "%{$search}%")
+                  ->orWhereHas('project', fn($pq) => $pq->where('project_code', 'ILIKE', "%{$search}%")->orWhere('name', 'ILIKE', "%{$search}%"));
+            });
+        }
+
+        $allReqs = $query->orderBy('project_id')->orderBy('ecn_number')->orderBy('jig_no')->orderBy('unit_no')->orderBy('part_no')->get();
+
+        $rows = $allReqs->map(function ($req) {
+            return [
+                'id' => "ecn_{$req->id}",
+                'ecn_id' => $req->id,
+                'ecn_number' => $req->ecn_number,
+                'is_ecn' => true,
+                'classification' => 'ECN',
+                'project_id' => $req->project_id,
+                'project_code' => $req->project?->project_code ?: 'N/A',
+                'project_name' => $req->project?->name ?: 'N/A',
+                'jig_no' => $req->jig_no,
+                'unit_no' => $req->unit_no,
+                'part_no' => $req->part_no,
+                'side' => $req->side_display,
+                'original_side' => $req->side,
+                'combined_identifier' => "{$req->ecn_number} | {$req->jig_no} | Unit {$req->unit_no} | {$req->part_no} | {$req->side_display}",
+                'status' => "ECN {$req->current_state}",
+                'quantity' => (int)$req->required_qty,
+                'required_qty' => (int)$req->required_qty,
+                'received_qty' => (int)$req->received_qty,
+            ];
+        });
+
+        $totalCount = $rows->count();
+        $totalQuantity = (int)$rows->sum('quantity');
+        $paginatedRows = $rows->slice(($page - 1) * $perPage, $perPage)->values();
+
+        return [
+            'kpi' => 'ecn',
+            'kpi_type' => 'part',
+            'project_scope' => $projectScope,
+            'is_single_project' => ($projectId !== null),
+            'selected_project' => $selectedProject ? [
+                'id' => $selectedProject->id,
+                'project_code' => $selectedProject->project_code,
+                'name' => $selectedProject->name,
+                'status' => $selectedProject->status,
+            ] : null,
+            'substate' => 'all',
+            'total_records' => $totalCount,
+            'total_quantity' => $totalQuantity,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total_pages' => (int) ceil($totalCount / max(1, $perPage)),
+            'columns' => $this->getColumnsForKpi('ecn'),
+            'data' => $paginatedRows,
+            'all_data' => $rows,
+        ];
+    }
+
+    /**
      * Get table column configuration for UI and Excel export.
      */
     public function getColumnsForKpi(string $kpiKey): array
@@ -410,6 +506,20 @@ class KpiDrilldownService
                 ['label' => 'Parts Pending', 'key' => 'parts_pending', 'width' => '12%', 'align' => 'center'],
                 ['label' => 'Completion %', 'key' => 'completion_pct', 'width' => '12%', 'align' => 'center'],
                 ['label' => 'Status', 'key' => 'status', 'width' => '12%', 'align' => 'center'],
+            ];
+        }
+
+        if ($kpiKey === 'ecn') {
+            return [
+                ['label' => 'ECN NO', 'key' => 'ecn_number', 'width' => '10%'],
+                ['label' => 'Project', 'key' => 'project_code', 'width' => '10%'],
+                ['label' => 'Jig No', 'key' => 'jig_no', 'width' => '10%'],
+                ['label' => 'Unit No', 'key' => 'unit_no', 'width' => '8%', 'align' => 'center'],
+                ['label' => 'Part No', 'key' => 'part_no', 'width' => '12%'],
+                ['label' => 'Side', 'key' => 'side', 'width' => '6%', 'align' => 'center'],
+                ['label' => 'Combined Identifier', 'key' => 'combined_identifier', 'width' => '24%'],
+                ['label' => 'Status', 'key' => 'status', 'width' => '12%'],
+                ['label' => 'Quantity', 'key' => 'quantity', 'width' => '8%', 'align' => 'center'],
             ];
         }
 

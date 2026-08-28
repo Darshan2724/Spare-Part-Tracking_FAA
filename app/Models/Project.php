@@ -52,4 +52,19 @@ class Project extends Model
     {
         return $this->hasMany(PurchaseQueueItem::class);
     }
+
+    public function ecnRequirements()
+    {
+        return $this->hasMany(EcnRequirement::class);
+    }
+
+    public function ecnImportBatches()
+    {
+        return $this->hasMany(EcnImportBatch::class);
+    }
+
+    public function ecnReceiptItems()
+    {
+        return $this->hasMany(EcnReceiptItem::class);
+    }
 }

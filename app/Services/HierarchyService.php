@@ -10,13 +10,18 @@ use App\Models\QcInspection;
 use App\Models\ReworkRecord;
 use App\Models\PaintRecord;
 use App\Models\AssemblyRecord;
+use App\Models\EcnRequirement;
+use App\Models\EcnReceiptItem;
+use App\Models\EcnWorkflowRecord;
 use App\Services\QuantityCalculationService;
+use App\Services\EcnQuantityCalculationService;
 use Illuminate\Support\Facades\DB;
 
 class HierarchyService
 {
     public function __construct(
-        protected QuantityCalculationService $quantityService = new QuantityCalculationService()
+        protected QuantityCalculationService $quantityService = new QuantityCalculationService(),
+        protected EcnQuantityCalculationService $ecnQuantityService = new EcnQuantityCalculationService()
     ) {}
 
     /**
@@ -126,6 +131,17 @@ class HierarchyService
             ->whereIn('bom_item_id', $bomItemIds)
             ->get()
             ->groupBy('bom_item_id');
+
+        // Pre-load ECN hierarchy breakdown map and requirements
+        $ecnMap = $this->ecnQuantityService->preloadProjectEcnHierarchyMap($project->id);
+        $ecnReqs = EcnRequirement::where('project_id', $project->id)->get();
+        $ecnReqsByUnit = [];
+        foreach ($ecnReqs as $er) {
+            $jKey = strtoupper(trim($er->jig_no));
+            $uRaw = trim($er->unit_no);
+            $uKey = str_starts_with(strtoupper($uRaw), 'UNIT') ? $uRaw : ('Unit ' . $uRaw);
+            $ecnReqsByUnit[$jKey . '|' . $uKey][] = $er;
+        }
 
         $jigsTree = [];
 
@@ -545,6 +561,34 @@ class HierarchyService
                     }
                 }
 
+                // Attach ECN parts for this Unit
+                $unitEcnReqs = $ecnReqsByUnit[$jigName . '|' . $unitNo] ?? [];
+                foreach ($unitEcnReqs as $er) {
+                    $ecnPartData = [
+                        'id' => $er->id,
+                        'standard_part_no' => $er->part_no,
+                        'item_no' => $er->part_no,
+                        'supplier' => '—',
+                        'side' => $er->side_display,
+                        'original_side' => $er->side,
+                        'required_qty' => (int)$er->required_qty,
+                        'received_qty' => (int)$er->received_qty,
+                        'pending_qty' => max(0, (int)$er->required_qty - (int)$er->received_qty),
+                        'status_badge' => $er->current_state,
+                        'status_color' => $er->current_state === 'ASSEMBLY_COMPLETED' ? 'success' : 'warning',
+                        'is_done' => ($er->current_state === 'ASSEMBLY_COMPLETED'),
+                        'is_ecn' => true,
+                        'classification' => 'ECN',
+                        'ecn_number' => $er->ecn_number,
+                        'ecn_requirement_id' => $er->id,
+                    ];
+                    if ($er->side_display === 'LH') {
+                        $lhParts[] = $ecnPartData;
+                    } else {
+                        $rhParts[] = $ecnPartData;
+                    }
+                }
+
                 $lhCompletionPct = match ($department) {
                     'store' => ($lhRequired > 0 ? min(100, round(($lhReceived / $lhRequired) * 100, 1)) : 100),
                     'qc' => ($lhRequired > 0 ? min(100, round(($lhMetrics['qc_approved'] / $lhRequired) * 100, 1)) : 100),
@@ -574,10 +618,17 @@ class HierarchyService
                     $unitIsComplete = $rhIsComplete;
                 }
 
+                $rawU = str_replace('Unit ', '', $unitNo);
+                $uEcnCount = $ecnMap['units'][$jigName . '|' . $rawU] ?? ($ecnMap['units'][$jigName . '|' . $unitNo] ?? 0);
+                $lhEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|LH'] ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|LH'] ?? 0);
+                $rhEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|RH'] ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|RH'] ?? 0);
+
+                $unitData['ecn_count'] = $uEcnCount;
                 $unitData['sides'] = [
                     'LH' => [
                         'side' => 'LH',
                         'total_parts' => count($lhParts),
+                        'ecn_count' => $lhEcnCount,
                         'total_required' => $lhRequired,
                         'total_received' => $lhReceived,
                         'pending_quantity' => $lhPending,
@@ -590,6 +641,7 @@ class HierarchyService
                     'RH' => [
                         'side' => 'RH',
                         'total_parts' => count($rhParts),
+                        'ecn_count' => $rhEcnCount,
                         'total_required' => $rhRequired,
                         'total_received' => $rhReceived,
                         'pending_quantity' => $rhPending,
@@ -628,6 +680,7 @@ class HierarchyService
             $jigData['total_units'] = $totalUnitsCount;
             // Section 10: Jig turns green only when ALL units in it are complete
             $jigData['is_complete'] = ($totalUnitsCount > 0 && $completeUnitsCount === $totalUnitsCount);
+            $jigData['ecn_count'] = $ecnMap['jigs'][$jigName] ?? 0;
 
             $jigReq = $jigData['total_required'];
             $jigRec = $jigData['total_received'];
@@ -727,6 +780,8 @@ class HierarchyService
             'progress_percent' => min(100, $progressPercent),
             'completion_pct' => min(100, $progressPercent),
             'is_complete' => ($progressPercent >= 100),
+            'ecn_count' => $this->ecnQuantityService->getEcnCountsForHierarchy($proj->id),
+            'ecn_total_parts' => $this->ecnQuantityService->getEcnCountsForHierarchy($proj->id),
         ];
     }
 
