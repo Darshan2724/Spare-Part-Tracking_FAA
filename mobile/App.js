@@ -435,6 +435,7 @@ const compactInlineRevertStyles = StyleSheet.create({
 function App() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
+  const [userRole, setUserRole] = useState('');
   const [serverHost, setServerHost] = useState(
     process.env.EXPO_PUBLIC_API_URL 
       ? process.env.EXPO_PUBLIC_API_URL.replace(/^https?:\/\//i, '').replace(/\/api\/v1\/?$/i, '')
