@@ -132,8 +132,8 @@ class HierarchyService
             ->get()
             ->groupBy('bom_item_id');
 
-        // Pre-load ECN hierarchy breakdown map and requirements
-        $ecnMap = $this->ecnQuantityService->preloadProjectEcnHierarchyMap($project->id);
+        // Pre-load department-specific ECN hierarchy breakdown map and requirements
+        $ecnMap = $this->ecnQuantityService->preloadProjectDepartmentEcnMap($project->id, $department);
         $ecnReqs = EcnRequirement::where('project_id', $project->id)->get();
         $ecnReqIds = $ecnReqs->pluck('id')->toArray();
         $ecnReceiptsGrouped = EcnReceiptItem::whereIn('ecn_requirement_id', $ecnReqIds)->get()->groupBy('ecn_requirement_id');
@@ -603,13 +603,44 @@ class HierarchyService
                 $allUnitParts = $unitData['parts']; // starts with regular parts
 
                 foreach ($unitEcnReqs as $er) {
+                    $deptKey = strtolower($department ?? 'manager');
                     $erReceipts = $ecnReceiptsGrouped->get($er->id, collect());
                     $erWorkflow = $ecnWorkflowGrouped->get($er->id, collect());
+
+                    $qcPendingArrCalc = (int) $erReceipts->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
+                    $qcPendingInspCalc = (int) $erReceipts->where('status', 'qc_received')->sum('received_quantity');
+
+                    if ($deptKey === 'qc' && !in_array($er->current_state, ['SENT_TO_QC', 'QC']) && $qcPendingArrCalc === 0 && $qcPendingInspCalc === 0) {
+                        continue;
+                    }
+                    if ($deptKey === 'rework' && $er->current_state !== 'REWORK') {
+                        continue;
+                    }
+                    if ($deptKey === 'paint' && $er->current_state !== 'PAINT') {
+                        continue;
+                    }
+                    if ($deptKey === 'assembly' && !in_array($er->current_state, ['ASSEMBLY', 'ASSEMBLY_COMPLETED'])) {
+                        continue;
+                    }
 
                     $sideDisp = $er->side_display;
                     $reqQ = (int)$er->required_qty;
                     $recQ = (int)$er->received_qty;
                     $penQ = max(0, $reqQ - $recQ);
+
+                    // Compute accurate QC state metrics
+                    $qcPendingArrival = $qcPendingArrCalc;
+                    $qcPendingInspection = $qcPendingInspCalc;
+                    if ($qcPendingArrival === 0 && $qcPendingInspection === 0) {
+                        if ($er->current_state === 'SENT_TO_QC') {
+                            $qcPendingArrival = $recQ;
+                        } elseif ($er->current_state === 'QC') {
+                            $qcPendingInspection = $recQ;
+                        } elseif ($er->current_state === 'STORE' && $recQ > 0) {
+                            $qcPendingArrival = $recQ;
+                        }
+                    }
+                    $qcResident = $qcPendingArrival + $qcPendingInspection;
 
                     $ecnStatusBadge = match ($er->current_state) {
                         'ASSEMBLY_COMPLETED' => 'Assembled',
@@ -617,7 +648,7 @@ class HierarchyService
                         'PAINT' => 'Paint',
                         'REWORK' => 'Rework',
                         'QC', 'SENT_TO_QC' => 'QC',
-                        'STORE' => 'Store',
+                        'STORE' => ($qcResident > 0 ? 'QC' : 'Store'),
                         default => 'Pending',
                     };
                     $ecnStatusColor = match ($er->current_state) {
@@ -626,7 +657,7 @@ class HierarchyService
                         'PAINT' => 'purple',
                         'REWORK' => 'warning',
                         'QC', 'SENT_TO_QC' => 'info',
-                        'STORE' => 'warning',
+                        'STORE' => ($qcResident > 0 ? 'info' : 'warning'),
                         default => 'secondary',
                     };
 
@@ -648,7 +679,7 @@ class HierarchyService
                             ];
                         }
                     } elseif ($deptKey === 'qc') {
-                        $qcItems = $erReceipts->where('status', 'sent_to_qc');
+                        $qcItems = $erReceipts->where('status', 'qc_received');
                         foreach ($qcItems as $qi) {
                             $ecnRevertOptions[] = [
                                 'source_type' => 'ecn_receipt_item',
@@ -657,7 +688,7 @@ class HierarchyService
                                 'from_department' => 'QC',
                                 'to_department' => 'STORE',
                                 'target_label' => 'Store Bay',
-                                'description' => "ECN Dispatched to QC ({$qi->received_quantity} pcs)",
+                                'description' => "ECN QC Received ({$qi->received_quantity} pcs)",
                                 'is_ecn' => true,
                             ];
                         }
@@ -710,9 +741,9 @@ class HierarchyService
                         'received' => $recQ,
                         'pending' => $penQ,
                         'parts_in_store' => ($er->current_state === 'STORE' ? $recQ : 0),
-                        'parts_in_qc' => (in_array($er->current_state, ['SENT_TO_QC', 'QC']) ? $recQ : 0),
-                        'qc_pending_arrival' => ($er->current_state === 'SENT_TO_QC' ? $recQ : 0),
-                        'qc_pending_inspection' => ($er->current_state === 'QC' ? $recQ : 0),
+                        'parts_in_qc' => $qcResident,
+                        'qc_pending_arrival' => $qcPendingArrival,
+                        'qc_pending_inspection' => $qcPendingInspection,
                         'qc_approved' => (in_array($er->current_state, ['PAINT', 'ASSEMBLY', 'ASSEMBLY_COMPLETED']) ? $recQ : 0),
                         'qc_rejected' => 0,
                         'qc_rework' => ($er->current_state === 'REWORK' ? $recQ : 0),
@@ -977,8 +1008,8 @@ class HierarchyService
             'progress_percent' => min(100, $progressPercent),
             'completion_pct' => min(100, $progressPercent),
             'is_complete' => ($progressPercent >= 100),
-            'ecn_count' => $this->ecnQuantityService->getEcnCountsForHierarchy($proj->id),
-            'ecn_total_parts' => $this->ecnQuantityService->getEcnCountsForHierarchy($proj->id),
+            'ecn_count' => $this->ecnQuantityService->getEcnCountsForHierarchy($proj->id, null, null, null, $department),
+            'ecn_total_parts' => $this->ecnQuantityService->getEcnCountsForHierarchy($proj->id, null, null, null, $department),
         ];
     }
 

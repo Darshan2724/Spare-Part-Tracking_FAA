@@ -7,15 +7,20 @@ use App\Models\Project;
 use App\Models\Receipt;
 use App\Models\ReceiptItem;
 use App\Models\BomRequirement;
+use App\Models\EcnRequirement;
 use App\Models\WorkflowEvent;
 use App\Services\QuantityCalculationService;
+use App\Services\EcnWorkflowService;
+use App\Services\EcnBulkSplitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class StoreController extends Controller
 {
     public function __construct(
-        protected QuantityCalculationService $quantityService = new QuantityCalculationService()
+        protected QuantityCalculationService $quantityService = new QuantityCalculationService(),
+        protected EcnWorkflowService $ecnWorkflowService = new EcnWorkflowService(),
+        protected EcnBulkSplitService $ecnBulkSplitService = new EcnBulkSplitService()
     ) {}
 
     public function index(Request $request)
@@ -209,78 +214,122 @@ class StoreController extends Controller
             'delivery_note_number' => ['nullable', 'string', 'max:100'],
             'remarks' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.bom_item_id' => ['required', 'exists:bom_items,id'],
-            'items.*.side' => ['required', 'in:RH,LH,COMMON'],
-            'items.*.received_quantity' => ['required', 'integer', 'min:1'],
+            'items.*.side' => ['nullable', 'in:RH,LH,COMMON'],
+            'items.*.received_quantity' => ['nullable', 'integer', 'min:1'],
+            'items.*.quantity' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        return DB::transaction(function () use ($request) {
-            $receipt = Receipt::create([
-                'project_id' => $request->input('project_id'),
-                'supplier_id' => $request->input('supplier_id'),
-                'delivery_note_number' => $request->input('delivery_note_number'),
-                'received_by' => $request->user()->id,
-                'remarks' => $request->input('remarks'),
-            ]);
+        $rawItems = $request->input('items', []);
+        $groups = $this->ecnBulkSplitService->classifySelection($rawItems);
 
-            foreach ($request->input('items') as $item) {
-                $req = BomRequirement::where('bom_item_id', $item['bom_item_id'])
-                    ->where('side', $item['side'])
-                    ->first();
-                $existingRec = (int) ReceiptItem::where('bom_item_id', $item['bom_item_id'])
-                    ->where('side', $item['side'])
-                    ->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES)
-                    ->sum('received_quantity');
-                $requiredQty = $req ? (int) $req->required_quantity : 0;
+        // Pre-validate partition IDs to guarantee type safety and clear errors
+        foreach ($groups['regular'] as $rItem) {
+            $bomId = (int)$rItem['bom_item_id'];
+            if (!BomItem::where('id', $bomId)->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Invalid Regular BOM Item #{$bomId} for store receipt."
+                ], 422);
+            }
+        }
 
-                // === BACKEND OVER-RECEIPT GUARD ===
-                // Cap the quantity so total received never exceeds BOM requirement.
-                // This prevents duplicate mobile submits, network retries, and any other
-                // source from creating excess receipt records in the database.
-                $requestedQty = (int) $item['received_quantity'];
-                $availableCapacity = max(0, $requiredQty - $existingRec);
-                $actualQty = min($requestedQty, $availableCapacity);
+        foreach ($groups['ecn'] as $eItem) {
+            $reqId = (int)$eItem['ecn_requirement_id'];
+            if (!EcnRequirement::where('id', $reqId)->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Invalid ECN Requirement #{$reqId} for store receipt."
+                ], 422);
+            }
+        }
 
-                if ($actualQty <= 0) {
-                    // Part is already fully received — skip silently (idempotent)
-                    continue;
+        return DB::transaction(function () use ($request, $groups) {
+            $userId = $request->user()->id;
+            $projectId = (int)$request->input('project_id');
+            $delNote = $request->input('delivery_note_number');
+            $remarks = $request->input('remarks');
+
+            $receipt = null;
+            if (!empty($groups['regular'])) {
+                $receipt = Receipt::create([
+                    'project_id' => $projectId,
+                    'supplier_id' => $request->input('supplier_id'),
+                    'delivery_note_number' => $delNote,
+                    'received_by' => $userId,
+                    'remarks' => $remarks,
+                ]);
+
+                foreach ($groups['regular'] as $item) {
+                    $side = $item['side'] ?? 'COMMON';
+                    $bomItemId = (int)$item['bom_item_id'];
+
+                    $req = BomRequirement::where('bom_item_id', $bomItemId)
+                        ->where('side', $side)
+                        ->first();
+                    $existingRec = (int) ReceiptItem::where('bom_item_id', $bomItemId)
+                        ->where('side', $side)
+                        ->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES)
+                        ->sum('received_quantity');
+                    $requiredQty = $req ? (int) $req->required_quantity : 0;
+
+                    $requestedQty = (int) ($item['received_quantity'] ?? $item['quantity'] ?? 1);
+                    $availableCapacity = max(0, $requiredQty - $existingRec);
+                    $actualQty = min($requestedQty, $availableCapacity);
+
+                    if ($actualQty <= 0) {
+                        continue;
+                    }
+
+                    $newTotal = $existingRec + $actualQty;
+                    $excessNotice = ($requestedQty > $actualQty)
+                        ? " [Capped: requested {$requestedQty}, allowed {$actualQty}, total {$newTotal}/{$requiredQty}]"
+                        : "";
+
+                    $receiptItem = ReceiptItem::create([
+                        'receipt_id' => $receipt->id,
+                        'bom_item_id' => $bomItemId,
+                        'side' => $side,
+                        'received_quantity' => $actualQty,
+                        'status' => 'received',
+                        'remarks' => ($item['remarks'] ?? $remarks) . $excessNotice,
+                    ]);
+
+                    WorkflowEvent::create([
+                        'bom_item_id' => $bomItemId,
+                        'project_id' => $projectId,
+                        'user_id' => $userId,
+                        'event_type' => 'store_received',
+                        'side' => $side,
+                        'quantity' => $actualQty,
+                        'previous_state' => 'pending',
+                        'new_state' => 'received',
+                        'remarks' => "Received {$actualQty} units in store. DN: " . ($delNote ?? 'N/A') . $excessNotice,
+                    ]);
+
+                    try {
+                        broadcast(new \App\Events\StoreReceived($receiptItem))->toOthers();
+                    } catch (\Throwable $e) {}
                 }
-
-                $newTotal = $existingRec + $actualQty;
-                $excessNotice = ($requestedQty > $actualQty)
-                    ? " [Capped: requested {$requestedQty}, allowed {$actualQty}, total {$newTotal}/{$requiredQty}]"
-                    : "";
-
-                $receiptItem = ReceiptItem::create([
-                    'receipt_id' => $receipt->id,
-                    'bom_item_id' => $item['bom_item_id'],
-                    'side' => $item['side'],
-                    'received_quantity' => $actualQty,
-                    'status' => 'received',
-                    'remarks' => ($item['remarks'] ?? null) . $excessNotice,
-                ]);
-
-                WorkflowEvent::create([
-                    'bom_item_id' => $item['bom_item_id'],
-                    'project_id' => $request->input('project_id'),
-                    'user_id' => $request->user()->id,
-                    'event_type' => 'store_received',
-                    'side' => $item['side'],
-                    'quantity' => $actualQty,
-                    'previous_state' => 'pending',
-                    'new_state' => 'received',
-                    'remarks' => "Received {$actualQty} units in store. DN: " . ($request->input('delivery_note_number') ?? 'N/A') . $excessNotice,
-                ]);
-
-                try {
-                    broadcast(new \App\Events\StoreReceived($receiptItem))->toOthers();
-                } catch (\Throwable $e) {}
             }
 
+            // Process ECN items safely via ECN workflow engine
+            $ecnProcessedCount = 0;
+            foreach ($groups['ecn'] as $eItem) {
+                $reqId = (int)$eItem['ecn_requirement_id'];
+                $qty = (int)($eItem['received_quantity'] ?? $eItem['quantity'] ?? 1);
+                $ecnRemarks = $eItem['remarks'] ?? $remarks ?? ($delNote ? "DN: {$delNote}" : 'Mobile ECN Store Intake');
+
+                $this->ecnWorkflowService->receiveStore($reqId, $qty, $ecnRemarks, $userId);
+                $ecnProcessedCount++;
+            }
+
+            $regCount = count($groups['regular']);
             return response()->json([
                 'success' => true,
-                'message' => 'Receipt recorded successfully.',
-                'receipt_id' => $receipt->id,
+                'message' => "Receipt recorded successfully ({$regCount} regular, {$ecnProcessedCount} ECN).",
+                'receipt_id' => $receipt?->id,
+                'regular_processed' => $regCount,
+                'ecn_processed' => $ecnProcessedCount,
             ]);
         });
     }

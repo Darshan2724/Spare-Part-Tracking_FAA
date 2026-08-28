@@ -98,9 +98,21 @@ class BomImportController extends Controller
     {
         $this->authorizeBomImport($request);
 
-        $batches = BomImportBatch::with(['project', 'importer'])
-            ->orderByDesc('created_at')
-            ->get();
+        $bomBatches = BomImportBatch::with(['project', 'importer'])
+            ->get()
+            ->map(function ($b) {
+                $b->import_type = 'BOM';
+                return $b;
+            });
+
+        $ecnBatches = \App\Models\EcnImportBatch::with(['project', 'importer'])
+            ->get()
+            ->map(function ($b) {
+                $b->import_type = 'ECN';
+                return $b;
+            });
+
+        $batches = $bomBatches->concat($ecnBatches)->sortByDesc('created_at')->values();
 
         return response()->json([
             'history' => $batches
@@ -108,11 +120,64 @@ class BomImportController extends Controller
     }
 
     /**
-     * Calculate and return pre-deletion impact preview for a specific BOM import batch.
+     * Calculate and return pre-deletion impact preview for a specific BOM or ECN import batch.
      */
     public function impactPreview(Request $request, int $id)
     {
         $this->authorizeBomImport($request);
+
+        // Check if this is an ECN import batch
+        $ecnBatch = \App\Models\EcnImportBatch::with(['project', 'importer'])->find($id);
+        if ($ecnBatch && ($request->input('type') === 'ECN' || $request->input('import_type') === 'ECN' || !BomImportBatch::where('id', $id)->exists())) {
+            $projectId = $ecnBatch->project_id;
+            $project = $ecnBatch->project;
+            $reqQuery = \App\Models\EcnRequirement::where('ecn_import_batch_id', $ecnBatch->id);
+            $reqIds = (clone $reqQuery)->pluck('id')->toArray();
+
+            $reqCount = (clone $reqQuery)->count();
+            $jigsCount = (clone $reqQuery)->whereNotNull('jig_no')->where('jig_no', '!=', '')->distinct('jig_no')->count('jig_no');
+            $unitsCount = (clone $reqQuery)->whereNotNull('unit_no')->where('unit_no', '!=', '')->distinct('unit_no')->count('unit_no');
+
+            $receiptsCount = !empty($reqIds) ? \App\Models\EcnReceiptItem::whereIn('ecn_requirement_id', $reqIds)->count() : 0;
+            $workflowCount = !empty($reqIds) ? \App\Models\EcnWorkflowRecord::whereIn('ecn_requirement_id', $reqIds)->count() : 0;
+            $totalOperationalRecords = $receiptsCount + $workflowCount;
+
+            return response()->json([
+                'batch' => [
+                    'id' => $ecnBatch->id,
+                    'filename' => $ecnBatch->filename,
+                    'original_filename' => $ecnBatch->original_filename ?? $ecnBatch->filename,
+                    'status' => $ecnBatch->status,
+                    'total_rows' => $ecnBatch->total_rows,
+                    'created_at' => $ecnBatch->created_at ? $ecnBatch->created_at->toISOString() : null,
+                    'imported_by' => $ecnBatch->importer?->name ?? 'System',
+                    'import_type' => 'ECN',
+                ],
+                'project' => $project ? [
+                    'id' => $project->id,
+                    'name' => $project->name,
+                    'project_code' => $project->project_code,
+                ] : null,
+                'counts' => [
+                    'jigs_count' => $jigsCount,
+                    'units_count' => $unitsCount,
+                    'unique_parts_count' => $reqCount,
+                    'bom_requirements_count' => $reqCount,
+                    'receipts_count' => 0,
+                    'receipt_items_count' => $receiptsCount,
+                    'qc_inspections_count' => $workflowCount,
+                    'rework_records_count' => 0,
+                    'paint_records_count' => 0,
+                    'assembly_records_count' => 0,
+                    'purchase_queue_count' => 0,
+                    'total_operational_records' => $totalOperationalRecords,
+                ],
+                'has_operational_data' => $totalOperationalRecords > 0,
+                'other_batches_count' => 1,
+                'will_delete_project' => false,
+                'is_ecn' => true,
+            ]);
+        }
 
         $batch = BomImportBatch::with(['project', 'importer'])->find($id);
         if (!$batch) {
@@ -168,6 +233,7 @@ class BomImportController extends Controller
                 'total_rows' => $batch->total_rows,
                 'created_at' => $batch->created_at ? $batch->created_at->toISOString() : null,
                 'imported_by' => $batch->importer?->name ?? 'System',
+                'import_type' => 'BOM',
             ],
             'project' => $project ? [
                 'id' => $project->id,
@@ -191,21 +257,53 @@ class BomImportController extends Controller
             'has_operational_data' => $totalOperationalRecords > 0,
             'other_batches_count' => $otherBatchesCount,
             'will_delete_project' => ($otherBatchesCount === 0 && $project !== null),
+            'is_ecn' => false,
         ]);
     }
 
     /**
-     * Safely delete a specific BOM import batch and its associated project data inside a PostgreSQL transaction.
+     * Safely delete a specific BOM or ECN import batch inside a PostgreSQL transaction.
      */
     public function destroy(Request $request, int $id)
     {
         $this->authorizeBomImport($request);
 
         return DB::transaction(function () use ($request, $id) {
+            // Check if this is an ECN import batch
+            $ecnBatch = \App\Models\EcnImportBatch::with(['project', 'importer'])->lockForUpdate()->find($id);
+            if ($ecnBatch && ($request->input('type') === 'ECN' || $request->input('import_type') === 'ECN' || !BomImportBatch::where('id', $id)->exists())) {
+                $reqIds = \App\Models\EcnRequirement::where('ecn_import_batch_id', $ecnBatch->id)->pluck('id')->toArray();
+
+                if (!empty($reqIds)) {
+                    \App\Models\EcnWorkflowEvent::whereIn('ecn_requirement_id', $reqIds)->delete();
+                    \App\Models\EcnWorkflowRecord::whereIn('ecn_requirement_id', $reqIds)->delete();
+                    \App\Models\EcnReceiptItem::whereIn('ecn_requirement_id', $reqIds)->delete();
+                }
+
+                $deletedReqs = \App\Models\EcnRequirement::where('ecn_import_batch_id', $ecnBatch->id)->forceDelete();
+                $ecnBatch->delete();
+
+                event(new \App\Events\EcnUpdated([
+                    'project_id' => $ecnBatch->project_id,
+                    'event_type' => 'ECN_BATCH_DELETED',
+                ]));
+
+                return response()->json([
+                    'success' => true,
+                    'message' => "Successfully deleted ECN import batch and {$deletedReqs} ECN requirement(s). Regular BOM and Project remain untouched.",
+                    'deleted_counts' => [
+                        'ecn_requirements' => $deletedReqs,
+                        'ecn_import_batches' => 1,
+                        'projects' => 0,
+                        'bom_items' => 0,
+                    ],
+                ]);
+            }
+
             $batch = BomImportBatch::with(['project', 'importer'])->lockForUpdate()->find($id);
 
             if (!$batch) {
-                return response()->json(['message' => 'BOM Import history record not found.'], 404);
+                return response()->json(['message' => 'Import history record not found.'], 404);
             }
 
             if ($batch->status === 'processing') {

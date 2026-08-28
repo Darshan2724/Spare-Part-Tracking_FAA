@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// Default company LAN server fallback
+// Default company permanent server fallback (192.168.9.200)
 const DEFAULT_HOST = 'http://192.168.9.200:8080/api/v1';
 const ENV_API_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_HOST;
 
@@ -13,6 +13,14 @@ const apiClient = axios.create({
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   },
+});
+
+// Dynamic request interceptor to always respect user-typed custom IP changes immediately
+apiClient.interceptors.request.use((config) => {
+  if (currentBaseUrl) {
+    config.baseURL = currentBaseUrl;
+  }
+  return config;
 });
 
 /**

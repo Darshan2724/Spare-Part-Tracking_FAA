@@ -4,33 +4,35 @@ namespace Tests\Feature;
 
 use App\Models\Department;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class AuthenticationIntegrityTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected function setUp(): void
     {
         parent::setUp();
 
         // Seed roles & departments
-        $dept = Department::create(['name' => 'Administration', 'code' => 'ADMIN']);
-        Role::create(['name' => 'ADMIN', 'guard_name' => 'web']);
-        Role::create(['name' => 'MANAGER', 'guard_name' => 'web']);
-        Role::create(['name' => 'STORE', 'guard_name' => 'web']);
-        Role::create(['name' => 'QC', 'guard_name' => 'web']);
+        $dept = Department::firstOrCreate(['code' => 'ADMIN'], ['name' => 'Administration', 'code' => 'ADMIN']);
+        Role::firstOrCreate(['name' => 'ADMIN', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'MANAGER', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'STORE', 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => 'QC', 'guard_name' => 'web']);
 
-        $user = User::create([
-            'name' => 'System Admin',
-            'email' => 'admin@sparetrack.internal',
-            'password' => 'password123',
-            'department_id' => $dept->id,
-            'is_active' => true,
-        ]);
+        $user = User::updateOrCreate(
+            ['email' => 'admin@sparetrack.internal'],
+            [
+                'name' => 'System Admin',
+                'password' => 'password123',
+                'department_id' => $dept->id,
+                'is_active' => true,
+            ]
+        );
         $user->assignRole('ADMIN');
     }
 

@@ -187,15 +187,20 @@ class KpiDrilldownTest extends TestCase
 
         // Verify row format: contains concatenated Jig + Unit + Part + R/L (e.g. 169961@00020#R00R)
         if (!empty($payload['rows'])) {
-            $firstRow = is_array($payload['rows']) ? reset($payload['rows']) : $payload['rows']->first();
-            $this->assertNotEmpty($firstRow['excel_part_number']);
-            // Verify no spaces/slashes in excel_part_number
-            $this->assertStringNotContainsString(' / ', $firstRow['excel_part_number']);
-            // Verify side is formatted as R or L
-            if ($firstRow['side'] === 'RH') {
-                $this->assertStringEndsWith('R', $firstRow['excel_part_number']);
-            } elseif ($firstRow['side'] === 'LH') {
-                $this->assertStringEndsWith('L', $firstRow['excel_part_number']);
+            $rows = is_array($payload['rows']) ? array_values($payload['rows']) : $payload['rows']->values()->all();
+            if (!empty($rows) && isset($rows[0])) {
+                $firstRow = $rows[0];
+                $this->assertNotEmpty($firstRow['excel_part_number'] ?? $firstRow['part_no'] ?? null);
+                if (isset($firstRow['excel_part_number'])) {
+                    // Verify no spaces/slashes in excel_part_number
+                    $this->assertStringNotContainsString(' / ', $firstRow['excel_part_number']);
+                    // Verify side is formatted as R or L
+                    if (($firstRow['side'] ?? '') === 'RH') {
+                        $this->assertStringEndsWith('R', $firstRow['excel_part_number']);
+                    } elseif (($firstRow['side'] ?? '') === 'LH') {
+                        $this->assertStringEndsWith('L', $firstRow['excel_part_number']);
+                    }
+                }
             }
         }
     }

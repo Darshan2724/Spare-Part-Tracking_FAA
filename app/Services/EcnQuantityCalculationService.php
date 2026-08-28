@@ -148,12 +148,51 @@ class EcnQuantityCalculationService
     }
 
     /**
-     * Get ECN counts for hierarchy cards at any level.
+     * Get ECN counts for hierarchy cards at any level with optional department residency filtering.
      */
-    public function getEcnCountsForHierarchy(?int $projectId = null, ?string $jigNo = null, ?string $unitNo = null, ?string $sideDisplay = null): int
-    {
+    public function getEcnCountsForHierarchy(
+        ?int $projectId = null,
+        ?string $jigNo = null,
+        ?string $unitNo = null,
+        ?string $sideDisplay = null,
+        string $department = 'manager'
+    ): int {
+        $dept = strtolower(trim($department));
+
         if (!$projectId) {
-            return (int)EcnRequirement::sum('required_qty');
+            $q = EcnRequirement::query();
+            if ($dept !== 'manager' && !empty($dept)) {
+                if ($dept === 'store') {
+                    $q->where(fn($sq) => $sq->where('current_state', 'STORE')->orWhere('current_state', 'PENDING')->orWhere('received_qty', '>', 0));
+                } elseif ($dept === 'qc') {
+                    $q->whereIn('current_state', ['SENT_TO_QC', 'QC']);
+                } elseif ($dept === 'rework') {
+                    $q->where('current_state', 'REWORK');
+                } elseif ($dept === 'paint') {
+                    $q->where('current_state', 'PAINT');
+                } elseif ($dept === 'assembly') {
+                    $q->whereIn('current_state', ['ASSEMBLY', 'ASSEMBLY_COMPLETED']);
+                }
+            }
+            return (int)$q->sum('required_qty');
+        }
+
+        if ($dept !== 'manager' && !empty($dept)) {
+            $deptMap = $this->preloadProjectDepartmentEcnMap($projectId, $dept);
+            if ($jigNo !== null && $unitNo !== null && $sideDisplay !== null) {
+                $rawU = trim(str_ireplace('unit', '', $unitNo));
+                return $deptMap['sides'][$jigNo . '|' . $rawU . '|' . $sideDisplay] 
+                    ?? $deptMap['sides'][$jigNo . '|Unit ' . $rawU . '|' . $sideDisplay] 
+                    ?? 0;
+            } elseif ($jigNo !== null && $unitNo !== null) {
+                $rawU = trim(str_ireplace('unit', '', $unitNo));
+                return $deptMap['units'][$jigNo . '|' . $rawU] 
+                    ?? $deptMap['units'][$jigNo . '|Unit ' . $rawU] 
+                    ?? 0;
+            } elseif ($jigNo !== null) {
+                return $deptMap['jigs'][$jigNo] ?? 0;
+            }
+            return $deptMap['project_total'] ?? 0;
         }
 
         $query = EcnRequirement::where('project_id', $projectId);
@@ -195,6 +234,94 @@ class EcnQuantityCalculationService
 
         foreach ($reqs as $r) {
             $qty = (int)$r->total_qty;
+            $map['project_total'] += $qty;
+
+            // Jig
+            $map['jigs'][$r->jig_no] = ($map['jigs'][$r->jig_no] ?? 0) + $qty;
+
+            // Unit (key: jig|unit)
+            $unitNo = (string)$r->unit_no;
+            $rawUnit = trim(str_ireplace('unit', '', $unitNo));
+            $paddedUnit = is_numeric($rawUnit) ? sprintf('%02d', (int)$rawUnit) : $rawUnit;
+
+            $unitAliases = array_unique([
+                $r->jig_no . '|' . $unitNo,
+                $r->jig_no . '|' . $rawUnit,
+                $r->jig_no . '|Unit ' . $rawUnit,
+                $r->jig_no . '|Unit ' . $paddedUnit,
+            ]);
+
+            foreach ($unitAliases as $uKey) {
+                $map['units'][$uKey] = ($map['units'][$uKey] ?? 0) + $qty;
+            }
+
+            // Side (key: jig|unit|side)
+            foreach ($unitAliases as $uKey) {
+                $sideKey = $uKey . '|' . $r->side_display;
+                $map['sides'][$sideKey] = ($map['sides'][$sideKey] ?? 0) + $qty;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * Bulk preloader for department-specific ECN hierarchy counts.
+     * Counts only ECN items resident/eligible in $department.
+     */
+    public function preloadProjectDepartmentEcnMap(int $projectId, string $department = 'manager'): array
+    {
+        $dept = strtolower(trim($department));
+
+        // When viewing manager or general overview, show total required ECN count
+        if ($dept === 'manager' || empty($dept)) {
+            return $this->preloadProjectEcnHierarchyMap($projectId);
+        }
+
+        $query = EcnRequirement::where('project_id', $projectId);
+
+        if ($dept === 'store') {
+            $query->where(function ($q) {
+                $q->where('current_state', 'STORE')
+                  ->orWhere('current_state', 'PENDING')
+                  ->orWhere('received_qty', '>', 0);
+            });
+        } elseif ($dept === 'qc') {
+            $query->where(function ($q) {
+                $q->whereIn('current_state', ['SENT_TO_QC', 'QC'])
+                  ->orWhere(function ($sq) {
+                      $sq->where('current_state', 'STORE')->where('received_qty', '>', 0);
+                  });
+            });
+        } elseif ($dept === 'rework') {
+            $query->where('current_state', 'REWORK');
+        } elseif ($dept === 'paint') {
+            $query->where('current_state', 'PAINT');
+        } elseif ($dept === 'assembly') {
+            $query->whereIn('current_state', ['ASSEMBLY', 'ASSEMBLY_COMPLETED']);
+        }
+
+        $reqs = $query->get();
+
+        $map = [
+            'project_total' => 0,
+            'jigs' => [],
+            'units' => [],
+            'sides' => [],
+        ];
+
+        foreach ($reqs as $r) {
+            $qty = match ($dept) {
+                'store' => (int)($r->current_state === 'STORE' ? $r->received_qty : max(0, $r->required_qty - $r->received_qty)),
+                'qc' => (int)($r->current_state === 'QC' || $r->current_state === 'SENT_TO_QC' ? ($r->received_qty ?: $r->required_qty) : 0),
+                'rework' => (int)($r->current_state === 'REWORK' ? ($r->received_qty ?: $r->required_qty) : 0),
+                'paint' => (int)($r->current_state === 'PAINT' ? ($r->received_qty ?: $r->required_qty) : 0),
+                'assembly' => (int)(in_array($r->current_state, ['ASSEMBLY', 'ASSEMBLY_COMPLETED']) ? ($r->received_qty ?: $r->required_qty) : 0),
+                default => (int)$r->required_qty,
+            };
+
+            if ($qty <= 0) continue;
+
             $map['project_total'] += $qty;
 
             // Jig

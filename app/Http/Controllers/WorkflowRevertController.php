@@ -10,12 +10,19 @@ use App\Models\QcInspection;
 use App\Models\ReceiptItem;
 use App\Models\ReworkRecord;
 use App\Models\WorkflowEvent;
+use App\Models\EcnRequirement;
+use App\Services\EcnWorkflowService;
+use App\Services\EcnBulkSplitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class WorkflowRevertController extends Controller
 {
+    public function __construct(
+        protected EcnWorkflowService $ecnWorkflowService = new EcnWorkflowService(),
+        protected EcnBulkSplitService $ecnBulkSplitService = new EcnBulkSplitService()
+    ) {}
     /**
      * Get active revert-eligible segments for a given department, BOM item, and side.
      */
@@ -648,11 +655,8 @@ class WorkflowRevertController extends Controller
         $request->validate([
             'department' => ['required', 'in:store,qc,rework,paint,assembly'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.bom_item_id' => ['required', 'exists:bom_items,id'],
-            'items.*.side' => ['required', 'in:RH,LH,COMMON'],
-            'items.*.quantity' => ['required', 'integer', 'min:1'],
-            'items.*.source_type' => ['nullable', 'in:receipt_item,qc_inspection,paint_record'],
-            'items.*.source_id' => ['nullable', 'integer'],
+            'items.*.side' => ['nullable', 'in:RH,LH,COMMON'],
+            'items.*.quantity' => ['nullable', 'integer', 'min:1'],
             'reason' => ['nullable', 'string', 'max:500'],
         ]);
 
@@ -678,18 +682,21 @@ class WorkflowRevertController extends Controller
                 break;
         }
 
-        $itemsData = $request->input('items');
+        $rawItems = $request->input('items', []);
         $reason = $request->input('reason') ?? 'Bulk operational revert';
+        $groups = $this->ecnBulkSplitService->classifySelection($rawItems);
 
         try {
-            return DB::transaction(function () use ($dept, $itemsData, $reason, $user) {
+            return DB::transaction(function () use ($dept, $groups, $reason, $user) {
                 $results = [];
                 $totalReverted = 0;
 
-                foreach ($itemsData as $itemInput) {
-                    $bomItem = BomItem::with('project')->findOrFail($itemInput['bom_item_id']);
-                    $side = $itemInput['side'];
-                    $qty = (int) $itemInput['quantity'];
+                // 1. Process Regular Reverts
+                foreach ($groups['regular'] as $itemInput) {
+                    $bomItemId = (int)($itemInput['bom_item_id'] ?? $itemInput['id'] ?? 0);
+                    $bomItem = BomItem::with('project')->findOrFail($bomItemId);
+                    $side = $itemInput['side'] ?? 'COMMON';
+                    $qty = (int) ($itemInput['quantity'] ?? 1);
                     $sourceType = $itemInput['source_type'] ?? null;
                     $sourceId = isset($itemInput['source_id']) ? (int) $itemInput['source_id'] : null;
 
@@ -721,11 +728,28 @@ class WorkflowRevertController extends Controller
                     $totalReverted += $qty;
                 }
 
+                // 2. Process ECN Reverts
+                foreach ($groups['ecn'] as $eItem) {
+                    $recordId = (int)($eItem['source_id'] ?? $eItem['record_id'] ?? $eItem['ecn_requirement_id'] ?? $eItem['id'] ?? 0);
+                    $qty = (int)($eItem['quantity'] ?? 1);
+
+                    $ecnRes = $this->ecnWorkflowService->revert($dept, $recordId, $qty, $reason, $user?->id);
+                    if (empty($ecnRes['success'])) {
+                        throw new \Exception($ecnRes['message'] ?? 'Failed to revert ECN item #' . $recordId);
+                    }
+
+                    $results[] = $ecnRes;
+                    $totalReverted += $qty;
+                }
+
+                $totalCount = count($groups['regular']) + count($groups['ecn']);
                 return response()->json([
                     'success' => true,
-                    'message' => "Successfully bulk reverted {$totalReverted} units across " . count($itemsData) . " items in {$dept}.",
+                    'message' => "Successfully bulk reverted {$totalReverted} units across {$totalCount} items in {$dept}.",
                     'total_reverted' => $totalReverted,
-                    'items_count' => count($itemsData),
+                    'regular_count' => count($groups['regular']),
+                    'ecn_count' => count($groups['ecn']),
+                    'items_count' => $totalCount,
                     'details' => $results,
                 ]);
             });

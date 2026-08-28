@@ -17,18 +17,12 @@ class EcnWorkflowTest extends TestCase
     use DatabaseTransactions;
     protected function getAdminUser(): User
     {
-        $user = User::where('email', 'admin@sparetrack.internal')->first();
-        if (!$user) {
-            $user = User::first();
-        }
-        if (!$user) {
-            $user = User::create([
-                'name' => 'Admin User',
-                'email' => 'admin@sparetrack.internal',
-                'password' => bcrypt('password'),
-            ]);
-            $user->assignRole('ADMIN');
-        }
+        \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'ADMIN', 'guard_name' => 'web']);
+        $user = User::firstOrCreate(
+            ['email' => 'admin@sparetrack.internal'],
+            ['name' => 'Admin User', 'password' => bcrypt('password123'), 'is_active' => true]
+        );
+        $user->syncRoles(['ADMIN']);
         return $user;
     }
 

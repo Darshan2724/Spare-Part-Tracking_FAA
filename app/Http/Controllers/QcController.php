@@ -8,12 +8,20 @@ use App\Models\ReceiptItem;
 use App\Models\ReworkRecord;
 use App\Models\PurchaseQueueItem;
 use App\Models\WorkflowEvent;
+use App\Models\EcnRequirement;
+use App\Models\EcnReceiptItem;
+use App\Services\EcnWorkflowService;
+use App\Services\EcnBulkSplitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class QcController extends Controller
 {
+    public function __construct(
+        protected EcnWorkflowService $ecnWorkflowService = new EcnWorkflowService(),
+        protected EcnBulkSplitService $ecnBulkSplitService = new EcnBulkSplitService()
+    ) {}
     public function queue(Request $request)
     {
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'QC']) ?: abort(403);
@@ -58,6 +66,34 @@ class QcController extends Controller
     public function confirmReceived(Request $request)
     {
         $request->user()?->hasAnyRole(['ADMIN', 'QC']) ?: abort(403, 'Unauthorized. QC operational permission required.');
+
+        $rawBomId = (string) $request->input('bom_item_id', '');
+        $isEcn = $request->boolean('is_ecn') || str_starts_with(strtolower($rawBomId), 'ecn_') || $request->filled('ecn_requirement_id') || $request->filled('ecn_receipt_item_id');
+
+        if ($isEcn) {
+            $ecnReqId = $request->input('ecn_requirement_id') ?? ($rawBomId ? (int)str_replace('ecn_', '', strtolower($rawBomId)) : null);
+            $ecnReceiptItemId = $request->input('ecn_receipt_item_id') ?? $request->input('receipt_item_id');
+            $qty = (int) ($request->input('quantity') ?? 1);
+
+            if (!$ecnReceiptItemId && $ecnReqId) {
+                $latest = EcnReceiptItem::where('ecn_requirement_id', (int)$ecnReqId)
+                    ->whereIn('status', ['received', 'sent_to_qc'])
+                    ->latest('id')
+                    ->first();
+                $ecnReceiptItemId = $latest?->id;
+            }
+
+            if (!$ecnReceiptItemId) {
+                return response()->json(['success' => false, 'message' => 'No active ECN receipt item awaiting QC arrival for this requirement.'], 422);
+            }
+
+            $res = $this->ecnWorkflowService->qcReceive((int)$ecnReceiptItemId, $qty, $request->input('remarks'), $request->user()?->id);
+            return response()->json([
+                'success' => true,
+                'processed_quantity' => $qty,
+                'message' => $res['message'] ?? 'Successfully confirmed physical arrival for ECN part in QC department.',
+            ]);
+        }
 
         $request->validate([
             'receipt_item_id' => ['nullable', 'integer'],
@@ -161,12 +197,8 @@ class QcController extends Controller
 
         $request->validate([
             'receipt_item_ids' => ['nullable', 'array'],
-            'receipt_item_ids.*' => ['integer'],
             'bom_item_ids' => ['nullable', 'array'],
-            'bom_item_ids.*' => ['integer'],
             'items' => ['nullable', 'array'],
-            'items.*.receipt_item_id' => ['nullable', 'integer'],
-            'items.*.bom_item_id' => ['nullable', 'integer'],
             'items.*.side' => ['nullable', 'in:RH,LH,COMMON'],
             'items.*.quantity' => ['nullable', 'integer', 'min:1'],
             'side' => ['nullable', 'in:RH,LH,COMMON'],
@@ -179,15 +211,17 @@ class QcController extends Controller
             $side = $request->input('side');
 
             if (!empty($itemsPayload)) {
+                $groups = $this->ecnBulkSplitService->classifySelection($itemsPayload);
                 $processedCount = 0;
                 $processedTotalQty = 0;
 
-                foreach ($itemsPayload as $itemData) {
+                // 1. Process Regular Items
+                foreach ($groups['regular'] as $itemData) {
                     $q = ReceiptItem::query()->lockForUpdate()->with('bomItem.project');
                     if (!empty($itemData['receipt_item_id'])) {
-                        $q->where('id', $itemData['receipt_item_id']);
+                        $q->where('id', (int)$itemData['receipt_item_id']);
                     } elseif (!empty($itemData['bom_item_id'])) {
-                        $q->where('bom_item_id', $itemData['bom_item_id'])->whereIn('status', ['received', 'sent_to_qc', 'store_resident']);
+                        $q->where('bom_item_id', (int)$itemData['bom_item_id'])->whereIn('status', ['received', 'sent_to_qc', 'store_resident']);
                         if (!empty($itemData['side'])) {
                             $q->where('side', $itemData['side']);
                         }
@@ -230,6 +264,22 @@ class QcController extends Controller
 
                     $processedCount++;
                     $processedTotalQty += $reqQty;
+                }
+
+                // 2. Process ECN Items
+                foreach ($groups['ecn'] as $eItem) {
+                    $reqId = (int)$eItem['ecn_requirement_id'];
+                    $qty = (int)($eItem['quantity'] ?? $eItem['received_quantity'] ?? 1);
+                    $recItem = EcnReceiptItem::where('ecn_requirement_id', $reqId)
+                        ->whereIn('status', ['received', 'sent_to_qc'])
+                        ->latest('id')
+                        ->first();
+
+                    if ($recItem) {
+                        $this->ecnWorkflowService->qcReceive($recItem->id, $qty, $eItem['remarks'] ?? 'Bulk QC physical arrival', $request->user()?->id);
+                        $processedCount++;
+                        $processedTotalQty += $qty;
+                    }
                 }
 
                 return response()->json([
@@ -357,6 +407,38 @@ class QcController extends Controller
     public function inspect(Request $request)
     {
         $request->user()?->hasAnyRole(['ADMIN', 'QC']) ?: abort(403, 'Unauthorized. QC operational permission required.');
+
+        $rawBomId = (string) $request->input('bom_item_id', '');
+        $isEcn = $request->boolean('is_ecn') || str_starts_with(strtolower($rawBomId), 'ecn_') || $request->filled('ecn_requirement_id');
+
+        if ($isEcn) {
+            $ecnReqId = $request->input('ecn_requirement_id') ?? ($rawBomId ? (int)str_replace('ecn_', '', strtolower($rawBomId)) : null);
+            $ecnReceiptItemId = $request->input('ecn_receipt_item_id') ?? $request->input('receipt_item_id');
+
+            if (!$ecnReceiptItemId && $ecnReqId) {
+                $latest = EcnReceiptItem::where('ecn_requirement_id', (int)$ecnReqId)
+                    ->where('status', 'qc_received')
+                    ->latest('id')
+                    ->first();
+                $ecnReceiptItemId = $latest?->id;
+            }
+
+            if (!$ecnReceiptItemId) {
+                return response()->json(['success' => false, 'message' => 'No active ECN receipt item awaiting QC inspection for this requirement.'], 422);
+            }
+
+            $res = $this->ecnWorkflowService->qcInspect(
+                (int)$ecnReceiptItemId,
+                (int)($request->input('approved_quantity') ?? ($request->input('result') === 'approved' ? $request->input('inspected_quantity', 1) : 0)),
+                $request->input('destination') ?: 'ASSEMBLY',
+                (int)($request->input('rejected_quantity') ?? ($request->input('result') === 'rejected' ? $request->input('inspected_quantity', 1) : 0)),
+                (int)($request->input('rework_quantity') ?? ($request->input('result') === 'rework' ? $request->input('inspected_quantity', 1) : 0)),
+                $request->input('remarks') ?? $request->input('rejection_reason') ?? $request->input('rework_reason'),
+                $request->user()?->id
+            );
+
+            return response()->json($res);
+        }
 
         $request->validate([
             'receipt_item_id' => ['required', 'integer'],
@@ -700,10 +782,9 @@ class QcController extends Controller
         $request->user()?->hasAnyRole(['ADMIN', 'QC']) ?: abort(403, 'Unauthorized. QC operational permission required.');
 
         $request->validate([
+            'items' => ['nullable', 'array'],
             'receipt_item_ids' => ['nullable', 'array'],
-            'receipt_item_ids.*' => ['integer'],
             'bom_item_ids' => ['nullable', 'array'],
-            'bom_item_ids.*' => ['integer'],
             'side' => ['nullable', 'in:RH,LH,COMMON'],
             'result' => ['required', 'in:approved,rejected,rework'],
             'destination' => ['required_if:result,approved', 'nullable', 'in:PAINT,ASSEMBLY'],
@@ -713,11 +794,157 @@ class QcController extends Controller
         ]);
 
         return DB::transaction(function () use ($request) {
+            $itemsPayload = $request->input('items', []);
             $ids = $request->input('receipt_item_ids', []);
             $bomIds = $request->input('bom_item_ids', []);
             $side = $request->input('side');
             $result = $request->input('result');
             $destination = $result === 'approved' ? $request->input('destination') : null;
+            $userId = $request->user()->id;
+
+            $processedCount = 0;
+
+            if (!empty($itemsPayload)) {
+                $groups = $this->ecnBulkSplitService->classifySelection($itemsPayload);
+
+                // 1. Process Regular Items
+                $regReceiptIds = [];
+                $regBomIds = [];
+                foreach ($groups['regular'] as $r) {
+                    if (!empty($r['receipt_item_id'])) $regReceiptIds[] = (int)$r['receipt_item_id'];
+                    elseif (!empty($r['bom_item_id'])) $regBomIds[] = (int)$r['bom_item_id'];
+                }
+
+                if (!empty($regReceiptIds) || !empty($regBomIds)) {
+                    $regQuery = ReceiptItem::query()->where('status', 'qc_received')->lockForUpdate()->with('bomItem.project');
+                    if (!empty($regReceiptIds) && !empty($regBomIds)) {
+                        $regQuery->where(function ($q) use ($regReceiptIds, $regBomIds) {
+                            $q->whereIn('id', $regReceiptIds)->orWhereIn('bom_item_id', $regBomIds);
+                        });
+                    } elseif (!empty($regReceiptIds)) {
+                        $regQuery->whereIn('id', $regReceiptIds);
+                    } else {
+                        $regQuery->whereIn('bom_item_id', $regBomIds);
+                    }
+                    if ($side) {
+                        $regQuery->where(function ($q) use ($side) {
+                            $q->where('side', $side)->orWhere('side', 'COMMON');
+                        });
+                    }
+
+                    $regItems = $regQuery->get();
+                    foreach ($regItems as $receiptItem) {
+                        $qty = $receiptItem->received_quantity;
+                        $approvedQty = $result === 'approved' ? $qty : 0;
+                        $rejectedQty = $result === 'rejected' ? $qty : 0;
+                        $reworkQty   = $result === 'rework'   ? $qty : 0;
+
+                        $inspection = QcInspection::create([
+                            'bom_item_id' => $receiptItem->bom_item_id,
+                            'receipt_item_id' => $receiptItem->id,
+                            'side' => $receiptItem->side,
+                            'inspected_quantity' => $qty,
+                            'approved_quantity' => $approvedQty,
+                            'rejected_quantity' => $rejectedQty,
+                            'rework_quantity' => $reworkQty,
+                            'result' => $result,
+                            'destination' => $destination,
+                            'rejection_reason' => $request->input('rejection_reason'),
+                            'rework_reason' => $request->input('rework_reason'),
+                            'remarks' => $request->input('remarks'),
+                            'inspected_by' => $userId,
+                            'inspection_date' => now(),
+                        ]);
+
+                        if ($result === 'approved') {
+                            $receiptItem->update(['status' => 'qc_approved']);
+                        } elseif ($result === 'rejected') {
+                            $receiptItem->update(['status' => 'qc_rejected']);
+                            WorkflowEvent::create([
+                                'bom_item_id' => $receiptItem->bom_item_id,
+                                'project_id' => $receiptItem->bomItem->project_id,
+                                'user_id' => $userId,
+                                'event_type' => 'returned_to_purchase',
+                                'side' => $receiptItem->side,
+                                'quantity' => $rejectedQty,
+                                'previous_state' => 'qc_received',
+                                'new_state' => 'qc_rejected',
+                                'remarks' => "Bulk QC Rejection: " . ($request->input('rejection_reason') ?? 'Dimensional Defect') . ". Sent to Purchase Queue for re-ordering.",
+                            ]);
+                            PurchaseQueueItem::create([
+                                'bom_item_id' => $receiptItem->bom_item_id,
+                                'qc_inspection_id' => $inspection->id,
+                                'project_id' => $receiptItem->bomItem->project_id,
+                                'standard_part_no' => $receiptItem->bomItem->standard_part_no,
+                                'side' => $receiptItem->side,
+                                'rejected_quantity' => $rejectedQty,
+                                'rejection_reason' => $request->input('rejection_reason'),
+                                'rejected_by' => $userId,
+                                'rejected_at' => now(),
+                                'status' => 'pending_purchase',
+                            ]);
+                        } elseif ($result === 'rework') {
+                            $receiptItem->update(['status' => 'qc_rework']);
+                            ReworkRecord::create([
+                                'qc_inspection_id' => $inspection->id,
+                                'bom_item_id' => $receiptItem->bom_item_id,
+                                'side' => $receiptItem->side,
+                                'quantity' => $reworkQty,
+                                'status' => 'pending',
+                                'rework_description' => $request->input('rework_reason') ?? $request->input('remarks'),
+                                'cycle_number' => 1,
+                            ]);
+                        }
+
+                        WorkflowEvent::create([
+                            'bom_item_id' => $receiptItem->bom_item_id,
+                            'project_id' => $receiptItem->bomItem->project_id,
+                            'user_id' => $userId,
+                            'event_type' => 'qc_inspected',
+                            'side' => $receiptItem->side,
+                            'quantity' => $qty,
+                            'previous_state' => 'qc_received',
+                            'new_state' => $result,
+                            'remarks' => "Bulk QC Inspection: {$result} (Destination: {$destination}). Qty: {$qty}.",
+                        ]);
+
+                        $processedCount++;
+                    }
+                }
+
+                // 2. Process ECN Items
+                foreach ($groups['ecn'] as $eItem) {
+                    $reqId = (int)$eItem['ecn_requirement_id'];
+                    $recItem = EcnReceiptItem::where('ecn_requirement_id', $reqId)
+                        ->where('status', 'qc_received')
+                        ->latest('id')
+                        ->first();
+
+                    if ($recItem) {
+                        $qty = (int)($eItem['quantity'] ?? $recItem->received_quantity);
+                        $approvedQty = $result === 'approved' ? $qty : 0;
+                        $rejectedQty = $result === 'rejected' ? $qty : 0;
+                        $reworkQty   = $result === 'rework'   ? $qty : 0;
+
+                        $this->ecnWorkflowService->qcInspect(
+                            $recItem->id,
+                            $approvedQty,
+                            $destination ?: 'ASSEMBLY',
+                            $rejectedQty,
+                            $reworkQty,
+                            $request->input('remarks') ?? $request->input('rejection_reason') ?? $request->input('rework_reason'),
+                            $userId
+                        );
+                        $processedCount++;
+                    }
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'processed_count' => $processedCount,
+                    'message' => "Successfully processed QC {$result} for {$processedCount} items."
+                ]);
+            }
 
             $query = ReceiptItem::query()->where('status', 'qc_received');
 
@@ -747,7 +974,6 @@ class QcController extends Controller
                 return response()->json(['success' => false, 'message' => 'No eligible items found awaiting QC inspection.'], 422);
             }
 
-            $processedCount = 0;
             foreach ($items as $receiptItem) {
                 $qty = $receiptItem->received_quantity;
                 $approvedQty = $result === 'approved' ? $qty : 0;
@@ -767,7 +993,7 @@ class QcController extends Controller
                     'rejection_reason' => $request->input('rejection_reason'),
                     'rework_reason' => $request->input('rework_reason'),
                     'remarks' => $request->input('remarks'),
-                    'inspected_by' => $request->user()->id,
+                    'inspected_by' => $userId,
                     'inspection_date' => now(),
                 ]);
 
@@ -778,7 +1004,7 @@ class QcController extends Controller
                     WorkflowEvent::create([
                         'bom_item_id' => $receiptItem->bom_item_id,
                         'project_id' => $receiptItem->bomItem->project_id,
-                        'user_id' => $request->user()->id,
+                        'user_id' => $userId,
                         'event_type' => 'returned_to_purchase',
                         'side' => $receiptItem->side,
                         'quantity' => $rejectedQty,
@@ -794,7 +1020,7 @@ class QcController extends Controller
                         'side' => $receiptItem->side,
                         'rejected_quantity' => $rejectedQty,
                         'rejection_reason' => $request->input('rejection_reason'),
-                        'rejected_by' => $request->user()->id,
+                        'rejected_by' => $userId,
                         'rejected_at' => now(),
                         'status' => 'pending_purchase',
                     ]);
@@ -814,7 +1040,7 @@ class QcController extends Controller
                 WorkflowEvent::create([
                     'bom_item_id' => $receiptItem->bom_item_id,
                     'project_id' => $receiptItem->bomItem->project_id,
-                    'user_id' => $request->user()->id,
+                    'user_id' => $userId,
                     'event_type' => 'qc_inspected',
                     'side' => $receiptItem->side,
                     'quantity' => $qty,

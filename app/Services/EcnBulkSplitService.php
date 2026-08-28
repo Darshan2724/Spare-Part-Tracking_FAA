@@ -25,20 +25,26 @@ class EcnBulkSplitService
         $ecn = [];
 
         foreach ($items as $item) {
+            $rawId = (string)($item['id'] ?? $item['bom_item_id'] ?? $item['record_id'] ?? '');
             $isEcn = !empty($item['is_ecn']) ||
                      (isset($item['classification']) && strtoupper($item['classification']) === 'ECN') ||
                      !empty($item['ecn_requirement_id']) ||
-                     !empty($item['ecn_receipt_item_id']);
+                     !empty($item['ecn_receipt_item_id']) ||
+                     str_starts_with(strtolower($rawId), 'ecn_');
 
             if ($isEcn) {
+                $ecnReqId = $item['ecn_requirement_id'] ?? (str_starts_with(strtolower($rawId), 'ecn_') ? (int)str_replace('ecn_', '', strtolower($rawId)) : (int)($item['record_id'] ?? $item['id'] ?? 0));
                 $ecn[] = array_merge($item, [
                     'classification' => 'ECN',
                     'is_ecn' => true,
+                    'ecn_requirement_id' => $ecnReqId,
                 ]);
             } else {
+                $bomId = (int)($item['bom_item_id'] ?? $item['record_id'] ?? $item['id'] ?? 0);
                 $regular[] = array_merge($item, [
                     'classification' => 'REGULAR',
                     'is_ecn' => false,
+                    'bom_item_id' => $bomId,
                 ]);
             }
         }
