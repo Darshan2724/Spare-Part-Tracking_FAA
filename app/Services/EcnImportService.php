@@ -491,9 +491,10 @@ class EcnImportService
     /**
      * Execute transactional import.
      */
-    public function importFromPath(string $path, string $filename, ?int $userId = null): array
+    public function importFromPath(string $path, string|array $filename, ?int $userId = null): array
     {
-        $preview = $this->previewFromPath($path, $filename);
+        $filenameStr = is_array($filename) ? ($filename['filename'] ?? basename($path)) : $filename;
+        $preview = $this->previewFromPath($path, $filenameStr);
 
         if (!$preview['success']) {
             return [
