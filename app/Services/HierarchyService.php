@@ -854,8 +854,10 @@ class HierarchyService
                 $rhEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|RH'] ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|RH'] ?? 0);
 
                 $unitData['ecn_count'] = $uEcnCount;
+                $unitData['ecn_parts'] = $uEcnCount;
                 $unitData['ecn_part_count'] = $uEcnCount;
                 $unitData['is_ecn_present'] = ($uEcnCount > 0);
+                $unitData['ecn_present'] = ($uEcnCount > 0);
                 $unitData['ecn_numbers'] = $uEcnNums;
                 $unitData['ecn_summary'] = $uEcnSum;
                 $unitData['ecn_number_display'] = $uEcnDisp;
@@ -921,8 +923,10 @@ class HierarchyService
             $jigEcnDisp = $ecnMap['jig_ecn_display'][$jigName] ?? null;
 
             $jigData['ecn_count'] = $jigEcnCount;
+            $jigData['ecn_parts'] = $jigEcnCount;
             $jigData['ecn_part_count'] = $jigEcnCount;
             $jigData['is_ecn_present'] = ($jigEcnCount > 0);
+            $jigData['ecn_present'] = ($jigEcnCount > 0);
             $jigData['ecn_numbers'] = $jigEcnNums;
             $jigData['ecn_summary'] = $jigEcnSum;
             $jigData['ecn_number_display'] = $jigEcnDisp;
@@ -1032,9 +1036,11 @@ class HierarchyService
             'completion_pct' => min(100, $progressPercent),
             'is_complete' => ($progressPercent >= 100),
             'ecn_count' => $projEcnCount,
+            'ecn_parts' => $projEcnCount,
             'ecn_total_parts' => $projEcnCount,
             'ecn_part_count' => $projEcnCount,
             'is_ecn_present' => ($projEcnCount > 0),
+            'ecn_present' => ($projEcnCount > 0),
             'ecn_numbers' => $projEcnNums,
             'ecn_summary' => $projEcnSum,
             'ecn_number_display' => $projEcnDisp,

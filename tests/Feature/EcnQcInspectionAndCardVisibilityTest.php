@@ -271,24 +271,28 @@ class EcnQcInspectionAndCardVisibilityTest extends TestCase
         $this->assertNotEmpty($qcHierarchy['jigs']);
         $qcJig = $qcHierarchy['jigs'][0];
 
-        // QC Jig card must show ECN-101 (and not ECN-102 which is in Paint)
-        $this->assertStringContainsString('ECN-101', (string)$qcJig['ecn_number_display']);
-        $this->assertStringNotContainsString('ECN-102', (string)($qcJig['ecn_number_display'] ?? ''));
+        // QC Jig card must show ECN (3 parts) and ECN-101 in ecn_numbers (and not ECN-102 which is in Paint)
+        $this->assertTrue($qcJig['is_ecn_present']);
+        $this->assertEquals(['ECN-101'], $qcJig['ecn_numbers']);
+        $this->assertEquals('ECN (3 parts)', $qcJig['ecn_number_display']);
 
-        // QC Unit 01 must show ECN-101
+        // QC Unit 01 must show ECN (3 parts)
         $unit01 = collect($qcJig['units'])->first(function ($u) {
             return in_array($u['unit_no'], ['01', 'Unit 01']);
         });
-        $this->assertStringContainsString('ECN-101', (string)$unit01['ecn_number_display']);
+        $this->assertNotNull($unit01);
+        $this->assertTrue($unit01['is_ecn_present']);
         $this->assertEquals(['ECN-101'], $unit01['ecn_numbers']);
+        $this->assertEquals('ECN (3 parts)', $unit01['ecn_number_display']);
 
         // 2. Query Paint Department Hierarchy
         $paintHierarchy = $hierarchyService->getDepartmentHierarchy('paint', $project->id);
         $this->assertNotEmpty($paintHierarchy['jigs']);
         $paintJig = $paintHierarchy['jigs'][0];
 
-        // Paint Jig card must show ECN-102
-        $this->assertStringContainsString('ECN-102', (string)$paintJig['ecn_number_display']);
-        $this->assertStringNotContainsString('ECN-101', (string)($paintJig['ecn_number_display'] ?? ''));
+        // Paint Jig card must show ECN (2 parts) and ECN-102 in ecn_numbers
+        $this->assertTrue($paintJig['is_ecn_present']);
+        $this->assertEquals(['ECN-102'], $paintJig['ecn_numbers']);
+        $this->assertEquals('ECN (2 parts)', $paintJig['ecn_number_display']);
     }
 }

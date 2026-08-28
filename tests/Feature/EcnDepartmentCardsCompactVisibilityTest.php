@@ -66,18 +66,21 @@ class EcnDepartmentCardsCompactVisibilityTest extends TestCase
         ]);
     }
 
-    public function test_format_ecn_summary_display_formats_singular_and_plural_correctly(): void
+    public function test_format_ecn_summary_display_formats_generic_ecn_parts_correctly(): void
     {
         $singleSummary = [
             ['ecn_number' => 'ECN-1', 'part_count' => 1],
         ];
-        $this->assertEquals('ECN-1 • 1 part', EcnQuantityCalculationService::formatEcnSummaryDisplay($singleSummary));
+        $this->assertEquals('ECN (1 part)', EcnQuantityCalculationService::formatEcnSummaryDisplay($singleSummary));
 
         $pluralSummary = [
             ['ecn_number' => 'ECN-1', 'part_count' => 4],
             ['ecn_number' => 'ECN-3', 'part_count' => 2],
         ];
-        $this->assertEquals('ECN-1 • 4 parts, ECN-3 • 2 parts', EcnQuantityCalculationService::formatEcnSummaryDisplay($pluralSummary));
+        $this->assertEquals('ECN (6 parts)', EcnQuantityCalculationService::formatEcnSummaryDisplay($pluralSummary));
+
+        // Detailed display preserves individual numbers
+        $this->assertEquals('ECN-1 • 4 parts, ECN-3 • 2 parts', EcnQuantityCalculationService::formatEcnDetailedDisplay($pluralSummary));
 
         $emptySummary = [];
         $this->assertNull(EcnQuantityCalculationService::formatEcnSummaryDisplay($emptySummary));
@@ -127,18 +130,20 @@ class EcnDepartmentCardsCompactVisibilityTest extends TestCase
         $this->assertEquals('JIG-01', $storeJig['jig_name']);
         $this->assertTrue($storeJig['is_ecn_present']);
         $this->assertEquals(4, $storeJig['ecn_part_count']);
-        $this->assertEquals('ECN-101 • 4 parts', $storeJig['ecn_number_display']);
+        $this->assertEquals(4, $storeJig['ecn_parts']);
+        $this->assertEquals('ECN (4 parts)', $storeJig['ecn_number_display']);
 
         $storeUnit = $storeJig['units'][0];
         $this->assertTrue($storeUnit['is_ecn_present']);
         $this->assertEquals(4, $storeUnit['ecn_part_count']);
-        $this->assertEquals('ECN-101 • 4 parts', $storeUnit['ecn_number_display']);
+        $this->assertEquals('ECN (4 parts)', $storeUnit['ecn_number_display']);
 
         // 2. In QC Department Hierarchy (should be 0 because item is in STORE, not QC)
         $qcHierarchy = $hierarchyService->getDepartmentHierarchy('qc', $this->project->id);
         $qcJig = $qcHierarchy['jigs'][0];
         $this->assertFalse($qcJig['is_ecn_present']);
         $this->assertEquals(0, $qcJig['ecn_part_count']);
+        $this->assertEquals(0, $qcJig['ecn_parts']);
         $this->assertNull($qcJig['ecn_number_display']);
 
         // Move ECN requirement to QC
@@ -150,7 +155,7 @@ class EcnDepartmentCardsCompactVisibilityTest extends TestCase
         $qcJigAfter = $qcHierarchyAfter['jigs'][0];
         $this->assertTrue($qcJigAfter['is_ecn_present']);
         $this->assertEquals(4, $qcJigAfter['ecn_part_count']);
-        $this->assertEquals('ECN-101 • 4 parts', $qcJigAfter['ecn_number_display']);
+        $this->assertEquals('ECN (4 parts)', $qcJigAfter['ecn_number_display']);
 
         // And Store should no longer show it in active stock
         $storeHierarchyAfter = $hierarchyService->getDepartmentHierarchy('store', $this->project->id);
@@ -195,9 +200,10 @@ class EcnDepartmentCardsCompactVisibilityTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertJsonPath('is_hierarchical', true);
-        $response->assertJsonPath('jigs.0.ecn_number_display', 'ECN-101 • 2 parts');
+        $response->assertJsonPath('jigs.0.ecn_number_display', 'ECN (2 parts)');
         $response->assertJsonPath('jigs.0.is_ecn_present', true);
+        $response->assertJsonPath('jigs.0.ecn_parts', 2);
         $response->assertJsonPath('jigs.0.ecn_part_count', 2);
-        $response->assertJsonPath('jigs.0.units.0.ecn_number_display', 'ECN-101 • 2 parts');
+        $response->assertJsonPath('jigs.0.units.0.ecn_number_display', 'ECN (2 parts)');
     }
 }
