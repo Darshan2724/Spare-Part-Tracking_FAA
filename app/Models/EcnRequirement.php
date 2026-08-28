@@ -30,6 +30,19 @@ class EcnRequirement extends Model
         'received_qty' => 'integer',
     ];
 
+    protected static function booted()
+    {
+        static::saving(function ($model) {
+            if (empty($model->side_family)) {
+                $s = strtoupper(trim($model->side_display ?: $model->side ?: 'RIGHT'));
+                $model->side_family = in_array($s, ['LH', 'LA', 'AL', 'L', 'LEFT']) ? 'LEFT' : 'RIGHT';
+            }
+            if (empty($model->side_display)) {
+                $model->side_display = $model->side ?: ($model->side_family === 'LEFT' ? 'LH' : 'RH');
+            }
+        });
+    }
+
     public function project()
     {
         return $this->belongsTo(Project::class);

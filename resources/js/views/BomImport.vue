@@ -465,16 +465,16 @@
     <div v-if="showDeleteModal" class="modal fade show d-block" tabindex="-1" style="background-color: rgba(15, 23, 42, 0.65); z-index: 1055;" role="dialog" aria-modal="true">
       <div class="modal-dialog modal-dialog-centered modal-lg">
         <div class="modal-content border-0 shadow-lg">
-          <div class="modal-header bg-danger text-white border-0 py-2 px-3">
-            <h6 class="modal-title fw-bold mb-0">
-              <i class="fas fa-exclamation-triangle me-2"></i>Confirm BOM Deletion
+          <div class="modal-header text-white border-0 py-2 px-3" :class="selectedDeleteBatch?.import_type === 'ECN' ? 'bg-warning text-dark' : 'bg-danger'">
+            <h6 class="modal-title fw-bold mb-0" :class="selectedDeleteBatch?.import_type === 'ECN' ? 'text-dark' : 'text-white'">
+              <i class="fas fa-exclamation-triangle me-2"></i>{{ selectedDeleteBatch?.import_type === 'ECN' ? 'Confirm ECN Dataset Deletion' : 'Confirm BOM Deletion' }}
             </h6>
-            <button type="button" class="btn-close btn-close-white" :disabled="isDeleting" @click="closeDeleteModal" aria-label="Close"></button>
+            <button type="button" class="btn-close" :class="{ 'btn-close-white': selectedDeleteBatch?.import_type !== 'ECN' }" :disabled="isDeleting" @click="closeDeleteModal" aria-label="Close"></button>
           </div>
 
           <div class="modal-body p-3">
             <div v-if="impactLoading" class="text-center py-4">
-              <div class="spinner-border text-danger mb-2" role="status" style="width: 2rem; height: 2rem;"></div>
+              <div class="spinner-border mb-2" :class="selectedDeleteBatch?.import_type === 'ECN' ? 'text-warning' : 'text-danger'" role="status" style="width: 2rem; height: 2rem;"></div>
               <p class="text-muted small mb-0">Calculating impact analysis...</p>
             </div>
 
@@ -483,15 +483,23 @@
             </div>
 
             <div v-else-if="deleteImpact">
-              <div class="alert alert-warning border-warning shadow-sm mb-3 p-2 small">
+              <div class="alert shadow-sm mb-3 p-2 small" :class="deleteImpact.is_ecn ? 'alert-warning border-warning' : 'alert-warning border-warning'">
                 <div class="fw-bold mb-1">Target File: {{ deleteImpact.batch.filename }}</div>
                 <div class="text-muted">
+                  Type: <span class="badge" :class="deleteImpact.is_ecn ? 'bg-warning text-dark' : 'bg-secondary'">{{ deleteImpact.batch.import_type || 'BOM' }}</span> |
                   Project: <strong>{{ deleteImpact.project?.name || 'N/A' }} ({{ deleteImpact.project?.project_code || 'N/A' }})</strong> |
                   Imported on: {{ formatTimestamp(deleteImpact.batch.created_at) }}
                 </div>
               </div>
 
-              <div v-if="deleteImpact.has_operational_data" class="alert alert-danger shadow-sm mb-3 p-2 small">
+              <!-- ECN-Specific Info Alert -->
+              <div v-if="deleteImpact.is_ecn" class="alert alert-info shadow-sm mb-3 p-2 small">
+                <i class="fas fa-info-circle me-1 text-primary"></i>
+                <strong>ECN Isolation Guarantee:</strong> Deleting this ECN import batch removes only its ECN requirements and transactions. <strong>The Project and Regular BOM are completely preserved and will not be deleted.</strong>
+              </div>
+
+              <!-- BOM Operational Warning Alert -->
+              <div v-else-if="deleteImpact.has_operational_data" class="alert alert-danger shadow-sm mb-3 p-2 small">
                 <div class="fw-bold text-danger mb-1"><i class="fas fa-radiation me-1"></i>Active Operational Workflow Data Detected!</div>
                 <div>
                   This project contains active transactions. Deleting this BOM import will permanently remove all {{ deleteImpact.counts.total_operational_records }} operational records.
@@ -503,37 +511,19 @@
                 <div class="col-4">
                   <div class="p-2 border rounded bg-light text-center">
                     <div class="fw-bold text-danger">{{ deleteImpact.counts.unique_parts_count }}</div>
-                    <div class="text-muted" style="font-size: 0.75rem;">BOM Parts</div>
+                    <div class="text-muted" style="font-size: 0.75rem;">{{ deleteImpact.is_ecn ? 'ECN Requirements' : 'BOM Parts' }}</div>
                   </div>
                 </div>
                 <div class="col-4">
                   <div class="p-2 border rounded bg-light text-center">
-                    <div class="fw-bold text-danger">{{ deleteImpact.counts.receipts_count }}</div>
-                    <div class="text-muted" style="font-size: 0.75rem;">Store Receipts</div>
+                    <div class="fw-bold text-danger">{{ deleteImpact.counts.receipt_items_count }}</div>
+                    <div class="text-muted" style="font-size: 0.75rem;">{{ deleteImpact.is_ecn ? 'ECN Receipts' : 'Store Receipts' }}</div>
                   </div>
                 </div>
                 <div class="col-4">
                   <div class="p-2 border rounded bg-light text-center">
                     <div class="fw-bold text-danger">{{ deleteImpact.counts.qc_inspections_count }}</div>
-                    <div class="text-muted" style="font-size: 0.75rem;">QC Inspections</div>
-                  </div>
-                </div>
-                <div class="col-4">
-                  <div class="p-2 border rounded bg-light text-center">
-                    <div class="fw-bold text-danger">{{ deleteImpact.counts.paint_records_count }}</div>
-                    <div class="text-muted" style="font-size: 0.75rem;">Paint Records</div>
-                  </div>
-                </div>
-                <div class="col-4">
-                  <div class="p-2 border rounded bg-light text-center">
-                    <div class="fw-bold text-danger">{{ deleteImpact.counts.assembly_records_count }}</div>
-                    <div class="text-muted" style="font-size: 0.75rem;">Assembly Records</div>
-                  </div>
-                </div>
-                <div class="col-4">
-                  <div class="p-2 border rounded bg-light text-center">
-                    <div class="fw-bold text-danger">{{ deleteImpact.counts.rework_records_count }}</div>
-                    <div class="text-muted" style="font-size: 0.75rem;">Rework Records</div>
+                    <div class="text-muted" style="font-size: 0.75rem;">{{ deleteImpact.is_ecn ? 'ECN Workflow Records' : 'QC Inspections' }}</div>
                   </div>
                 </div>
               </div>
@@ -544,9 +534,11 @@
             <button type="button" class="btn btn-secondary btn-sm px-3" :disabled="isDeleting" @click="closeDeleteModal">
               Cancel
             </button>
-            <button type="button" class="btn btn-danger btn-sm px-3 fw-bold" :disabled="isDeleting || impactLoading" @click="executeDelete">
+            <button type="button" class="btn btn-sm px-3 fw-bold" :class="selectedDeleteBatch?.import_type === 'ECN' ? 'btn-warning text-dark' : 'btn-danger'" :disabled="isDeleting || impactLoading" @click="executeDelete">
               <span v-if="isDeleting" class="spinner-border spinner-border-sm me-1"></span>
-              <i v-else class="fas fa-trash-alt me-1"></i>Delete BOM
+              <span v-else>
+                <i class="fas fa-trash-alt me-1"></i>{{ selectedDeleteBatch?.import_type === 'ECN' ? 'Delete ECN Import' : 'Delete BOM' }}
+              </span>
             </button>
           </div>
         </div>
@@ -755,7 +747,8 @@ const openDeleteModal = async (batch) => {
   showDeleteModal.value = true;
 
   try {
-    const res = await axios.get(`/api/v1/bom/history/${batch.id}/impact`);
+    const typeParam = batch.import_type || 'BOM';
+    const res = await axios.get(`/api/v1/bom/history/${batch.id}/impact?type=${typeParam}`);
     deleteImpact.value = res.data;
   } catch (err) {
     console.error('Failed to load deletion impact:', err);
@@ -776,23 +769,24 @@ const closeDeleteModal = () => {
 const executeDelete = async () => {
   if (!selectedDeleteBatch.value) return;
   const batchId = selectedDeleteBatch.value.id;
+  const typeParam = selectedDeleteBatch.value.import_type || 'BOM';
   isDeleting.value = true;
   deleteError.value = '';
 
   try {
-    const res = await axios.delete(`/api/v1/bom/history/${batchId}`);
+    const res = await axios.delete(`/api/v1/bom/history/${batchId}?type=${typeParam}`);
     if (res.data.success) {
-      importHistory.value = importHistory.value.filter(b => b.id !== batchId);
-      successMessage.value = res.data.message || 'BOM import and associated project deleted successfully.';
+      importHistory.value = importHistory.value.filter(b => !(b.id === batchId && (b.import_type || 'BOM') === typeParam));
+      successMessage.value = res.data.message || 'Import batch deleted successfully.';
       showDeleteModal.value = false;
       selectedDeleteBatch.value = null;
       deleteImpact.value = null;
     } else {
-      deleteError.value = res.data.message || 'Failed to delete BOM import.';
+      deleteError.value = res.data.message || 'Failed to delete import.';
     }
   } catch (err) {
-    console.error('Failed to delete BOM import:', err);
-    deleteError.value = err.response?.data?.message || 'An error occurred while deleting the BOM import.';
+    console.error('Failed to delete import:', err);
+    deleteError.value = err.response?.data?.message || 'An error occurred while deleting the import.';
   } finally {
     isDeleting.value = false;
   }

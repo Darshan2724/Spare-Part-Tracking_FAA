@@ -396,146 +396,233 @@
         </div>
       </div>
 
-      <!-- KPI Interactive Drilldown Modal -->
-      <div v-if="showDrilldownModal" class="modal fade show d-block" tabindex="-1" style="background-color: rgba(15, 23, 42, 0.65); z-index: 1055;">
-        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-          <div class="modal-content border-0 shadow-lg">
-            <div class="modal-header text-white py-2.5 px-3" style="background-color: #1e293b;">
-              <div class="d-flex align-items-center gap-2">
-                <i class="fas fa-list-alt text-warning"></i>
-                <h6 class="modal-title fw-bold mb-0">{{ drilldownTitle }}</h6>
-                <span class="badge bg-secondary ms-2">{{ drilldownData.length }} Records (Qty: {{ drilldownTotalQty }})</span>
+      <!-- KPI Interactive Drilldown Modal (Identical Structure to Main Dashboard) -->
+      <div v-if="showKpiDrilldownModal" class="modal fade show d-block" tabindex="-1" style="background-color: rgba(15, 23, 42, 0.65); z-index: 1055;">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" style="max-width: 95vw; width: 1250px;">
+          <div class="modal-content shadow-lg border-0">
+            <!-- Modal Header -->
+            <div class="modal-header bg-dark text-white py-3 px-4 d-flex justify-content-between align-items-center">
+              <div class="d-flex align-items-center gap-3 flex-wrap">
+                <div class="p-2 bg-white bg-opacity-10 rounded-3">
+                  <i class="fas fa-layer-group text-primary fs-5"></i>
+                </div>
+                <div>
+                  <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <h5 class="modal-title fw-bold mb-0 text-white">{{ selectedKpiTitle }}</h5>
+                    <span class="badge bg-primary px-2.5 py-1 fs-7">{{ kpiDrilldownResult.project_scope || (filters.project_id ? (selectedProjectObj?.project_code || 'Selected Project') : 'All Active Projects') }}</span>
+                    <span v-if="kpiDrilldownResult.total_quantity !== undefined" class="badge bg-success px-2.5 py-1 fs-7">
+                      Total Quantity: {{ kpiDrilldownResult.total_quantity }} pcs
+                    </span>
+                  </div>
+                  <small class="text-white-50">
+                    Detailed parts list and exact contributing quantities &bull; Canonical PostgreSQL breakdown
+                  </small>
+                </div>
               </div>
-              <div class="d-flex align-items-center gap-2">
-                <button @click="exportEcnExcel" class="btn btn-success btn-sm text-nowrap" :disabled="exportingExcel">
-                  <i class="fas fa-file-excel me-1"></i> {{ exportingExcel ? 'Exporting...' : 'Export Excel' }}
-                </button>
-                <button type="button" class="btn-close btn-close-white" @click="closeDrilldownModal"></button>
+              <button type="button" class="btn-close btn-close-white" @click="showKpiDrilldownModal = false" aria-label="Close"></button>
+            </div>
+
+            <!-- Modal Sub-Toolbar (Substates, Search, Filters, Excel Export) -->
+            <div class="modal-body p-3 bg-light border-bottom">
+              <div class="row g-2 align-items-center justify-content-between">
+                <!-- Left: Substate Selector Tabs (For QC and Assembly) -->
+                <div class="col-12 col-md-auto d-flex align-items-center gap-1.5 flex-wrap">
+                  <!-- QC Substates -->
+                  <div v-if="selectedKpiKey === 'qc'" class="btn-group btn-group-sm shadow-xs" role="group">
+                    <button 
+                      type="button" 
+                      class="btn fw-semibold"
+                      :class="kpiDrilldownSubstate === 'all' ? 'btn-primary' : 'btn-outline-secondary bg-white'"
+                      @click="setKpiSubstate('all')">
+                      All QC
+                    </button>
+                    <button 
+                      type="button" 
+                      class="btn fw-semibold"
+                      :class="kpiDrilldownSubstate === 'inspection' ? 'btn-info text-dark' : 'btn-outline-secondary bg-white'"
+                      @click="setKpiSubstate('inspection')">
+                      <i class="fas fa-clipboard-check me-1"></i> Inspection
+                    </button>
+                    <button 
+                      type="button" 
+                      class="btn fw-semibold"
+                      :class="kpiDrilldownSubstate === 'rejected' ? 'btn-danger' : 'btn-outline-secondary bg-white'"
+                      @click="setKpiSubstate('rejected')">
+                      <i class="fas fa-ban me-1"></i> Rejected
+                    </button>
+                  </div>
+
+                  <!-- Assembly Substates -->
+                  <div v-if="selectedKpiKey === 'assembly'" class="btn-group btn-group-sm shadow-xs" role="group">
+                    <button 
+                      type="button" 
+                      class="btn fw-semibold"
+                      :class="kpiDrilldownSubstate === 'all' ? 'btn-primary' : 'btn-outline-secondary bg-white'"
+                      @click="setKpiSubstate('all')">
+                      All Assembly
+                    </button>
+                    <button 
+                      type="button" 
+                      class="btn fw-semibold"
+                      :class="kpiDrilldownSubstate === 'queue' ? 'btn-primary' : 'btn-outline-secondary bg-white'"
+                      @click="setKpiSubstate('queue')">
+                      <i class="fas fa-cogs me-1"></i> Assembly Queue
+                    </button>
+                    <button 
+                      type="button" 
+                      class="btn fw-semibold"
+                      :class="kpiDrilldownSubstate === 'completed' ? 'btn-success' : 'btn-outline-secondary bg-white'"
+                      @click="setKpiSubstate('completed')">
+                      <i class="fas fa-check-double me-1"></i> Completed
+                    </button>
+                  </div>
+
+                  <!-- Side Filter for Drill-Down -->
+                  <div class="d-flex align-items-center gap-1">
+                    <select v-model="kpiDrilldownSide" @change="fetchKpiDrilldown" class="form-select form-select-sm shadow-xs" style="width: 140px;">
+                      <option value="">All Sides</option>
+                      <option value="RH">RH Only</option>
+                      <option value="LH">LH Only</option>
+                      <option value="COMMON">COMMON Only</option>
+                    </select>
+                  </div>
+                </div>
+
+                <!-- Right: Fast Search & Excel Export Button -->
+                <div class="col-12 col-md d-flex align-items-center justify-content-md-end gap-2 flex-wrap">
+                  <div class="input-group input-group-sm shadow-xs" style="max-width: 320px;">
+                    <span class="input-group-text bg-white border-end-0 text-muted"><i class="fas fa-search"></i></span>
+                    <input 
+                      type="text" 
+                      v-model="kpiDrilldownSearch" 
+                      @input="onSearchInput" 
+                      class="form-control border-start-0 ps-0" 
+                      placeholder="Search Jig, Unit, Part No, Project..." 
+                    />
+                    <button v-if="kpiDrilldownSearch" class="btn btn-outline-secondary bg-white border-start-0" @click="kpiDrilldownSearch = ''; fetchKpiDrilldown();">
+                      <i class="fas fa-times"></i>
+                    </button>
+                  </div>
+
+                  <!-- Excel Export Button -->
+                  <button 
+                    @click="exportKpiExcel" 
+                    class="btn btn-success btn-sm fw-bold shadow-xs text-nowrap" 
+                    :disabled="kpiExportLoading || kpiDrilldownLoading">
+                    <i class="fas fa-file-excel me-1.5" :class="{ 'fa-spin': kpiExportLoading }"></i>
+                    {{ kpiExportLoading ? 'Exporting...' : 'Export Excel (.xlsx)' }}
+                  </button>
+                </div>
               </div>
             </div>
-            <div class="modal-body p-3">
-              <!-- Substate Filters Bar (for QC and Assembly) -->
-              <div v-if="['qc', 'assembly'].includes(activeKpiKey)" class="d-flex gap-2 mb-3 pb-2 border-bottom flex-wrap">
-                <template v-if="activeKpiKey === 'qc'">
-                  <button 
-                    class="btn btn-sm"
-                    :class="activeSubstate === 'all' ? 'btn-primary' : 'btn-outline-secondary'"
-                    @click="setSubstate('all')"
-                  >
-                    All QC Items
-                  </button>
-                  <button 
-                    class="btn btn-sm"
-                    :class="activeSubstate === 'inspection' ? 'btn-primary' : 'btn-outline-secondary'"
-                    @click="setSubstate('inspection')"
-                  >
-                    🔬 Active Inspection Queue ({{ summary.parts_in_qc || 0 }})
-                  </button>
-                  <button 
-                    class="btn btn-sm"
-                    :class="activeSubstate === 'rejected' ? 'btn-danger text-white' : 'btn-outline-danger'"
-                    @click="setSubstate('rejected')"
-                  >
-                    ❌ QC Rejected ({{ summary.qc_rejected || 0 }})
-                  </button>
-                </template>
-                <template v-if="activeKpiKey === 'assembly'">
-                  <button 
-                    class="btn btn-sm"
-                    :class="activeSubstate === 'all' ? 'btn-primary' : 'btn-outline-secondary'"
-                    @click="setSubstate('all')"
-                  >
-                    All Assembly Items
-                  </button>
-                  <button 
-                    class="btn btn-sm"
-                    :class="activeSubstate === 'queue' ? 'btn-primary' : 'btn-outline-secondary'"
-                    @click="setSubstate('queue')"
-                  >
-                    ⚙️ In Assembly Queue ({{ summary.parts_in_assembly || 0 }})
-                  </button>
-                  <button 
-                    class="btn btn-sm"
-                    :class="activeSubstate === 'completed' ? 'btn-success text-white' : 'btn-outline-success'"
-                    @click="setSubstate('completed')"
-                  >
-                    🏁 Assembly Completed ({{ summary.assembly_completed || 0 }})
-                  </button>
-                </template>
+
+            <!-- Modal Body Table (Sticky header, high density, server-side pagination) -->
+            <div class="modal-body p-0" style="min-height: 360px; max-height: 60vh; overflow-y: auto;">
+              <div v-if="kpiDrilldownLoading" class="text-center py-5">
+                <div class="spinner-border text-primary mb-2" role="status"></div>
+                <p class="text-muted small mb-0">Loading canonical drill-down records from database...</p>
               </div>
 
-              <!-- Search Bar -->
-              <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-                <input
-                  type="text"
-                  v-model="drilldownSearch"
-                  placeholder="Search ECN part, number, jig, unit..."
-                  class="form-control form-control-sm"
-                  style="max-width: 300px;"
-                />
-                <span class="text-muted small">
-                  Showing <strong>{{ filteredDrilldownData.length }}</strong> matching parts
-                </span>
-              </div>
-
-              <div class="table-responsive border rounded">
-                <table class="table table-sm table-hover align-middle mb-0 small">
-                  <thead class="table-light">
+              <div v-else class="table-responsive">
+                <table class="table table-hover align-middle mb-0 small">
+                  <thead class="table-dark sticky-top" style="z-index: 1;">
                     <tr>
-                      <th>#</th>
-                      <th>ECN NO.</th>
-                      <th>Project</th>
-                      <th>Jig / Unit</th>
-                      <th>Part Number</th>
-                      <th>Side</th>
-                      <th>Combined Identifier</th>
-                      <th class="text-end">Quantity</th>
-                      <th>Status / Stage</th>
+                      <th style="width: 11%;">PROJECT</th>
+                      <th style="width: 10%;">JIG NO</th>
+                      <th style="width: 8%; text-align: center;">UNIT NO</th>
+                      <th style="width: 15%;">PART NO</th>
+                      <th style="width: 7%; text-align: center;">SIDE</th>
+                      <th style="width: 22%;">COMBINED IDENTIFIER</th>
+                      <th style="width: 15%;">STATUS</th>
+                      <th style="width: 12%; text-align: center;">QUANTITY</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(item, idx) in filteredDrilldownData" :key="item.id || idx">
-                      <td class="text-muted">{{ idx + 1 }}</td>
+                    <tr v-for="row in kpiDrilldownResult.data" :key="row.id">
                       <td>
-                        <span class="badge" style="background-color: #fef3c7; color: #92400e; border: 1px solid #fcd34d;">
-                          ⚡ {{ item.ecn_number || item.ecn_no || 'ECN' }}
+                        <span class="badge bg-light text-dark border">{{ row.project_code }}</span>
+                      </td>
+                      <td class="fw-bold text-dark">{{ row.jig_no }}</td>
+                      <td class="text-center"><span class="badge bg-secondary-subtle text-dark">{{ row.unit_no }}</span></td>
+                      <td>
+                        <span class="fw-bold text-primary">{{ row.part_no || row.part_number }}</span>
+                        <small v-if="row.supplier && row.supplier !== 'Standard'" class="text-muted d-block extra-small">{{ row.supplier }}</small>
+                      </td>
+                      <td class="text-center">
+                        <span :class="['badge', ['RH', 'RA', 'AR', 'R'].includes(row.side || row.original_side) ? 'badge-rh' : ['LH', 'LA', 'AL', 'L'].includes(row.side || row.original_side) ? 'badge-lh' : 'badge-common']">
+                          {{ row.side || row.original_side || row.source_side }}
                         </span>
                       </td>
-                      <td class="fw-semibold">{{ item.project_code || '—' }}</td>
-                      <td>{{ item.jig_no }} / Unit {{ item.unit_no }}</td>
-                      <td class="font-monospace fw-bold text-dark">{{ item.part_no || item.part_number }}</td>
                       <td>
-                        <span :class="['badge', ['RH', 'RA', 'AR', 'R'].includes(item.side || item.original_side) ? 'bg-primary' : ['LH', 'LA', 'AL', 'L'].includes(item.side || item.original_side) ? 'bg-info text-dark' : 'bg-secondary']">
-                          {{ item.side || item.original_side || item.source_side }}
-                        </span>
+                        <code class="text-dark bg-light px-1.5 py-0.5 rounded border small">{{ row.combined_identifier }}</code>
                       </td>
-                      <td>
-                        <code class="text-dark bg-light px-1.5 py-0.5 rounded border small">
-                          {{ item.combined_identifier }}
-                        </code>
-                      </td>
-                      <td class="text-end fw-bold fs-6 text-primary">{{ item.quantity || 0 }}</td>
                       <td>
                         <span 
-                          class="badge" 
-                          :class="item.substate === 'rejected' ? 'bg-danger text-white' : item.substate === 'completed' ? 'bg-success text-white' : 'bg-warning text-dark'"
+                          class="badge"
+                          :class="{
+                            'bg-primary': row.status === 'ECN Required' || row.status === 'BOM Required',
+                            'bg-success': row.status === 'Store Received' || row.status === 'Assembly Completed' || row.substate === 'completed',
+                            'bg-dark': row.status === 'Pending Store Receipt' || row.status === 'ECN Required (PENDING)',
+                            'bg-warning text-dark': row.status === 'In Store Bay' || row.status === 'In Rework Queue' || row.status === 'In Store' || row.status === 'ECN Required (STORE)',
+                            'bg-info text-dark': row.status === 'QC Inspection Queue' || row.status === 'In QC' || row.status === 'SENT_TO_QC',
+                            'bg-danger': row.status === 'QC Rejected' || row.substate === 'rejected',
+                            'bg-purple text-white': row.status === 'In Paint Queue' || row.status === 'In Paint',
+                            'bg-pink text-white': row.status === 'In Assembly Queue' || row.status === 'In Assembly',
+                          }"
                         >
-                          {{ item.status || 'ACTIVE' }}
+                          {{ row.status }}
                         </span>
                       </td>
+                      <td class="text-center">
+                        <span class="badge bg-dark px-2 py-1 fs-6 fw-bold">{{ row.quantity }}</span>
+                      </td>
                     </tr>
-                    <tr v-if="!filteredDrilldownData.length">
-                      <td colspan="9" class="text-center py-4 text-muted">No records match drilldown filters for this KPI.</td>
+                    <tr v-if="!kpiDrilldownResult.data || !kpiDrilldownResult.data.length">
+                      <td colspan="8" class="text-center py-5 text-muted">
+                        <i class="fas fa-inbox fa-3x mb-2 text-secondary opacity-50 d-block"></i>
+                        No ECN parts found contributing to this KPI for the selected filters.
+                      </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
-            <div class="modal-footer bg-light py-2 px-3 justify-content-between">
-              <span class="text-muted small">
-                Scope: <strong>{{ filters.project_id ? (selectedProjectObj?.project_code || 'Single Project') : 'All Active Projects' }}</strong>
-              </span>
-              <button type="button" class="btn btn-secondary btn-sm" @click="closeDrilldownModal">Close</button>
+
+            <!-- Modal Footer with Server-Side Pagination & Summary -->
+            <div class="modal-footer bg-light py-2 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <div class="small text-muted d-flex align-items-center gap-2">
+                <span>Showing {{ kpiDrilldownResult.total_records > 0 ? (kpiDrilldownResult.page - 1) * kpiDrilldownResult.per_page + 1 : 0 }} to {{ Math.min(kpiDrilldownResult.page * kpiDrilldownResult.per_page, kpiDrilldownResult.total_records) }} of <strong>{{ kpiDrilldownResult.total_records }}</strong> total records</span>
+                <span class="badge bg-secondary-subtle text-dark border">Sum: <strong>{{ kpiDrilldownResult.total_quantity }}</strong> pcs</span>
+              </div>
+
+              <!-- Pagination Buttons -->
+              <div class="d-flex align-items-center gap-2">
+                <select v-model="kpiDrilldownPerPage" @change="kpiDrilldownPage = 1; fetchKpiDrilldown();" class="form-select form-select-sm" style="width: 100px;">
+                  <option :value="25">25 / page</option>
+                  <option :value="50">50 / page</option>
+                  <option :value="100">100 / page</option>
+                </select>
+
+                <div class="btn-group btn-group-sm">
+                  <button 
+                    class="btn btn-outline-secondary" 
+                    :disabled="kpiDrilldownPage <= 1 || kpiDrilldownLoading"
+                    @click="kpiDrilldownPage--; fetchKpiDrilldown();">
+                    <i class="fas fa-chevron-left me-1"></i> Prev
+                  </button>
+                  <span class="btn btn-outline-secondary disabled bg-white text-dark fw-bold">
+                    {{ kpiDrilldownPage }} / {{ kpiDrilldownResult.total_pages || 1 }}
+                  </span>
+                  <button 
+                    class="btn btn-outline-secondary" 
+                    :disabled="kpiDrilldownPage >= kpiDrilldownResult.total_pages || kpiDrilldownLoading"
+                    @click="kpiDrilldownPage++; fetchKpiDrilldown();">
+                    Next <i class="fas fa-chevron-right ms-1"></i>
+                  </button>
+                </div>
+
+                <button type="button" class="btn btn-secondary btn-sm" @click="showKpiDrilldownModal = false">Close</button>
+              </div>
             </div>
           </div>
         </div>
@@ -579,13 +666,141 @@ const summary = ref({
   assembly_completed: 0,
 });
 
-// Drilldown Modal
-const showDrilldownModal = ref(false);
-const drilldownTitle = ref('');
-const activeKpiKey = ref('total_parts');
-const activeSubstate = ref('all');
-const drilldownData = ref([]);
-const drilldownSearch = ref('');
+// Drilldown Modal Reactive State (Identical to Main Dashboard)
+const showKpiDrilldownModal = ref(false);
+const selectedKpiKey = ref('total_parts');
+const selectedKpiTitle = ref('Total ECN Parts');
+const kpiDrilldownSubstate = ref('all');
+const kpiDrilldownSearch = ref('');
+const kpiDrilldownSide = ref('');
+const kpiDrilldownPage = ref(1);
+const kpiDrilldownPerPage = ref(50);
+const kpiDrilldownLoading = ref(false);
+const kpiExportLoading = ref(false);
+const kpiDrilldownResult = ref({
+  kpi: '',
+  kpi_type: 'part',
+  project_scope: '',
+  is_single_project: false,
+  selected_project: null,
+  substate: 'all',
+  total_records: 0,
+  total_quantity: 0,
+  page: 1,
+  per_page: 50,
+  total_pages: 1,
+  columns: [],
+  data: [],
+});
+
+let searchDebounceTimer = null;
+const onSearchInput = () => {
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    kpiDrilldownPage.value = 1;
+    fetchKpiDrilldown();
+  }, 300);
+};
+
+const openKpiDrilldown = (kpiKey, title, defaultSubstate = 'all') => {
+  selectedKpiKey.value = kpiKey;
+  selectedKpiTitle.value = title;
+  kpiDrilldownSubstate.value = defaultSubstate;
+  kpiDrilldownSearch.value = '';
+  kpiDrilldownSide.value = filters.value.side || '';
+  kpiDrilldownPage.value = 1;
+  kpiDrilldownPerPage.value = 50;
+  showKpiDrilldownModal.value = true;
+  fetchKpiDrilldown();
+};
+
+const setKpiSubstate = (sub) => {
+  kpiDrilldownSubstate.value = sub;
+  kpiDrilldownPage.value = 1;
+  fetchKpiDrilldown();
+};
+
+const fetchKpiDrilldown = async () => {
+  kpiDrilldownLoading.value = true;
+  try {
+    const params = new URLSearchParams();
+    params.append('kpi', selectedKpiKey.value);
+    params.append('is_ecn', '1');
+    if (filters.value.project_id) params.append('project_id', filters.value.project_id);
+    if (kpiDrilldownSide.value) params.append('side', kpiDrilldownSide.value);
+    if (kpiDrilldownSubstate.value && kpiDrilldownSubstate.value !== 'all') {
+      params.append('substate', kpiDrilldownSubstate.value);
+    }
+    if (kpiDrilldownSearch.value) params.append('search', kpiDrilldownSearch.value);
+    if (filters.value.date_from) params.append('date_from', filters.value.date_from);
+    if (filters.value.date_to) params.append('date_to', filters.value.date_to);
+    params.append('page', kpiDrilldownPage.value);
+    params.append('per_page', kpiDrilldownPerPage.value);
+
+    const res = await axios.get(`/api/v1/ecn/drilldown?${params.toString()}`);
+    kpiDrilldownResult.value = res.data;
+  } catch (err) {
+    console.error('Failed to load ECN KPI drilldown:', err);
+    kpiDrilldownResult.value = {
+      kpi: selectedKpiKey.value,
+      kpi_type: 'part',
+      project_scope: filters.value.project_id ? (selectedProjectObj.value?.project_code || 'Selected Project') : 'All Active Projects',
+      is_single_project: !!filters.value.project_id,
+      selected_project: selectedProjectObj.value,
+      substate: kpiDrilldownSubstate.value,
+      total_records: 0,
+      total_quantity: 0,
+      page: 1,
+      per_page: kpiDrilldownPerPage.value,
+      total_pages: 1,
+      columns: [],
+      data: [],
+    };
+  } finally {
+    kpiDrilldownLoading.value = false;
+  }
+};
+
+const exportKpiExcel = async () => {
+  kpiExportLoading.value = true;
+  try {
+    const params = new URLSearchParams();
+    params.append('kpi', selectedKpiKey.value);
+    params.append('is_ecn', '1');
+    if (filters.value.project_id) params.append('project_id', filters.value.project_id);
+    if (kpiDrilldownSide.value) params.append('side', kpiDrilldownSide.value);
+    if (kpiDrilldownSubstate.value && kpiDrilldownSubstate.value !== 'all') {
+      params.append('substate', kpiDrilldownSubstate.value);
+    }
+    if (kpiDrilldownSearch.value) params.append('search', kpiDrilldownSearch.value);
+    if (filters.value.date_from) params.append('date_from', filters.value.date_from);
+    if (filters.value.date_to) params.append('date_to', filters.value.date_to);
+
+    const response = await axios.post(`/api/v1/export/drilldown`, Object.fromEntries(params.entries()), {
+      responseType: 'blob',
+    });
+
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = `SpareTrack_ECN_${selectedKpiKey.value}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename="?([^"]+)"?/);
+      if (match && match[1]) filename = match[1];
+    }
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Failed to export ECN KPI Excel:', err);
+    alert('Could not generate ECN Excel export.');
+  } finally {
+    kpiExportLoading.value = false;
+  }
+};
 
 const expandedEcns = ref({});
 const expandedJigs = ref({});
@@ -608,23 +823,6 @@ const completionPct = computed(() => {
   const comp = summary.value.assembly_completed || 0;
   if (req === 0) return 0;
   return Math.min(100, Math.round((comp / req) * 100));
-});
-
-const filteredDrilldownData = computed(() => {
-  if (!drilldownSearch.value) return drilldownData.value;
-  const q = drilldownSearch.value.toLowerCase().trim();
-  return drilldownData.value.filter(item => {
-    return (item.part_no || item.part_number || '').toLowerCase().includes(q) ||
-           (item.ecn_number || '').toLowerCase().includes(q) ||
-           (item.jig_no || '').toLowerCase().includes(q) ||
-           (item.unit_no || '').toLowerCase().includes(q) ||
-           (item.combined_identifier || '').toLowerCase().includes(q) ||
-           (item.status || '').toLowerCase().includes(q);
-  });
-});
-
-const drilldownTotalQty = computed(() => {
-  return filteredDrilldownData.value.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
 });
 
 const fetchProjects = async () => {
@@ -694,71 +892,6 @@ const resetFilters = () => {
   fetchEcnData();
 };
 
-const openKpiDrilldown = async (kpiKey, title, substate = 'all') => {
-  activeKpiKey.value = kpiKey;
-  activeSubstate.value = substate;
-  drilldownTitle.value = title;
-  drilldownSearch.value = '';
-  showDrilldownModal.value = true;
-  await fetchDrilldownData();
-};
-
-const setSubstate = async (substate) => {
-  activeSubstate.value = substate;
-  await fetchDrilldownData();
-};
-
-const fetchDrilldownData = async () => {
-  try {
-    const params = {
-      kpi: activeKpiKey.value,
-      substate: activeSubstate.value,
-      project_id: filters.value.project_id || undefined,
-      side: filters.value.side || undefined,
-      date_from: filters.value.date_from || undefined,
-      date_to: filters.value.date_to || undefined,
-      per_page: 500,
-    };
-    const res = await axios.get('/api/v1/ecn/drilldown', { params });
-    drilldownData.value = res.data.data || res.data.items || [];
-  } catch (err) {
-    console.error('Failed to fetch drilldown data:', err);
-    drilldownData.value = [];
-  }
-};
-
-const exportEcnExcel = async () => {
-  exportingExcel.value = true;
-  try {
-    const payload = {
-      kpi: activeKpiKey.value,
-      substate: activeSubstate.value,
-      project_id: filters.value.project_id || undefined,
-      side: filters.value.side || undefined,
-      date_from: filters.value.date_from || undefined,
-      date_to: filters.value.date_to || undefined,
-    };
-    const response = await axios.post('/api/v1/export/drilldown', payload, {
-      responseType: 'blob',
-    });
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `SpareTrack_ECN_${activeKpiKey.value}_${Date.now()}.xlsx`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  } catch (err) {
-    console.error('Failed to export ECN Excel:', err);
-  } finally {
-    exportingExcel.value = false;
-  }
-};
-
-const closeDrilldownModal = () => {
-  showDrilldownModal.value = false;
-};
-
 onMounted(async () => {
   await fetchProjects();
   await fetchEcnData();
@@ -768,16 +901,29 @@ onMounted(async () => {
 <style scoped>
 .kpi-card-interactive {
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.18s ease-in-out, box-shadow 0.18s ease-in-out, filter 0.18s ease-in-out;
 }
 .kpi-card-interactive:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+  transform: translateY(-3px) scale(1.015);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18) !important;
+  filter: brightness(1.06);
 }
 .extra-small {
   font-size: 0.72rem;
 }
 .shadow-xs {
   box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.badge-rh {
+  background-color: #2563eb;
+  color: #ffffff;
+}
+.badge-lh {
+  background-color: #7c3aed;
+  color: #ffffff;
+}
+.badge-common {
+  background-color: #475569;
+  color: #ffffff;
 }
 </style>

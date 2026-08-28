@@ -81,7 +81,7 @@ class EcnWorkflowController extends Controller
         $receiptItemId = $request->input('ecn_receipt_item_id');
         if (!$receiptItemId && $request->input('ecn_requirement_id')) {
             $latestItem = \App\Models\EcnReceiptItem::where('ecn_requirement_id', (int)$request->input('ecn_requirement_id'))
-                ->where('status', 'sent_to_qc')
+                ->whereIn('status', ['received', 'sent_to_qc'])
                 ->latest('id')
                 ->first();
             $receiptItemId = $latestItem?->id;

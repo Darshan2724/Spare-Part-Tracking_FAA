@@ -1720,13 +1720,23 @@ function App() {
     const selectedList = globalRevertItems.filter(i => selectedGlobalRevertIds.has(i.id));
     if (!selectedList.length) return;
 
-    const payloadItems = selectedList.map(item => ({
-      bom_item_id: item.bom_item_id,
-      side: item.side,
-      quantity: item.available_quantity,
-      source_type: item.source_type,
-      source_id: item.source_id,
-    }));
+    const payloadItems = selectedList.map(item => {
+      const isEcn = Boolean(item.is_ecn || item.source_type === 'ecn_workflow_record' || item.source_type === 'ecn_receipt_item' || String(item.bom_item_id).startsWith('ecn_'));
+      const cleanBomId = isEcn ? null : (Number(item.bom_item_id) || Number(item.id));
+      const cleanEcnId = isEcn ? (item.ecn_requirement_id || item.source_id || (String(item.bom_item_id).startsWith('ecn_') ? Number(String(item.bom_item_id).replace('ecn_', '')) : Number(item.id))) : null;
+
+      return {
+        classification: isEcn ? 'ECN' : 'REGULAR',
+        is_ecn: isEcn,
+        bom_item_id: cleanBomId,
+        record_id: isEcn ? cleanEcnId : cleanBomId,
+        ecn_requirement_id: cleanEcnId,
+        side: item.side || unitSideTab,
+        quantity: item.available_quantity || 1,
+        source_type: item.source_type,
+        source_id: item.source_id,
+      };
+    });
 
     setIsSubmittingGlobalRevert(true);
     try {
@@ -1764,11 +1774,25 @@ function App() {
 
   const handleBulkStoreReceive = async (targetItems) => {
     if (isSubmittingBulk) return;
-    const itemsPayload = targetItems.map(item => ({
-      bom_item_id: item.id,
-      side: unitSideTab,
-      received_quantity: item.side_stats?.[unitSideTab]?.pending ?? 1,
-    }));
+    const itemsPayload = targetItems.map(item => {
+      const rawId = String(item.id || '');
+      const isEcn = Boolean(item.is_ecn || rawId.startsWith('ecn_') || item.ecn_requirement_id);
+      const ecnReqId = isEcn ? (item.ecn_requirement_id || (rawId.startsWith('ecn_') ? Number(rawId.replace('ecn_', '')) : Number(item.id))) : null;
+      const bomItemId = isEcn ? null : Number(item.id);
+      const pendingQty = item.side_stats?.[unitSideTab]?.pending ?? item.side_stats?.COMMON?.pending ?? 1;
+
+      return {
+        classification: isEcn ? 'ECN' : 'REGULAR',
+        is_ecn: isEcn,
+        record_id: isEcn ? ecnReqId : bomItemId,
+        bom_item_id: bomItemId,
+        ecn_requirement_id: ecnReqId,
+        side: unitSideTab,
+        received_quantity: pendingQty > 0 ? pendingQty : 1,
+        quantity: pendingQty > 0 ? pendingQty : 1,
+        project_id: item.project_id || selectedProject,
+      };
+    });
 
     if (!itemsPayload.length) {
       Alert.alert('No Items', 'No items selected for bulk receipt.');
@@ -1818,25 +1842,73 @@ function App() {
 
   const handleBulkQcArrivalAccept = async (targetItems) => {
     if (isSubmittingBulk) return;
+    const itemsPayload = [];
     const receiptIds = [];
     const bomIds = [];
 
     for (const item of targetItems) {
-      if (item.receipt_item_id) {
-        receiptIds.push(item.receipt_item_id);
-      } else if (item.receipt_items && item.receipt_items.length > 0) {
-        const matches = item.receipt_items.filter(r => ['received', 'sent_to_qc', 'store_resident'].includes(r.status) && (r.side === unitSideTab || r.side === 'COMMON'));
-        if (matches.length > 0) {
-          matches.forEach(m => receiptIds.push(m.id));
-        } else {
-          bomIds.push(item.id);
+      const rawId = String(item.id || '');
+      const isEcn = Boolean(item.is_ecn || rawId.startsWith('ecn_') || item.ecn_requirement_id);
+      const ecnReqId = isEcn ? (item.ecn_requirement_id || (rawId.startsWith('ecn_') ? Number(rawId.replace('ecn_', '')) : Number(item.id))) : null;
+      const sideStat = item.side_stats?.[unitSideTab] || item.side_stats?.COMMON || {};
+      const pendingArr = sideStat.qc_pending_arrival ?? (item.received_quantity || 1);
+
+      if (isEcn) {
+        itemsPayload.push({
+          classification: 'ECN',
+          is_ecn: true,
+          ecn_requirement_id: ecnReqId,
+          record_id: ecnReqId,
+          side: unitSideTab,
+          quantity: pendingArr > 0 ? pendingArr : 1,
+        });
+      } else {
+        if (item.receipt_item_id) {
+          receiptIds.push(item.receipt_item_id);
+          itemsPayload.push({
+            classification: 'REGULAR',
+            is_ecn: false,
+            receipt_item_id: item.receipt_item_id,
+            side: unitSideTab,
+            quantity: pendingArr > 0 ? pendingArr : 1,
+          });
+        } else if (item.receipt_items && item.receipt_items.length > 0) {
+          const matches = item.receipt_items.filter(r => ['received', 'sent_to_qc', 'store_resident'].includes(r.status) && (r.side === unitSideTab || r.side === 'COMMON'));
+          if (matches.length > 0) {
+            matches.forEach(m => {
+              receiptIds.push(m.id);
+              itemsPayload.push({
+                classification: 'REGULAR',
+                is_ecn: false,
+                receipt_item_id: m.id,
+                side: unitSideTab,
+                quantity: m.received_quantity || 1,
+              });
+            });
+          } else {
+            bomIds.push(Number(item.id));
+            itemsPayload.push({
+              classification: 'REGULAR',
+              is_ecn: false,
+              bom_item_id: Number(item.id),
+              side: unitSideTab,
+              quantity: pendingArr > 0 ? pendingArr : 1,
+            });
+          }
+        } else if (item.id) {
+          bomIds.push(Number(item.id));
+          itemsPayload.push({
+            classification: 'REGULAR',
+            is_ecn: false,
+            bom_item_id: Number(item.id),
+            side: unitSideTab,
+            quantity: pendingArr > 0 ? pendingArr : 1,
+          });
         }
-      } else if (item.id) {
-        bomIds.push(item.id);
       }
     }
 
-    if (!receiptIds.length && !bomIds.length) {
+    if (!itemsPayload.length) {
       Alert.alert('No Eligible Items', 'No pending physical arrivals found for the selected items.');
       return;
     }
@@ -1844,11 +1916,12 @@ function App() {
     setIsSubmittingBulk(true);
     try {
       const res = await apiClient.post('/qc/bulk-receive', {
+        items: itemsPayload,
         receipt_item_ids: receiptIds.length ? receiptIds : undefined,
         bom_item_ids: bomIds.length ? bomIds : undefined,
         side: unitSideTab,
       });
-      const count = res.data.processed_count ?? (receiptIds.length + bomIds.length);
+      const count = res.data.processed_count ?? itemsPayload.length;
       showToast(res.data.message || `Accepted ${count} items in QC`);
       clearSelection();
       loadData('qc', false);
@@ -1896,21 +1969,53 @@ function App() {
 
   const handleBulkQcInspect = async (targetItems, result, destination = null) => {
     if (isSubmittingBulk) return;
+    const itemsPayload = [];
     const receiptIds = [];
     const bomIds = [];
 
     for (const item of targetItems) {
-      const sideStat = item.side_stats?.[unitSideTab];
-      const sideReceipts = sideStat?.receipt_items || (item.receipt_items || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
-      const rec = sideReceipts.find(r => r.status === 'qc_received');
-      if (rec) {
-        receiptIds.push(rec.id);
-      } else if (item.id) {
-        bomIds.push(item.id);
+      const rawId = String(item.id || '');
+      const isEcn = Boolean(item.is_ecn || rawId.startsWith('ecn_') || item.ecn_requirement_id);
+      const ecnReqId = isEcn ? (item.ecn_requirement_id || (rawId.startsWith('ecn_') ? Number(rawId.replace('ecn_', '')) : Number(item.id))) : null;
+      const sideStat = item.side_stats?.[unitSideTab] || item.side_stats?.COMMON || {};
+      const pendingInsp = sideStat.qc_pending_inspection ?? (item.received_quantity || 1);
+
+      if (isEcn) {
+        itemsPayload.push({
+          classification: 'ECN',
+          is_ecn: true,
+          ecn_requirement_id: ecnReqId,
+          record_id: ecnReqId,
+          side: unitSideTab,
+          quantity: pendingInsp > 0 ? pendingInsp : 1,
+        });
+      } else {
+        const sideReceipts = sideStat?.receipt_items || (item.receipt_items || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
+        const rec = sideReceipts.find(r => r.status === 'qc_received');
+        if (rec) {
+          receiptIds.push(rec.id);
+          itemsPayload.push({
+            classification: 'REGULAR',
+            is_ecn: false,
+            receipt_item_id: rec.id,
+            bom_item_id: Number(item.id),
+            side: unitSideTab,
+            quantity: rec.received_quantity || pendingInsp || 1,
+          });
+        } else if (item.id) {
+          bomIds.push(Number(item.id));
+          itemsPayload.push({
+            classification: 'REGULAR',
+            is_ecn: false,
+            bom_item_id: Number(item.id),
+            side: unitSideTab,
+            quantity: pendingInsp > 0 ? pendingInsp : 1,
+          });
+        }
       }
     }
 
-    if (!receiptIds.length && !bomIds.length) {
+    if (!itemsPayload.length) {
       Alert.alert('No Eligible Items', `No pending inspection items found for selected parts on ${unitSideTab} side.`);
       return;
     }
@@ -1918,6 +2023,7 @@ function App() {
     setIsSubmittingBulk(true);
     try {
       const res = await apiClient.post('/qc/bulk-inspect', {
+        items: itemsPayload,
         receipt_item_ids: receiptIds.length ? receiptIds : undefined,
         bom_item_ids: bomIds.length ? bomIds : undefined,
         side: unitSideTab,
@@ -1927,7 +2033,7 @@ function App() {
         rework_reason: result === 'rework' ? 'Bulk rework required' : null,
         remarks: `Bulk QC inspection marked as ${result.toUpperCase()} (${unitSideTab})`,
       });
-      const count = res.data.processed_count ?? (receiptIds.length + bomIds.length);
+      const count = res.data.processed_count ?? itemsPayload.length;
       showToast(res.data.message || `Processed ${count} items as ${result.toUpperCase()}`);
       clearSelection();
       setShowBulkQcDestinationModal(false);
@@ -2113,8 +2219,11 @@ function App() {
             <TextInput
               style={styles.input}
               value={serverHost}
-              onChangeText={setServerHost}
-              placeholder="e.g. 192.168.100.36:8080"
+              onChangeText={(text) => {
+                setServerHost(text);
+                setBaseUrl(text);
+              }}
+              placeholder="e.g. 192.168.9.200:8080"
               autoCapitalize="none"
               autoCorrect={false}
             />
@@ -3731,11 +3840,17 @@ function App() {
         };
         const totalSelectedQty = selectedItemsList.reduce((sum, item) => sum + getEligibleQty(item), 0);
 
+        const regSelected = selectedItemsList.filter(p => !p.is_ecn && !String(p.id).startsWith('ecn_')).length;
+        const ecnSelected = selectedItemsList.filter(p => Boolean(p.is_ecn || String(p.id).startsWith('ecn_'))).length;
+        const countBreakdown = (regSelected > 0 && ecnSelected > 0)
+          ? ` (${regSelected} Regular • ${ecnSelected} ECN)`
+          : '';
+
         return (
           <View style={styles.stickyBottomActionBar}>
             <View style={styles.stickyBarHeader}>
               <Text style={styles.stickyBarCountBadge}>
-                Selected: {selectedItemIds.size} {selectedItemIds.size === 1 ? 'part' : 'parts'} ({unitSideTab})   •   Total: {totalSelectedQty} pcs
+                Selected: {selectedItemIds.size} {selectedItemIds.size === 1 ? 'part' : 'parts'}{countBreakdown} ({unitSideTab})   •   Total: {totalSelectedQty} pcs
               </Text>
               <TouchableOpacity onPress={clearSelection} style={styles.stickyBarClearBtn}>
                 <Text style={styles.stickyBarClearText}>✕ Clear</Text>
