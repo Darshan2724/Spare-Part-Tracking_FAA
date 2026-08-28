@@ -201,12 +201,26 @@ class EcnQuantityCalculationService
             $map['jigs'][$r->jig_no] = ($map['jigs'][$r->jig_no] ?? 0) + $qty;
 
             // Unit (key: jig|unit)
-            $unitKey = $r->jig_no . '|' . $r->unit_no;
-            $map['units'][$unitKey] = ($map['units'][$unitKey] ?? 0) + $qty;
+            $unitNo = (string)$r->unit_no;
+            $rawUnit = trim(str_ireplace('unit', '', $unitNo));
+            $paddedUnit = is_numeric($rawUnit) ? sprintf('%02d', (int)$rawUnit) : $rawUnit;
+
+            $unitAliases = array_unique([
+                $r->jig_no . '|' . $unitNo,
+                $r->jig_no . '|' . $rawUnit,
+                $r->jig_no . '|Unit ' . $rawUnit,
+                $r->jig_no . '|Unit ' . $paddedUnit,
+            ]);
+
+            foreach ($unitAliases as $uKey) {
+                $map['units'][$uKey] = ($map['units'][$uKey] ?? 0) + $qty;
+            }
 
             // Side (key: jig|unit|side)
-            $sideKey = $r->jig_no . '|' . $r->unit_no . '|' . $r->side_display;
-            $map['sides'][$sideKey] = ($map['sides'][$sideKey] ?? 0) + $qty;
+            foreach ($unitAliases as $uKey) {
+                $sideKey = $uKey . '|' . $r->side_display;
+                $map['sides'][$sideKey] = ($map['sides'][$sideKey] ?? 0) + $qty;
+            }
         }
 
         return $map;

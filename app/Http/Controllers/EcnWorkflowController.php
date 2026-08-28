@@ -17,13 +17,16 @@ class EcnWorkflowController extends Controller
     {
         $request->validate([
             'ecn_requirement_id' => ['required', 'integer', 'exists:ecn_requirements,id'],
-            'quantity' => ['required', 'integer', 'min:1'],
+            'quantity' => ['required_without:received_quantity', 'nullable', 'integer', 'min:1'],
+            'received_quantity' => ['required_without:quantity', 'nullable', 'integer', 'min:1'],
             'remarks' => ['nullable', 'string', 'max:500'],
         ]);
 
+        $qty = (int)($request->input('quantity') ?? $request->input('received_quantity'));
+
         $result = $this->ecnWorkflowService->receiveStore(
             (int)$request->input('ecn_requirement_id'),
-            (int)$request->input('quantity'),
+            $qty,
             $request->input('remarks'),
             $request->user()?->id
         );
@@ -34,14 +37,31 @@ class EcnWorkflowController extends Controller
     public function sendToQc(Request $request)
     {
         $request->validate([
-            'ecn_receipt_item_id' => ['required', 'integer', 'exists:ecn_receipt_items,id'],
-            'quantity' => ['required', 'integer', 'min:1'],
+            'ecn_receipt_item_id' => ['required_without:ecn_requirement_id', 'nullable', 'integer', 'exists:ecn_receipt_items,id'],
+            'ecn_requirement_id' => ['required_without:ecn_receipt_item_id', 'nullable', 'integer', 'exists:ecn_requirements,id'],
+            'quantity' => ['nullable', 'integer', 'min:1'],
             'remarks' => ['nullable', 'string', 'max:500'],
         ]);
 
+        $receiptItemId = $request->input('ecn_receipt_item_id');
+        $item = null;
+        if (!$receiptItemId && $request->input('ecn_requirement_id')) {
+            $item = \App\Models\EcnReceiptItem::where('ecn_requirement_id', (int)$request->input('ecn_requirement_id'))
+                ->where('status', 'received')
+                ->latest('id')
+                ->first();
+            $receiptItemId = $item?->id;
+        }
+
+        if (!$receiptItemId) {
+            return response()->json(['message' => 'No active ECN receipt item found in Store for this requirement.'], 422);
+        }
+
+        $qty = (int)($request->input('quantity') ?? $request->input('received_quantity') ?? ($item ? $item->received_quantity : 1));
+
         $result = $this->ecnWorkflowService->sendToQc(
-            (int)$request->input('ecn_receipt_item_id'),
-            (int)$request->input('quantity'),
+            (int)$receiptItemId,
+            $qty > 0 ? $qty : 1,
             $request->input('remarks'),
             $request->user()?->id
         );
@@ -52,13 +72,27 @@ class EcnWorkflowController extends Controller
     public function qcReceive(Request $request)
     {
         $request->validate([
-            'ecn_receipt_item_id' => ['required', 'integer', 'exists:ecn_receipt_items,id'],
+            'ecn_receipt_item_id' => ['required_without:ecn_requirement_id', 'nullable', 'integer', 'exists:ecn_receipt_items,id'],
+            'ecn_requirement_id' => ['required_without:ecn_receipt_item_id', 'nullable', 'integer', 'exists:ecn_requirements,id'],
             'quantity' => ['required', 'integer', 'min:1'],
             'remarks' => ['nullable', 'string', 'max:500'],
         ]);
 
+        $receiptItemId = $request->input('ecn_receipt_item_id');
+        if (!$receiptItemId && $request->input('ecn_requirement_id')) {
+            $latestItem = \App\Models\EcnReceiptItem::where('ecn_requirement_id', (int)$request->input('ecn_requirement_id'))
+                ->where('status', 'sent_to_qc')
+                ->latest('id')
+                ->first();
+            $receiptItemId = $latestItem?->id;
+        }
+
+        if (!$receiptItemId) {
+            return response()->json(['message' => 'No active ECN receipt item awaiting QC arrival for this requirement.'], 422);
+        }
+
         $result = $this->ecnWorkflowService->qcReceive(
-            (int)$request->input('ecn_receipt_item_id'),
+            (int)$receiptItemId,
             (int)$request->input('quantity'),
             $request->input('remarks'),
             $request->user()?->id

@@ -911,6 +911,7 @@ class HierarchyService
             'project' => $project,
             'canonical_summary' => $project ? $this->quantityService->calculateProjectMetrics($project, $filters['side'] ?? null, $filters) : null,
             'jigs' => $formattedJigs,
+            'projects' => $projectsList,
             'active_projects' => $activeProjects,
             'completed_projects' => $completedProjects,
             'total_jigs' => count($formattedJigs),
