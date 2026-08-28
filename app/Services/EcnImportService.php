@@ -254,6 +254,7 @@ class EcnImportService
                 'row_number' => $r,
                 'project_code' => $projCode,
                 'ecn_number' => $ecnNo,
+                'ecn_no' => $ecnNo,
                 'jig_no' => $jigNo,
                 'unit_no' => $unitNo,
                 'part_no' => $partNo,
