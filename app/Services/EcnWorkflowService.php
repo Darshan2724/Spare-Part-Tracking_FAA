@@ -202,13 +202,21 @@ class EcnWorkflowService
         int $rejectedQty = 0,
         int $reworkQty = 0,
         ?string $remarks = null,
-        ?int $userId = null
+        ?int $userId = null,
+        int $paintQty = 0,
+        int $assemblyQty = 0
     ): array {
-        return DB::transaction(function () use ($ecnReceiptItemId, $approvedQty, $destination, $rejectedQty, $reworkQty, $remarks, $userId) {
+        return DB::transaction(function () use ($ecnReceiptItemId, $approvedQty, $destination, $rejectedQty, $reworkQty, $remarks, $userId, $paintQty, $assemblyQty) {
             $item = EcnReceiptItem::lockForUpdate()->findOrFail($ecnReceiptItemId);
             $req = EcnRequirement::lockForUpdate()->findOrFail($item->ecn_requirement_id);
 
-            $totalInspected = $approvedQty + $rejectedQty + $reworkQty;
+            if ($paintQty > 0 || $assemblyQty > 0) {
+                $effectiveApproved = $paintQty + $assemblyQty;
+            } else {
+                $effectiveApproved = $approvedQty;
+            }
+
+            $totalInspected = $effectiveApproved + $rejectedQty + $reworkQty;
             if ($totalInspected <= 0) {
                 throw new \InvalidArgumentException("Total inspection quantity must be greater than zero.");
             }
@@ -219,9 +227,9 @@ class EcnWorkflowService
             }
 
             // Determine status for receipt item
-            if ($rejectedQty > 0 && $approvedQty === 0 && $reworkQty === 0) {
+            if ($rejectedQty > 0 && $effectiveApproved === 0 && $reworkQty === 0) {
                 $item->status = 'qc_rejected';
-            } elseif ($reworkQty > 0 && $approvedQty === 0 && $rejectedQty === 0) {
+            } elseif ($reworkQty > 0 && $effectiveApproved === 0 && $rejectedQty === 0) {
                 $item->status = 'qc_rework';
             } else {
                 $item->status = 'qc_approved';
@@ -240,7 +248,7 @@ class EcnWorkflowService
                 'side_display' => $req->side_display,
                 'quantity' => $totalInspected,
                 'destination' => $destUpper,
-                'approved_quantity' => $approvedQty,
+                'approved_quantity' => $effectiveApproved,
                 'rejected_quantity' => $rejectedQty,
                 'rework_quantity' => $reworkQty,
                 'remarks' => $remarks,
@@ -248,8 +256,44 @@ class EcnWorkflowService
                 'status' => 'completed',
             ]);
 
-            // Route Approved quantity to destination queue
-            if ($approvedQty > 0) {
+            // Route Approved quantities to destination queues
+            if ($paintQty > 0 || $assemblyQty > 0) {
+                if ($paintQty > 0) {
+                    EcnWorkflowRecord::create([
+                        'ecn_receipt_item_id' => $item->id,
+                        'ecn_requirement_id' => $req->id,
+                        'project_id' => $req->project_id,
+                        'ecn_number' => $req->ecn_number,
+                        'department' => 'PAINT',
+                        'action' => 'paint_queued',
+                        'side' => $req->side,
+                        'side_display' => $req->side_display,
+                        'quantity' => $paintQty,
+                        'remarks' => "QC Approved Split -> PAINT ({$paintQty} pcs)",
+                        'processed_by' => $userId,
+                        'status' => 'in_progress',
+                    ]);
+                }
+                if ($assemblyQty > 0) {
+                    EcnWorkflowRecord::create([
+                        'ecn_receipt_item_id' => $item->id,
+                        'ecn_requirement_id' => $req->id,
+                        'project_id' => $req->project_id,
+                        'ecn_number' => $req->ecn_number,
+                        'department' => 'ASSEMBLY',
+                        'action' => 'assembly_queued',
+                        'side' => $req->side,
+                        'side_display' => $req->side_display,
+                        'quantity' => $assemblyQty,
+                        'remarks' => "QC Approved Split -> ASSEMBLY ({$assemblyQty} pcs)",
+                        'processed_by' => $userId,
+                        'status' => 'in_progress',
+                    ]);
+                }
+
+                $req->current_state = ($paintQty > 0 && $assemblyQty === 0) ? 'PAINT' : 'ASSEMBLY';
+                $req->save();
+            } elseif ($effectiveApproved > 0) {
                 EcnWorkflowRecord::create([
                     'ecn_receipt_item_id' => $item->id,
                     'ecn_requirement_id' => $req->id,
@@ -259,7 +303,7 @@ class EcnWorkflowService
                     'action' => $destUpper === 'PAINT' ? 'paint_queued' : 'assembly_queued',
                     'side' => $req->side,
                     'side_display' => $req->side_display,
-                    'quantity' => $approvedQty,
+                    'quantity' => $effectiveApproved,
                     'remarks' => "QC Approved -> {$destUpper}",
                     'processed_by' => $userId,
                     'status' => 'in_progress',

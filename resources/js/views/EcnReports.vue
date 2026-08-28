@@ -557,19 +557,7 @@
                         <code class="text-dark bg-light px-1.5 py-0.5 rounded border small">{{ row.combined_identifier }}</code>
                       </td>
                       <td>
-                        <span 
-                          class="badge"
-                          :class="{
-                            'bg-primary': row.status === 'ECN Required' || row.status === 'BOM Required',
-                            'bg-success': row.status === 'Store Received' || row.status === 'Assembly Completed' || row.substate === 'completed',
-                            'bg-dark': row.status === 'Pending Store Receipt' || row.status === 'ECN Required (PENDING)',
-                            'bg-warning text-dark': row.status === 'In Store Bay' || row.status === 'In Rework Queue' || row.status === 'In Store' || row.status === 'ECN Required (STORE)',
-                            'bg-info text-dark': row.status === 'QC Inspection Queue' || row.status === 'In QC' || row.status === 'SENT_TO_QC',
-                            'bg-danger': row.status === 'QC Rejected' || row.substate === 'rejected',
-                            'bg-purple text-white': row.status === 'In Paint Queue' || row.status === 'In Paint',
-                            'bg-pink text-white': row.status === 'In Assembly Queue' || row.status === 'In Assembly',
-                          }"
-                        >
+                        <span :class="getEcnStatusBadgeClass(row.status, row.substate)">
                           {{ row.status }}
                         </span>
                       </td>
@@ -802,6 +790,40 @@ const exportKpiExcel = async () => {
   }
 };
 
+const getEcnStatusBadgeClass = (status, substate) => {
+  const s = String(status || '').toUpperCase().trim();
+  const sub = String(substate || '').toUpperCase().trim();
+
+  if (s.includes('REJECT') || sub.includes('REJECT')) {
+    return 'badge bg-danger text-white px-2.5 py-1 fw-bold fs-7 shadow-xs';
+  }
+  if (s.includes('REWORK') || sub.includes('REWORK')) {
+    return 'badge bg-warning text-dark px-2.5 py-1 fw-bold fs-7 shadow-xs';
+  }
+  if (s.includes('QC') || s.includes('INSPECT') || sub.includes('INSPECT') || s.includes('SENT_TO_QC')) {
+    return 'badge bg-info text-dark px-2.5 py-1 fw-bold fs-7 shadow-xs';
+  }
+  if (s.includes('PAINT') || sub.includes('PAINT')) {
+    return 'badge text-white px-2.5 py-1 fw-bold fs-7 shadow-xs bg-purple';
+  }
+  if (s.includes('ASSEMBLY') || sub.includes('ASSEMBLY')) {
+    if (s.includes('COMPLETED') || sub.includes('COMPLETED')) {
+      return 'badge bg-success text-white px-2.5 py-1 fw-bold fs-7 shadow-xs';
+    }
+    return 'badge text-white px-2.5 py-1 fw-bold fs-7 shadow-xs bg-pink';
+  }
+  if (s.includes('RECEIVED') || s.includes('STORE RECEIVED') || s.includes('COMPLETED')) {
+    return 'badge bg-success text-white px-2.5 py-1 fw-bold fs-7 shadow-xs';
+  }
+  if (s.includes('STORE') || s.includes('IN STORE')) {
+    return 'badge bg-warning text-dark px-2.5 py-1 fw-bold fs-7 shadow-xs';
+  }
+  if (s.includes('PENDING')) {
+    return 'badge bg-secondary text-white px-2.5 py-1 fw-bold fs-7 shadow-xs';
+  }
+  return 'badge bg-dark text-white px-2.5 py-1 fw-bold fs-7 shadow-xs';
+};
+
 const expandedEcns = ref({});
 const expandedJigs = ref({});
 
@@ -925,5 +947,14 @@ onMounted(async () => {
 .badge-common {
   background-color: #475569;
   color: #ffffff;
+}
+.bg-purple {
+  background-color: #7c3aed !important;
+}
+.bg-pink {
+  background-color: #db2777 !important;
+}
+.fs-7 {
+  font-size: 0.78rem;
 }
 </style>

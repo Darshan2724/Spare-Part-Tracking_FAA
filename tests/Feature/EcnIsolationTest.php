@@ -23,6 +23,9 @@ class EcnIsolationTest extends TestCase
 
     protected function getAdminUser(): User
     {
+        \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'ADMIN', 'guard_name' => 'web']);
+        \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'ADMIN', 'guard_name' => 'sanctum']);
+
         $user = User::where('email', 'admin@sparetrack.internal')->first();
         if (!$user) {
             $user = User::first();
@@ -33,8 +36,8 @@ class EcnIsolationTest extends TestCase
                 'email' => 'admin@sparetrack.internal',
                 'password' => bcrypt('password'),
             ]);
-            $user->assignRole('ADMIN');
         }
+        $user->syncRoles(['ADMIN']);
         return $user;
     }
 
