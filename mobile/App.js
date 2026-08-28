@@ -820,7 +820,35 @@ function App() {
     autoCheckOta();
   }, []);
 
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState(null);
 
+  const handleTestConnection = async (hostOverride = null) => {
+    const targetHost = hostOverride || serverHost;
+    setTestingConnection(true);
+    setConnectionStatus(null);
+    try {
+      if (targetHost) {
+        setBaseUrl(targetHost);
+      }
+      const startTime = Date.now();
+      const res = await apiClient.get('/health', { timeout: 5000 });
+      const elapsed = Date.now() - startTime;
+      setConnectionStatus({
+        success: true,
+        msg: `✓ Connected to Faith Automation API (${elapsed}ms)`,
+      });
+      showToast(`✓ Server connected (${elapsed}ms)`);
+    } catch (err) {
+      const targetUrl = `${apiClient.defaults.baseURL || getBaseUrl()}/health`;
+      setConnectionStatus({
+        success: false,
+        msg: `❌ Cannot reach ${targetUrl}\n${err.message || 'Connection timeout'}. Please verify phone is on same Wi-Fi and Mobile Data is OFF.`,
+      });
+    } finally {
+      setTestingConnection(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -1996,15 +2024,71 @@ function App() {
               </View>
             ) : null}
 
-            <Text style={styles.label}>Server Host / IP</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+              <Text style={styles.label}>Server Host / IP</Text>
+              <TouchableOpacity onPress={() => handleTestConnection()} disabled={testingConnection}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#2563eb' }}>
+                  {testingConnection ? 'Testing...' : '⚡ Test Connection'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Quick Server Presets */}
+            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8, marginTop: 2 }}>
+              <TouchableOpacity
+                style={[styles.chipBtn, serverHost.includes('192.168.100.36') && styles.chipBtnActive]}
+                onPress={() => {
+                  setServerHost('192.168.100.36:8080');
+                  setBaseUrl('192.168.100.36:8080');
+                  handleTestConnection('192.168.100.36:8080');
+                }}>
+                <Text style={[styles.chipBtnText, serverHost.includes('192.168.100.36') && styles.chipBtnTextActive]}>
+                  📶 Wi-Fi (192.168.100.36)
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.chipBtn, serverHost.includes('192.168.9.200') && styles.chipBtnActive]}
+                onPress={() => {
+                  setServerHost('192.168.9.200:8080');
+                  setBaseUrl('192.168.9.200:8080');
+                  handleTestConnection('192.168.9.200:8080');
+                }}>
+                <Text style={[styles.chipBtnText, serverHost.includes('192.168.9.200') && styles.chipBtnTextActive]}>
+                  🏭 Plant LAN (192.168.9.200)
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <TextInput
               style={styles.input}
               value={serverHost}
-              onChangeText={setServerHost}
-              placeholder="e.g. 192.168.9.200:8080"
+              onChangeText={(txt) => {
+                setServerHost(txt);
+                setConnectionStatus(null);
+              }}
+              placeholder="e.g. 192.168.100.36:8080"
               autoCapitalize="none"
               autoCorrect={false}
             />
+
+            {connectionStatus && (
+              <View style={{
+                padding: 8,
+                borderRadius: 6,
+                marginBottom: 8,
+                backgroundColor: connectionStatus.success ? '#f0fdf4' : '#fef2f2',
+                borderColor: connectionStatus.success ? '#22c55e' : '#ef4444',
+                borderWidth: 1,
+              }}>
+                <Text style={{
+                  fontSize: 11.5,
+                  fontWeight: '600',
+                  color: connectionStatus.success ? '#15803d' : '#b91c1c',
+                }}>
+                  {connectionStatus.msg}
+                </Text>
+              </View>
+            )}
 
             <Text style={styles.label}>Email Address</Text>
             <TextInput
