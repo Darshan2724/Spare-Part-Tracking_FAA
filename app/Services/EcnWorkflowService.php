@@ -290,6 +290,43 @@ class EcnWorkflowService
                 $req->save();
             }
 
+            // Route Rejected quantity to Purchase queue
+            if ($rejectedQty > 0) {
+                EcnWorkflowRecord::create([
+                    'ecn_receipt_item_id' => $item->id,
+                    'ecn_requirement_id' => $req->id,
+                    'project_id' => $req->project_id,
+                    'ecn_number' => $req->ecn_number,
+                    'department' => 'QC',
+                    'action' => 'qc_rejected',
+                    'side' => $req->side,
+                    'side_display' => $req->side_display,
+                    'quantity' => $rejectedQty,
+                    'rejected_quantity' => $rejectedQty,
+                    'remarks' => "QC Rejected -> Purchase: " . ($remarks ?: 'Defective part requiring purchase replacement'),
+                    'processed_by' => $userId,
+                    'status' => 'pending_purchase',
+                ]);
+
+                $normalizedSide = in_array(strtoupper($req->side_display ?: $req->side), ['RH', 'LH', 'COMMON']) 
+                    ? strtoupper($req->side_display ?: $req->side) 
+                    : (str_starts_with(strtoupper($req->side), 'R') ? 'RH' : 'LH');
+
+                \App\Models\PurchaseQueueItem::create([
+                    'bom_item_id' => null,
+                    'qc_inspection_id' => null,
+                    'project_id' => $req->project_id,
+                    'standard_part_no' => $req->part_no,
+                    'side' => $normalizedSide,
+                    'rejected_quantity' => $rejectedQty,
+                    'rejection_reason' => $remarks ?: 'ECN QC Inspection Rejection',
+                    'rejected_by' => $userId,
+                    'rejected_at' => now(),
+                    'status' => 'pending_purchase',
+                    'remarks' => "ECN: {$req->ecn_number} | Jig: {$req->jig_no} | Unit: {$req->unit_no} | Original Side: {$req->side}",
+                ]);
+            }
+
             EcnWorkflowEvent::create([
                 'ecn_requirement_id' => $req->id,
                 'project_id' => $req->project_id,

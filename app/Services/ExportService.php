@@ -131,9 +131,23 @@ class ExportService
         $timestamp = now()->format('Ymd_His');
         $filename = "SpareTrack_{$kpiKey}_{$scopeClean}_{$timestamp}";
 
-        // Configure Excel columns: for part-level, use single "Part Number" column (Jig+Unit+Part+R/L) as requested
+        // Configure Excel columns
+        $isEcn = ($drilldown['is_ecn'] ?? false) || $kpiKey === 'ecn' || str_starts_with($kpiKey, 'ecn_');
         $columns = $drilldown['columns'];
-        if (($drilldown['kpi_type'] ?? 'part') === 'part') {
+
+        if ($isEcn) {
+            $columns = [
+                ['label' => 'Project', 'key' => 'project_code'],
+                ['label' => 'ECN Number', 'key' => 'ecn_number'],
+                ['label' => 'Jig No', 'key' => 'jig_no'],
+                ['label' => 'Unit No', 'key' => 'unit_no', 'align' => 'center'],
+                ['label' => 'Part Number', 'key' => 'part_no'],
+                ['label' => 'Side', 'key' => 'side', 'align' => 'center'],
+                ['label' => 'Combined Identifier', 'key' => 'combined_identifier'],
+                ['label' => 'Status', 'key' => 'status'],
+                ['label' => 'Quantity', 'key' => 'quantity', 'align' => 'center'],
+            ];
+        } elseif (($drilldown['kpi_type'] ?? 'part') === 'part') {
             $columns = [
                 ['label' => 'Project', 'key' => 'project_code'],
                 ['label' => 'Part Number', 'key' => 'excel_part_number'],
@@ -166,18 +180,18 @@ class ExportService
 
         // 1. Company Brand Banner
         $sheet->setCellValue('A1', 'FAITH AUTOMATION — Industrial Spare Parts Tracking System');
-        $sheet->mergeCells('A1:H1');
+        $sheet->mergeCells('A1:I1');
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('0F172A'));
         $sheet->getRowDimension(1)->setRowHeight(24);
 
         // 2. Report Subtitle
         $sheet->setCellValue('A2', $data['title']);
-        $sheet->mergeCells('A2:H2');
+        $sheet->mergeCells('A2:I2');
         $sheet->getStyle('A2')->getFont()->setBold(true)->setSize(11)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('2563EB'));
 
         // 3. Metadata Box
         $sheet->setCellValue('A3', 'Date: ' . $data['date_range'] . '   |   Filters: ' . $data['active_filters'] . '   |   Generated: ' . $data['generated_at'] . '   |   By: ' . $data['generated_by']);
-        $sheet->mergeCells('A3:H3');
+        $sheet->mergeCells('A3:I3');
         $sheet->getStyle('A3')->getFont()->setItalic(true)->setSize(9)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('64748B'));
         $sheet->getRowDimension(3)->setRowHeight(18);
 
@@ -204,7 +218,12 @@ class ExportService
             $colIndex = 'A';
             foreach ($data['columns'] as $col) {
                 $val = $row[$col['key']] ?? '';
-                $sheet->setCellValue($colIndex . $currentRow, $val);
+                $textKeys = ['part_no', 'part_number', 'excel_part_number', 'unit_no', 'jig_no', 'side', 'source_side', 'ecn_number', 'project_code'];
+                if (in_array($col['key'], $textKeys)) {
+                    $sheet->setCellValueExplicit($colIndex . $currentRow, (string)$val, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                } else {
+                    $sheet->setCellValue($colIndex . $currentRow, $val);
+                }
                 if (isset($col['align']) && $col['align'] === 'center') {
                     $sheet->getStyle($colIndex . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
                 }

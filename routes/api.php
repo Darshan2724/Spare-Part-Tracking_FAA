@@ -49,6 +49,8 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
         // Parts Movement Detail Excel and PDF Export
         Route::post('/export/movement', [ExportController::class, 'exportMovement']);
         Route::get('/export/movement', [ExportController::class, 'exportMovement']);
+        Route::post('/export/drilldown', [ExportController::class, 'exportKpiDrilldown']);
+        Route::get('/export/drilldown', [ExportController::class, 'exportKpiDrilldown']);
 
         // Admin System Logs & Diagnostics (ADMIN ONLY)
         Route::prefix('admin')->group(function () {

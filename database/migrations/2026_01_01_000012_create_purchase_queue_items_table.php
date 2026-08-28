@@ -10,8 +10,8 @@ return new class extends Migration
     {
         Schema::create('purchase_queue_items', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('bom_item_id')->constrained('bom_items')->cascadeOnDelete();
-            $table->foreignId('qc_inspection_id')->constrained('qc_inspections')->cascadeOnDelete();
+            $table->foreignId('bom_item_id')->nullable()->constrained('bom_items')->cascadeOnDelete();
+            $table->foreignId('qc_inspection_id')->nullable()->constrained('qc_inspections')->cascadeOnDelete();
             $table->foreignId('project_id')->constrained('projects')->cascadeOnDelete();
             $table->string('standard_part_no')->index();
             $table->enum('side', ['RH', 'LH', 'COMMON'])->index();
