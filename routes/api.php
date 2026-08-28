@@ -162,7 +162,9 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
 
             // Dashboard & Reports
             Route::get('/summary', [EcnDashboardController::class, 'summary']);
+            Route::get('/dashboard/summary', [EcnDashboardController::class, 'summary']);
             Route::get('/drilldown', [EcnDashboardController::class, 'drilldown']);
+            Route::get('/dashboard/drilldown', [EcnDashboardController::class, 'drilldown']);
             Route::get('/hierarchy', [EcnDashboardController::class, 'hierarchy']);
 
             // Workflow Transitions

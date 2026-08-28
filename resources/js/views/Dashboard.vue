@@ -949,7 +949,7 @@
                       <small v-if="row.supplier && row.supplier !== 'Standard'" class="text-muted d-block extra-small">{{ row.supplier }}</small>
                     </td>
                     <td class="text-center">
-                      <span :class="['badge', row.side === 'RH' ? 'badge-rh' : row.side === 'LH' ? 'badge-lh' : 'badge-common']">
+                      <span :class="['badge', ['RH', 'RA', 'AR', 'R'].includes(row.side) ? 'badge-rh' : ['LH', 'LA', 'AL', 'L'].includes(row.side) ? 'badge-lh' : 'badge-common']">
                         {{ row.side }}
                       </span>
                     </td>
