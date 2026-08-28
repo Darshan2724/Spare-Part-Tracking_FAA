@@ -11,12 +11,12 @@ use App\Models\PurchaseQueueItem;
 use App\Models\User;
 use App\Services\EcnWorkflowService;
 use App\Services\KpiDrilldownService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Tests\TestCase;
 
 class EcnKpiDrilldownAndExportTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected User $adminUser;
     protected Project $project;
@@ -28,18 +28,21 @@ class EcnKpiDrilldownAndExportTest extends TestCase
 
         \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'ADMIN', 'guard_name' => 'web']);
 
-        $this->adminUser = User::create([
-            'name' => 'Admin ECN Tester',
-            'email' => 'admin_ecn_test@faithautomation.com',
-            'password' => 'password',
-            'role' => 'ADMIN',
-            'is_active' => true,
-        ]);
-        $this->adminUser->assignRole('ADMIN');
+        $this->adminUser = User::firstOrCreate(
+            ['email' => 'admin_ecn_test@faithautomation.com'],
+            [
+                'name' => 'Admin ECN Tester',
+                'password' => bcrypt('password'),
+                'role' => 'ADMIN',
+                'is_active' => true,
+            ]
+        );
+        $this->adminUser->syncRoles(['ADMIN']);
 
+        $code = 'FA-273-' . uniqid();
         $this->project = Project::create([
-            'project_code' => 'FA-273',
-            'name' => 'Automotive Line ECN',
+            'project_code' => $code,
+            'name' => 'Automotive Line ECN ' . $code,
             'status' => 'active',
             'total_parts' => 100,
         ]);

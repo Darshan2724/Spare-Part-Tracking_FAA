@@ -13,12 +13,12 @@ use App\Models\ReceiptItem;
 use App\Models\ReworkRecord;
 use App\Models\User;
 use App\Services\QuantityCalculationService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Tests\TestCase;
 
 class WorkflowStrictRevertSystemTest extends TestCase
 {
-    use RefreshDatabase;
+    use DatabaseTransactions;
 
     protected User $adminUser;
     protected Project $project;

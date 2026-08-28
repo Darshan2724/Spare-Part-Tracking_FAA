@@ -11,12 +11,13 @@ use App\Models\User;
 use App\Models\AssemblyRecord;
 use App\Services\HierarchyService;
 use App\Services\QuantityCalculationService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class Phase2ProjectDrilldownTest extends TestCase
 {
+    use DatabaseTransactions;
     protected HierarchyService $hierarchyService;
     protected QuantityCalculationService $quantityService;
 
