@@ -502,7 +502,7 @@ class BomImportService
 
         // Check if import is ECN
         if (($data['import_type'] ?? '') === 'ECN' || $this->isEcnWorkbook($path)) {
-            $ecnRes = $this->ecnImportService->importFromPath($path, $data, $userId);
+            $ecnRes = $this->ecnImportService->importFromPath($path, $filename, $userId);
             $ecnRes['import_type'] = 'ECN';
             return $ecnRes;
         }
