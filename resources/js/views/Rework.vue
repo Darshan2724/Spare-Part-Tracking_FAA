@@ -152,7 +152,7 @@
                     </div>
                     <p class="text-muted extra-small mb-2">
                       Code: <strong>{{ proj.project_code }}</strong>
-                      <span v-if="proj.ecn_number_display" class="badge bg-warning text-dark ms-1">⚡ ECN: {{ proj.ecn_number_display }}</span>
+                      <span v-if="proj.ecn_number_display" class="badge bg-warning text-dark ms-1">⚡ {{ proj.ecn_number_display }}</span>
                     </p>
 
                     <div class="d-flex justify-content-between text-muted extra-small border-top pt-1.5">
@@ -227,7 +227,7 @@
 
                       <p class="text-muted extra-small mb-2">
                         Total Parts: <strong>{{ jig.total_parts }}</strong>
-                        <span v-if="jig.ecn_number_display" class="badge bg-warning text-dark ms-1">⚡ ECN: {{ jig.ecn_number_display }}</span>
+                        <span v-if="jig.ecn_number_display" class="badge bg-warning text-dark ms-1">⚡ {{ jig.ecn_number_display }}</span>
                       </p>
 
                       <div class="d-flex justify-content-between text-muted extra-small border-top pt-1.5">

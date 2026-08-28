@@ -621,6 +621,9 @@ class HierarchyService
                     $qcPendingArrCalc = (int) $erReceipts->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
                     $qcPendingInspCalc = (int) $erReceipts->where('status', 'qc_received')->sum('received_quantity');
 
+                    if ($deptKey === 'store' && !in_array($er->current_state, ['STORE', 'PENDING']) && (int)$er->required_qty <= (int)$er->received_qty && $erReceipts->where('status', 'received')->isEmpty()) {
+                        continue;
+                    }
                     if ($deptKey === 'qc' && !in_array($er->current_state, ['SENT_TO_QC', 'QC']) && $qcPendingArrCalc === 0 && $qcPendingInspCalc === 0) {
                         continue;
                     }
@@ -856,13 +859,55 @@ class HierarchyService
                     $unitIsComplete = $rhIsComplete;
                 }
 
-                $rawU = str_replace('Unit ', '', $unitNo);
-                $uEcnCount = $ecnMap['units'][$jigName . '|' . $rawU] ?? ($ecnMap['units'][$jigName . '|' . $unitNo] ?? 0);
-                $uEcnNums = $ecnMap['unit_ecn_numbers'][$jigName . '|' . $rawU] ?? ($ecnMap['unit_ecn_numbers'][$jigName . '|' . $unitNo] ?? []);
-                $uEcnSum = $ecnMap['unit_ecn_summary'][$jigName . '|' . $rawU] ?? ($ecnMap['unit_ecn_summary'][$jigName . '|' . $unitNo] ?? []);
-                $uEcnDisp = $ecnMap['unit_ecn_display'][$jigName . '|' . $rawU] ?? ($ecnMap['unit_ecn_display'][$jigName . '|' . $unitNo] ?? null);
-                $lhEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|LH'] ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|LH'] ?? 0);
-                $rhEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|RH'] ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|RH'] ?? 0);
+                $rawU = trim(str_ireplace('unit', '', $unitNo));
+                $paddedU = is_numeric($rawU) ? sprintf('%02d', (int)$rawU) : $rawU;
+
+                $uEcnCount = $ecnMap['units'][$jigName . '|' . $rawU] 
+                    ?? ($ecnMap['units'][$jigName . '|' . $unitNo] 
+                    ?? ($ecnMap['units'][$jigName . '|Unit ' . $rawU] 
+                    ?? ($ecnMap['units'][$jigName . '|Unit ' . $paddedU] 
+                    ?? ($ecnMap['units'][strtoupper($jigName) . '|' . $rawU] 
+                    ?? ($ecnMap['units'][strtoupper($jigName) . '|Unit ' . $rawU] 
+                    ?? ($ecnMap['units'][strtoupper($jigName) . '|Unit ' . $paddedU] ?? 0))))));
+
+                $uEcnNums = $ecnMap['unit_ecn_numbers'][$jigName . '|' . $rawU] 
+                    ?? ($ecnMap['unit_ecn_numbers'][$jigName . '|' . $unitNo] 
+                    ?? ($ecnMap['unit_ecn_numbers'][$jigName . '|Unit ' . $rawU] 
+                    ?? ($ecnMap['unit_ecn_numbers'][$jigName . '|Unit ' . $paddedU] ?? [])));
+
+                $uEcnSum = $ecnMap['unit_ecn_summary'][$jigName . '|' . $rawU] 
+                    ?? ($ecnMap['unit_ecn_summary'][$jigName . '|' . $unitNo] 
+                    ?? ($ecnMap['unit_ecn_summary'][$jigName . '|Unit ' . $rawU] 
+                    ?? ($ecnMap['unit_ecn_summary'][$jigName . '|Unit ' . $paddedU] ?? [])));
+
+                $uEcnDisp = $ecnMap['unit_ecn_display'][$jigName . '|' . $rawU] 
+                    ?? ($ecnMap['unit_ecn_display'][$jigName . '|' . $unitNo] 
+                    ?? ($ecnMap['unit_ecn_display'][$jigName . '|Unit ' . $rawU] 
+                    ?? ($ecnMap['unit_ecn_display'][$jigName . '|Unit ' . $paddedU] ?? null)));
+
+                $lhEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|LH'] 
+                    ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|LH'] 
+                    ?? ($ecnMap['sides'][$jigName . '|Unit ' . $rawU . '|LH'] 
+                    ?? ($ecnMap['sides'][$jigName . '|Unit ' . $paddedU . '|LH'] ?? 0)));
+
+                $rhEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|RH'] 
+                    ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|RH'] 
+                    ?? ($ecnMap['sides'][$jigName . '|Unit ' . $rawU . '|RH'] 
+                    ?? ($ecnMap['sides'][$jigName . '|Unit ' . $paddedU . '|RH'] ?? 0)));
+
+                // Fallback: If map returned 0 but this unit actually contains ECN parts in its sides:
+                if ($uEcnCount <= 0 && (!empty($lhParts) || !empty($rhParts))) {
+                    $unitEcnParts = array_filter(array_merge($lhParts, $rhParts), fn($p) => !empty($p['is_ecn']));
+                    if (!empty($unitEcnParts)) {
+                        $uEcnCount = count($unitEcnParts);
+                        $uEcnNums = array_unique(array_filter(array_column($unitEcnParts, 'ecn_number')));
+                        $uWord = $uEcnCount === 1 ? 'part' : 'parts';
+                        $uEcnDisp = "ECN ({$uEcnCount} {$uWord})";
+                    }
+                } elseif ($uEcnCount > 0 && empty($uEcnDisp)) {
+                    $uWord = $uEcnCount === 1 ? 'part' : 'parts';
+                    $uEcnDisp = "ECN ({$uEcnCount} {$uWord})";
+                }
 
                 $unitData['ecn_count'] = $uEcnCount;
                 $unitData['ecn_parts'] = $uEcnCount;
@@ -928,10 +973,22 @@ class HierarchyService
             $jigData['total_units'] = $totalUnitsCount;
             // Section 10: Jig turns green only when ALL units in it are complete
             $jigData['is_complete'] = ($totalUnitsCount > 0 && $completeUnitsCount === $totalUnitsCount);
-            $jigEcnCount = $ecnMap['jigs'][$jigName] ?? 0;
-            $jigEcnNums = $ecnMap['jig_ecn_numbers'][$jigName] ?? [];
-            $jigEcnSum = $ecnMap['jig_ecn_summary'][$jigName] ?? [];
-            $jigEcnDisp = $ecnMap['jig_ecn_display'][$jigName] ?? null;
+            $jigEcnCount = $ecnMap['jigs'][$jigName] ?? ($ecnMap['jigs'][strtoupper(trim($jigName))] ?? 0);
+            $jigEcnNums = $ecnMap['jig_ecn_numbers'][$jigName] ?? ($ecnMap['jig_ecn_numbers'][strtoupper(trim($jigName))] ?? []);
+            $jigEcnSum = $ecnMap['jig_ecn_summary'][$jigName] ?? ($ecnMap['jig_ecn_summary'][strtoupper(trim($jigName))] ?? []);
+            $jigEcnDisp = $ecnMap['jig_ecn_display'][$jigName] ?? ($ecnMap['jig_ecn_display'][strtoupper(trim($jigName))] ?? null);
+
+            // Fallback: If map returned 0, sum ecn parts across all units formatted in this Jig!
+            if ($jigEcnCount <= 0 && !empty($formattedUnits)) {
+                $jigEcnCount = array_sum(array_column($formattedUnits, 'ecn_part_count'));
+                if ($jigEcnCount > 0) {
+                    $jWord = $jigEcnCount === 1 ? 'part' : 'parts';
+                    $jigEcnDisp = "ECN ({$jigEcnCount} {$jWord})";
+                }
+            } elseif ($jigEcnCount > 0 && empty($jigEcnDisp)) {
+                $jWord = $jigEcnCount === 1 ? 'part' : 'parts';
+                $jigEcnDisp = "ECN ({$jigEcnCount} {$jWord})";
+            }
 
             $jigData['ecn_count'] = $jigEcnCount;
             $jigData['ecn_parts'] = $jigEcnCount;
@@ -1023,6 +1080,11 @@ class HierarchyService
         $projEcnNums = $this->ecnQuantityService->getEcnNumbersForHierarchy($proj->id, null, null, $department);
         $projEcnSum = $this->ecnQuantityService->getEcnSummaryForHierarchy($proj->id, null, null, $department);
         $projEcnDisp = $this->ecnQuantityService->getEcnDisplayForHierarchy($proj->id, null, null, $department);
+
+        if ($projEcnCount > 0 && empty($projEcnDisp)) {
+            $pWord = $projEcnCount === 1 ? 'part' : 'parts';
+            $projEcnDisp = "ECN ({$projEcnCount} {$pWord})";
+        }
 
         return [
             'id' => $proj->id,

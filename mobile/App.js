@@ -2788,7 +2788,7 @@ function App() {
                       <Text style={styles.itemSubText}>
                         Project Code: {proj.project_code || 'N/A'} • Total Parts: {proj.total_required || 0}
                       </Text>
-                      {Boolean((proj.is_ecn_present || proj.ecn_present || (proj.ecn_parts && proj.ecn_parts > 0) || (proj.ecn_part_count && proj.ecn_part_count > 0)) && (proj.ecn_number_display || proj.ecn_parts || proj.ecn_part_count)) && (
+                      {Boolean((proj.is_ecn_present || proj.ecn_present || (proj.ecn_parts && proj.ecn_parts > 0) || (proj.ecn_part_count && proj.ecn_part_count > 0) || proj.ecn_number_display) && (proj.ecn_number_display || proj.ecn_parts || proj.ecn_part_count || proj.ecn_count)) && (
                         <View style={styles.ecnBadgeCompact}>
                           <Text style={styles.ecnBadgeCompactText}>⚡ {proj.ecn_number_display || `ECN (${proj.ecn_parts || proj.ecn_part_count || proj.ecn_count} ${(proj.ecn_parts || proj.ecn_part_count || proj.ecn_count) === 1 ? 'part' : 'parts'})`}</Text>
                         </View>
@@ -2860,7 +2860,7 @@ function App() {
                           <Text style={styles.itemSubText}>
                             {jig.complete_units} / {jig.total_units} Units Complete • Total Parts: {jig.total_parts || jig.total_required || 0}
                           </Text>
-                          {Boolean((jig.is_ecn_present || jig.ecn_present || (jig.ecn_parts && jig.ecn_parts > 0) || (jig.ecn_part_count && jig.ecn_part_count > 0)) && (jig.ecn_number_display || jig.ecn_parts || jig.ecn_part_count)) && (
+                          {Boolean((jig.is_ecn_present || jig.ecn_present || (jig.ecn_parts && jig.ecn_parts > 0) || (jig.ecn_part_count && jig.ecn_part_count > 0) || jig.ecn_number_display) && (jig.ecn_number_display || jig.ecn_parts || jig.ecn_part_count || jig.ecn_count)) && (
                             <View style={styles.ecnBadgeCompact}>
                               <Text style={styles.ecnBadgeCompactText}>⚡ {jig.ecn_number_display || `ECN (${jig.ecn_parts || jig.ecn_part_count || jig.ecn_count} ${(jig.ecn_parts || jig.ecn_part_count || jig.ecn_count) === 1 ? 'part' : 'parts'})`}</Text>
                             </View>
@@ -3041,7 +3041,7 @@ function App() {
                                   <Text style={styles.unitPartsSubText}>
                                     Total Parts: {unit.total_required || unit.total_parts || (unit.parts ? unit.parts.filter(p => !p.is_ecn).length : 0)}
                                   </Text>
-                                  {Boolean((unit.is_ecn_present || unit.ecn_present || (unit.ecn_parts && unit.ecn_parts > 0) || (unit.ecn_part_count && unit.ecn_part_count > 0)) && (unit.ecn_number_display || unit.ecn_parts || unit.ecn_part_count)) && (
+                                  {Boolean((unit.is_ecn_present || unit.ecn_present || (unit.ecn_parts && unit.ecn_parts > 0) || (unit.ecn_part_count && unit.ecn_part_count > 0) || unit.ecn_number_display) && (unit.ecn_number_display || unit.ecn_parts || unit.ecn_part_count || unit.ecn_count)) && (
                                     <View style={styles.ecnBadgeCompact}>
                                       <Text style={styles.ecnBadgeCompactText}>⚡ {unit.ecn_number_display || `ECN (${unit.ecn_parts || unit.ecn_part_count || unit.ecn_count} ${(unit.ecn_parts || unit.ecn_part_count || unit.ecn_count) === 1 ? 'part' : 'parts'})`}</Text>
                                     </View>

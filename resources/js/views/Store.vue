@@ -165,7 +165,7 @@
                       </div>
                       <p class="text-muted extra-small mb-2">
                         Code: <strong>{{ proj.project_code || 'N/A' }}</strong>
-                        <span v-if="proj.ecn_number_display" class="badge bg-warning text-dark ms-1">⚡ ECN: {{ proj.ecn_number_display }}</span>
+                        <span v-if="proj.ecn_number_display" class="badge bg-warning text-dark ms-1">⚡ {{ proj.ecn_number_display }}</span>
                       </p>
                       <div class="progress mb-2" style="height: 6px;">
                         <div class="progress-bar"
@@ -247,7 +247,7 @@
                         </div>
                         <p class="text-muted extra-small mb-2">
                           {{ jig.complete_units }} / {{ jig.total_units }} Units Complete | {{ jig.total_parts }} Parts
-                          <span v-if="jig.ecn_number_display" class="badge bg-warning text-dark ms-1">⚡ ECN: {{ jig.ecn_number_display }}</span>
+                          <span v-if="jig.ecn_number_display" class="badge bg-warning text-dark ms-1">⚡ {{ jig.ecn_number_display }}</span>
                         </p>
                         <div class="progress mb-2" style="height: 6px;">
                           <div class="progress-bar"
