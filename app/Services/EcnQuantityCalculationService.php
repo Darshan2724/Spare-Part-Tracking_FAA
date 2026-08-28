@@ -220,6 +220,22 @@ class EcnQuantityCalculationService
         if (empty($ecnSummary)) {
             return null;
         }
+        $totalParts = 0;
+        foreach ($ecnSummary as $item) {
+            $totalParts += (int)($item['part_count'] ?? 0);
+        }
+        if ($totalParts <= 0) {
+            return null;
+        }
+        $unitWord = $totalParts === 1 ? 'part' : 'parts';
+        return "ECN ({$totalParts} {$unitWord})";
+    }
+
+    public static function formatEcnDetailedDisplay(array $ecnSummary): ?string
+    {
+        if (empty($ecnSummary)) {
+            return null;
+        }
         $parts = [];
         foreach ($ecnSummary as $item) {
             $num = $item['ecn_number'];
