@@ -1272,18 +1272,6 @@ const fetchProjectHierarchy = async (forceFresh = false) => {
     hierarchyData.value = data || {};
     if (data.active_projects?.length) activeProjectsList.value = data.active_projects;
     if (data.completed_projects?.length) completedProjectsList.value = data.completed_projects;
-
-    // Auto-expand the first incomplete Jig by default for immediate convenience
-    if (data.jigs && data.jigs.length > 0) {
-      const firstIncomplete = data.jigs.find(j => !j.is_complete) || data.jigs[0];
-      if (firstIncomplete && !Object.keys(expandedJigs.value).length) {
-        expandedJigs.value[firstIncomplete.jig_name] = true;
-        if (firstIncomplete.units && firstIncomplete.units.length > 0) {
-          const firstUnitKey = `${firstIncomplete.jig_name}_${firstIncomplete.units[0].unit_no}`;
-          expandedUnits.value[firstUnitKey] = true;
-        }
-      }
-    }
   };
 
   const cached = cacheStore.get(cacheKey);

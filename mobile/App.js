@@ -435,8 +435,11 @@ const compactInlineRevertStyles = StyleSheet.create({
 function App() {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
-  const [userRole, setUserRole] = useState('');
-  const [serverHost, setServerHost] = useState('192.168.9.200:8080');
+  const [serverHost, setServerHost] = useState(
+    process.env.EXPO_PUBLIC_API_URL 
+      ? process.env.EXPO_PUBLIC_API_URL.replace(/^https?:\/\//i, '').replace(/\/api\/v1\/?$/i, '')
+      : '192.168.100.36:8080'
+  );
   const [email, setEmail] = useState('admin@sparetrack.internal');
   const [password, setPassword] = useState('password123');
 
