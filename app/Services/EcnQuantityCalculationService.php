@@ -377,7 +377,12 @@ class EcnQuantityCalculationService
                   ->orWhere('received_qty', '>', 0);
             });
         } elseif ($dept === 'qc') {
-            $query->whereIn('current_state', ['SENT_TO_QC', 'QC']);
+            $query->where(function ($q) {
+                $q->whereIn('current_state', ['SENT_TO_QC', 'QC'])
+                  ->orWhereHas('receiptItems', function ($rq) {
+                      $rq->whereIn('status', ['sent_to_qc', 'qc_received']);
+                  });
+            });
         } elseif ($dept === 'rework') {
             $query->where('current_state', 'REWORK');
         } elseif ($dept === 'paint') {
@@ -410,7 +415,7 @@ class EcnQuantityCalculationService
         foreach ($reqs as $r) {
             $qty = match ($dept) {
                 'store' => (int)($r->current_state === 'STORE' ? $r->received_qty : max(0, $r->required_qty - $r->received_qty)),
-                'qc' => (int)($r->current_state === 'QC' || $r->current_state === 'SENT_TO_QC' ? ($r->received_qty ?: $r->required_qty) : 0),
+                'qc' => (int)(in_array($r->current_state, ['QC', 'SENT_TO_QC']) ? ($r->received_qty ?: $r->required_qty) : (int)$r->receiptItems->whereIn('status', ['sent_to_qc', 'qc_received'])->sum('received_quantity')),
                 'rework' => (int)($r->current_state === 'REWORK' ? ($r->received_qty ?: $r->required_qty) : 0),
                 'paint' => (int)($r->current_state === 'PAINT' ? ($r->received_qty ?: $r->required_qty) : 0),
                 'assembly' => (int)(in_array($r->current_state, ['ASSEMBLY', 'ASSEMBLY_COMPLETED']) ? ($r->received_qty ?: $r->required_qty) : 0),
