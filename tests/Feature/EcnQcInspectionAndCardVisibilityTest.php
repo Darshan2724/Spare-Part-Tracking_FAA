@@ -279,8 +279,8 @@ class EcnQcInspectionAndCardVisibilityTest extends TestCase
         $unit01 = collect($qcJig['units'])->first(function ($u) {
             return in_array($u['unit_no'], ['01', 'Unit 01']);
         });
-        $this->assertNotNull($unit01);
-        $this->assertEquals('ECN-101', $unit01['ecn_number_display']);
+        $this->assertStringContainsString('ECN-101', (string)$unit01['ecn_number_display']);
+        $this->assertEquals(['ECN-101'], $unit01['ecn_numbers']);
 
         // 2. Query Paint Department Hierarchy
         $paintHierarchy = $hierarchyService->getDepartmentHierarchy('paint', $project->id);

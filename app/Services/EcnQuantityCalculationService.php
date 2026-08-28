@@ -215,6 +215,21 @@ class EcnQuantityCalculationService
         return (int)$query->sum('required_qty');
     }
 
+    public static function formatEcnSummaryDisplay(array $ecnSummary): ?string
+    {
+        if (empty($ecnSummary)) {
+            return null;
+        }
+        $parts = [];
+        foreach ($ecnSummary as $item) {
+            $num = $item['ecn_number'];
+            $cnt = (int)$item['part_count'];
+            $unitWord = $cnt === 1 ? 'part' : 'parts';
+            $parts[] = "{$num} • {$cnt} {$unitWord}";
+        }
+        return implode(', ', $parts);
+    }
+
     /**
      * Bulk preloader for project ECN hierarchy counts to prevent N+1 queries.
      */
@@ -225,10 +240,19 @@ class EcnQuantityCalculationService
         $map = [
             'project_total' => 0,
             'project_ecn_numbers' => [],
+            'project_ecn_breakdown' => [],
+            'project_ecn_summary' => [],
+            'project_ecn_display' => null,
             'jigs' => [],
             'jig_ecn_numbers' => [],
+            'jig_ecn_breakdown' => [],
+            'jig_ecn_summary' => [],
+            'jig_ecn_display' => [],
             'units' => [],
             'unit_ecn_numbers' => [],
+            'unit_ecn_breakdown' => [],
+            'unit_ecn_summary' => [],
+            'unit_ecn_display' => [],
             'sides' => [],
         ];
 
@@ -239,8 +263,11 @@ class EcnQuantityCalculationService
             $ecnNum = trim((string)$r->ecn_number);
 
             $map['project_total'] += $qty;
-            if ($ecnNum !== '' && !in_array($ecnNum, $map['project_ecn_numbers'])) {
-                $map['project_ecn_numbers'][] = $ecnNum;
+            if ($ecnNum !== '') {
+                if (!in_array($ecnNum, $map['project_ecn_numbers'])) {
+                    $map['project_ecn_numbers'][] = $ecnNum;
+                }
+                $map['project_ecn_breakdown'][$ecnNum] = ($map['project_ecn_breakdown'][$ecnNum] ?? 0) + $qty;
             }
 
             // Jig
@@ -250,6 +277,7 @@ class EcnQuantityCalculationService
                 if (!in_array($ecnNum, $map['jig_ecn_numbers'][$r->jig_no])) {
                     $map['jig_ecn_numbers'][$r->jig_no][] = $ecnNum;
                 }
+                $map['jig_ecn_breakdown'][$r->jig_no][$ecnNum] = ($map['jig_ecn_breakdown'][$r->jig_no][$ecnNum] ?? 0) + $qty;
             }
 
             // Unit (key: jig|unit)
@@ -271,6 +299,7 @@ class EcnQuantityCalculationService
                     if (!in_array($ecnNum, $map['unit_ecn_numbers'][$uKey])) {
                         $map['unit_ecn_numbers'][$uKey][] = $ecnNum;
                     }
+                    $map['unit_ecn_breakdown'][$uKey][$ecnNum] = ($map['unit_ecn_breakdown'][$uKey][$ecnNum] ?? 0) + $qty;
                 }
             }
 
@@ -281,11 +310,37 @@ class EcnQuantityCalculationService
             }
         }
 
+        // Build Project level summary & display
+        foreach ($map['project_ecn_breakdown'] as $num => $cnt) {
+            $map['project_ecn_summary'][] = ['ecn_number' => $num, 'part_count' => $cnt];
+        }
+        $map['project_ecn_display'] = self::formatEcnSummaryDisplay($map['project_ecn_summary']);
+
+        // Build Jig level summary & display
+        foreach ($map['jig_ecn_breakdown'] as $jigKey => $breakdown) {
+            $jSum = [];
+            foreach ($breakdown as $num => $cnt) {
+                $jSum[] = ['ecn_number' => $num, 'part_count' => $cnt];
+            }
+            $map['jig_ecn_summary'][$jigKey] = $jSum;
+            $map['jig_ecn_display'][$jigKey] = self::formatEcnSummaryDisplay($jSum);
+        }
+
+        // Build Unit level summary & display
+        foreach ($map['unit_ecn_breakdown'] as $uKey => $breakdown) {
+            $uSum = [];
+            foreach ($breakdown as $num => $cnt) {
+                $uSum[] = ['ecn_number' => $num, 'part_count' => $cnt];
+            }
+            $map['unit_ecn_summary'][$uKey] = $uSum;
+            $map['unit_ecn_display'][$uKey] = self::formatEcnSummaryDisplay($uSum);
+        }
+
         return $map;
     }
 
     /**
-     * Bulk preloader for department-specific ECN hierarchy counts.
+     * Preloads department-specific ECN hierarchy counts.
      * Counts only ECN items resident/eligible in $department.
      */
     public function preloadProjectDepartmentEcnMap(int $projectId, string $department = 'manager'): array
@@ -320,17 +375,26 @@ class EcnQuantityCalculationService
         $map = [
             'project_total' => 0,
             'project_ecn_numbers' => [],
+            'project_ecn_breakdown' => [],
+            'project_ecn_summary' => [],
+            'project_ecn_display' => null,
             'jigs' => [],
             'jig_ecn_numbers' => [],
+            'jig_ecn_breakdown' => [],
+            'jig_ecn_summary' => [],
+            'jig_ecn_display' => [],
             'units' => [],
             'unit_ecn_numbers' => [],
+            'unit_ecn_breakdown' => [],
+            'unit_ecn_summary' => [],
+            'unit_ecn_display' => [],
             'sides' => [],
         ];
 
         foreach ($reqs as $r) {
             $qty = match ($dept) {
                 'store' => (int)($r->current_state === 'STORE' ? $r->received_qty : max(0, $r->required_qty - $r->received_qty)),
-                'qc' => (int)($r->current_state === 'QC' || $r->current_state === 'SENT_TO_QC' ? ($r->received_qty ?: $r->required_qty) : ($r->current_state === 'STORE' && $r->received_qty > 0 ? $r->received_qty : 0)),
+                'qc' => (int)($r->current_state === 'QC' || $r->current_state === 'SENT_TO_QC' ? ($r->received_qty ?: $r->required_qty) : 0),
                 'rework' => (int)($r->current_state === 'REWORK' ? ($r->received_qty ?: $r->required_qty) : 0),
                 'paint' => (int)($r->current_state === 'PAINT' ? ($r->received_qty ?: $r->required_qty) : 0),
                 'assembly' => (int)(in_array($r->current_state, ['ASSEMBLY', 'ASSEMBLY_COMPLETED']) ? ($r->received_qty ?: $r->required_qty) : 0),
@@ -342,8 +406,11 @@ class EcnQuantityCalculationService
             $ecnNum = trim((string)$r->ecn_number);
 
             $map['project_total'] += $qty;
-            if ($ecnNum !== '' && !in_array($ecnNum, $map['project_ecn_numbers'])) {
-                $map['project_ecn_numbers'][] = $ecnNum;
+            if ($ecnNum !== '') {
+                if (!in_array($ecnNum, $map['project_ecn_numbers'])) {
+                    $map['project_ecn_numbers'][] = $ecnNum;
+                }
+                $map['project_ecn_breakdown'][$ecnNum] = ($map['project_ecn_breakdown'][$ecnNum] ?? 0) + $qty;
             }
 
             // Jig
@@ -353,6 +420,7 @@ class EcnQuantityCalculationService
                 if (!in_array($ecnNum, $map['jig_ecn_numbers'][$r->jig_no])) {
                     $map['jig_ecn_numbers'][$r->jig_no][] = $ecnNum;
                 }
+                $map['jig_ecn_breakdown'][$r->jig_no][$ecnNum] = ($map['jig_ecn_breakdown'][$r->jig_no][$ecnNum] ?? 0) + $qty;
             }
 
             // Unit (key: jig|unit)
@@ -374,6 +442,7 @@ class EcnQuantityCalculationService
                     if (!in_array($ecnNum, $map['unit_ecn_numbers'][$uKey])) {
                         $map['unit_ecn_numbers'][$uKey][] = $ecnNum;
                     }
+                    $map['unit_ecn_breakdown'][$uKey][$ecnNum] = ($map['unit_ecn_breakdown'][$uKey][$ecnNum] ?? 0) + $qty;
                 }
             }
 
@@ -382,6 +451,32 @@ class EcnQuantityCalculationService
                 $sideKey = $uKey . '|' . $r->side_display;
                 $map['sides'][$sideKey] = ($map['sides'][$sideKey] ?? 0) + $qty;
             }
+        }
+
+        // Build Project level summary & display
+        foreach ($map['project_ecn_breakdown'] as $num => $cnt) {
+            $map['project_ecn_summary'][] = ['ecn_number' => $num, 'part_count' => $cnt];
+        }
+        $map['project_ecn_display'] = self::formatEcnSummaryDisplay($map['project_ecn_summary']);
+
+        // Build Jig level summary & display
+        foreach ($map['jig_ecn_breakdown'] as $jigKey => $breakdown) {
+            $jSum = [];
+            foreach ($breakdown as $num => $cnt) {
+                $jSum[] = ['ecn_number' => $num, 'part_count' => $cnt];
+            }
+            $map['jig_ecn_summary'][$jigKey] = $jSum;
+            $map['jig_ecn_display'][$jigKey] = self::formatEcnSummaryDisplay($jSum);
+        }
+
+        // Build Unit level summary & display
+        foreach ($map['unit_ecn_breakdown'] as $uKey => $breakdown) {
+            $uSum = [];
+            foreach ($breakdown as $num => $cnt) {
+                $uSum[] = ['ecn_number' => $num, 'part_count' => $cnt];
+            }
+            $map['unit_ecn_summary'][$uKey] = $uSum;
+            $map['unit_ecn_display'][$uKey] = self::formatEcnSummaryDisplay($uSum);
         }
 
         return $map;
@@ -408,6 +503,52 @@ class EcnQuantityCalculationService
             return $deptMap['jig_ecn_numbers'][$jigNo] ?? [];
         }
         return $deptMap['project_ecn_numbers'] ?? [];
+    }
+
+    public function getEcnDisplayForHierarchy(
+        ?int $projectId = null,
+        ?string $jigNo = null,
+        ?string $unitNo = null,
+        string $department = 'manager'
+    ): ?string {
+        $dept = strtolower(trim($department));
+        if (!$projectId) {
+            return null;
+        }
+        $deptMap = $this->preloadProjectDepartmentEcnMap($projectId, $dept);
+        if ($jigNo !== null && $unitNo !== null) {
+            $rawU = trim(str_ireplace('unit', '', $unitNo));
+            return $deptMap['unit_ecn_display'][$jigNo . '|' . $rawU] 
+                ?? $deptMap['unit_ecn_display'][$jigNo . '|Unit ' . $rawU] 
+                ?? $deptMap['unit_ecn_display'][$jigNo . '|' . $unitNo]
+                ?? null;
+        } elseif ($jigNo !== null) {
+            return $deptMap['jig_ecn_display'][$jigNo] ?? null;
+        }
+        return $deptMap['project_ecn_display'] ?? null;
+    }
+
+    public function getEcnSummaryForHierarchy(
+        ?int $projectId = null,
+        ?string $jigNo = null,
+        ?string $unitNo = null,
+        string $department = 'manager'
+    ): array {
+        $dept = strtolower(trim($department));
+        if (!$projectId) {
+            return [];
+        }
+        $deptMap = $this->preloadProjectDepartmentEcnMap($projectId, $dept);
+        if ($jigNo !== null && $unitNo !== null) {
+            $rawU = trim(str_ireplace('unit', '', $unitNo));
+            return $deptMap['unit_ecn_summary'][$jigNo . '|' . $rawU] 
+                ?? $deptMap['unit_ecn_summary'][$jigNo . '|Unit ' . $rawU] 
+                ?? $deptMap['unit_ecn_summary'][$jigNo . '|' . $unitNo]
+                ?? [];
+        } elseif ($jigNo !== null) {
+            return $deptMap['jig_ecn_summary'][$jigNo] ?? [];
+        }
+        return $deptMap['project_ecn_summary'] ?? [];
     }
 
     /**

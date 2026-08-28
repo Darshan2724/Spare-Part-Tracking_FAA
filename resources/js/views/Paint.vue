@@ -160,7 +160,10 @@
                         {{ proj.completion_pct }}% Coated
                       </span>
                     </div>
-                    <p class="text-muted extra-small mb-2">Code: <strong>{{ proj.project_code }}</strong></p>
+                    <p class="text-muted extra-small mb-2">
+                      Code: <strong>{{ proj.project_code }}</strong>
+                      <span v-if="proj.ecn_number_display" class="badge bg-warning text-dark ms-1">⚡ ECN: {{ proj.ecn_number_display }}</span>
+                    </p>
 
                     <div class="progress mb-2" style="height: 6px;">
                       <div class="progress-bar bg-purple" :style="{ width: proj.completion_pct + '%' }"></div>
@@ -238,6 +241,7 @@
 
                       <p class="text-muted extra-small mb-2">
                         <strong>{{ jig.units?.length || 0 }} Units</strong> | <strong>{{ jig.total_parts }} Parts</strong>
+                        <span v-if="jig.ecn_number_display" class="badge bg-warning text-dark ms-1">⚡ ECN: {{ jig.ecn_number_display }}</span>
                       </p>
 
                       <div class="progress mb-2" style="height: 6px;">
@@ -277,6 +281,7 @@
                       <div class="d-flex align-items-center gap-1.5 text-truncate me-1">
                         <span class="unit-icon-box"><i class="fas fa-cube"></i></span>
                         <span class="unit-title-text text-truncate">{{ unit.unit_no }}</span>
+                        <span v-if="unit.ecn_number_display" class="badge bg-warning text-dark ms-1 extra-small">⚡ {{ unit.ecn_number_display }}</span>
                       </div>
                       <span class="badge unit-overall-badge" :class="unit.is_complete ? 'badge-unit-complete' : 'badge-unit-progress'">
                         {{ unit.is_complete ? '100%' : (unit.completion_pct || 0) + '%' }}

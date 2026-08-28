@@ -150,7 +150,10 @@
                         Load: {{ proj.rework_active || 0 }}
                       </span>
                     </div>
-                    <p class="text-muted extra-small mb-2">Code: <strong>{{ proj.project_code }}</strong></p>
+                    <p class="text-muted extra-small mb-2">
+                      Code: <strong>{{ proj.project_code }}</strong>
+                      <span v-if="proj.ecn_number_display" class="badge bg-warning text-dark ms-1">⚡ ECN: {{ proj.ecn_number_display }}</span>
+                    </p>
 
                     <div class="d-flex justify-content-between text-muted extra-small border-top pt-1.5">
                       <span>Total Inward: <strong>{{ proj.total_received }}</strong></span>
@@ -224,6 +227,7 @@
 
                       <p class="text-muted extra-small mb-2">
                         Total Parts: <strong>{{ jig.total_parts }}</strong>
+                        <span v-if="jig.ecn_number_display" class="badge bg-warning text-dark ms-1">⚡ ECN: {{ jig.ecn_number_display }}</span>
                       </p>
 
                       <div class="d-flex justify-content-between text-muted extra-small border-top pt-1.5">
@@ -259,6 +263,7 @@
                       <div class="d-flex align-items-center gap-1.5 text-truncate me-1">
                         <span class="unit-icon-box"><i class="fas fa-cube"></i></span>
                         <span class="unit-title-text text-truncate">{{ unit.unit_no }}</span>
+                        <span v-if="unit.ecn_number_display" class="badge bg-warning text-dark ms-1 extra-small">⚡ {{ unit.ecn_number_display }}</span>
                       </div>
                       <span class="badge unit-overall-badge" :class="unit.is_complete ? 'badge-unit-complete' : 'badge-unit-progress'">
                         {{ unit.is_complete ? '100%' : (unit.completion_pct || 0) + '%' }}

@@ -2790,7 +2790,7 @@ function App() {
                       </Text>
                       {Boolean(proj.ecn_number_display || (proj.ecn_count && proj.ecn_count > 0)) && (
                         <View style={styles.ecnBadgeCompact}>
-                          <Text style={styles.ecnBadgeCompactText}>⚡ ECN: {proj.ecn_number_display || `${proj.ecn_count} parts`}</Text>
+                          <Text style={styles.ecnBadgeCompactText}>⚡ {proj.ecn_number_display || `ECN: ${proj.ecn_count} parts`}</Text>
                         </View>
                       )}
                     </View>
@@ -2862,7 +2862,7 @@ function App() {
                           </Text>
                           {Boolean(jig.ecn_number_display || (jig.ecn_count && jig.ecn_count > 0)) && (
                             <View style={styles.ecnBadgeCompact}>
-                              <Text style={styles.ecnBadgeCompactText}>⚡ ECN: {jig.ecn_number_display || `${jig.ecn_count} parts`}</Text>
+                              <Text style={styles.ecnBadgeCompactText}>⚡ {jig.ecn_number_display || `ECN: ${jig.ecn_count} parts`}</Text>
                             </View>
                           )}
                         </View>
@@ -3043,7 +3043,7 @@ function App() {
                                   </Text>
                                   {Boolean(unit.ecn_number_display || (unit.ecn_count && unit.ecn_count > 0)) && (
                                     <View style={styles.ecnBadgeCompact}>
-                                      <Text style={styles.ecnBadgeCompactText}>⚡ ECN: {unit.ecn_number_display || `${unit.ecn_count} parts`}</Text>
+                                      <Text style={styles.ecnBadgeCompactText}>⚡ {unit.ecn_number_display || `ECN: ${unit.ecn_count} parts`}</Text>
                                     </View>
                                   )}
                                 </View>

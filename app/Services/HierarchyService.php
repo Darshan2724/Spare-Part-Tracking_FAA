@@ -848,12 +848,17 @@ class HierarchyService
                 $rawU = str_replace('Unit ', '', $unitNo);
                 $uEcnCount = $ecnMap['units'][$jigName . '|' . $rawU] ?? ($ecnMap['units'][$jigName . '|' . $unitNo] ?? 0);
                 $uEcnNums = $ecnMap['unit_ecn_numbers'][$jigName . '|' . $rawU] ?? ($ecnMap['unit_ecn_numbers'][$jigName . '|' . $unitNo] ?? []);
+                $uEcnSum = $ecnMap['unit_ecn_summary'][$jigName . '|' . $rawU] ?? ($ecnMap['unit_ecn_summary'][$jigName . '|' . $unitNo] ?? []);
+                $uEcnDisp = $ecnMap['unit_ecn_display'][$jigName . '|' . $rawU] ?? ($ecnMap['unit_ecn_display'][$jigName . '|' . $unitNo] ?? null);
                 $lhEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|LH'] ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|LH'] ?? 0);
                 $rhEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|RH'] ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|RH'] ?? 0);
 
                 $unitData['ecn_count'] = $uEcnCount;
+                $unitData['ecn_part_count'] = $uEcnCount;
+                $unitData['is_ecn_present'] = ($uEcnCount > 0);
                 $unitData['ecn_numbers'] = $uEcnNums;
-                $unitData['ecn_number_display'] = !empty($uEcnNums) ? implode(', ', $uEcnNums) : null;
+                $unitData['ecn_summary'] = $uEcnSum;
+                $unitData['ecn_number_display'] = $uEcnDisp;
                 $unitData['sides'] = [
                     'LH' => [
                         'side' => 'LH',
@@ -910,10 +915,17 @@ class HierarchyService
             $jigData['total_units'] = $totalUnitsCount;
             // Section 10: Jig turns green only when ALL units in it are complete
             $jigData['is_complete'] = ($totalUnitsCount > 0 && $completeUnitsCount === $totalUnitsCount);
-            $jigData['ecn_count'] = $ecnMap['jigs'][$jigName] ?? 0;
+            $jigEcnCount = $ecnMap['jigs'][$jigName] ?? 0;
             $jigEcnNums = $ecnMap['jig_ecn_numbers'][$jigName] ?? [];
+            $jigEcnSum = $ecnMap['jig_ecn_summary'][$jigName] ?? [];
+            $jigEcnDisp = $ecnMap['jig_ecn_display'][$jigName] ?? null;
+
+            $jigData['ecn_count'] = $jigEcnCount;
+            $jigData['ecn_part_count'] = $jigEcnCount;
+            $jigData['is_ecn_present'] = ($jigEcnCount > 0);
             $jigData['ecn_numbers'] = $jigEcnNums;
-            $jigData['ecn_number_display'] = !empty($jigEcnNums) ? implode(', ', $jigEcnNums) : null;
+            $jigData['ecn_summary'] = $jigEcnSum;
+            $jigData['ecn_number_display'] = $jigEcnDisp;
 
             $jigReq = $jigData['total_required'];
             $jigRec = $jigData['total_received'];
@@ -992,7 +1004,10 @@ class HierarchyService
             default => ($reqSum > 0 ? min(100, round(($asmCompSum / $reqSum) * 100, 1)) : 100),
         };
 
+        $projEcnCount = $this->ecnQuantityService->getEcnCountsForHierarchy($proj->id, null, null, null, $department);
         $projEcnNums = $this->ecnQuantityService->getEcnNumbersForHierarchy($proj->id, null, null, $department);
+        $projEcnSum = $this->ecnQuantityService->getEcnSummaryForHierarchy($proj->id, null, null, $department);
+        $projEcnDisp = $this->ecnQuantityService->getEcnDisplayForHierarchy($proj->id, null, null, $department);
 
         return [
             'id' => $proj->id,
@@ -1016,10 +1031,13 @@ class HierarchyService
             'progress_percent' => min(100, $progressPercent),
             'completion_pct' => min(100, $progressPercent),
             'is_complete' => ($progressPercent >= 100),
-            'ecn_count' => $this->ecnQuantityService->getEcnCountsForHierarchy($proj->id, null, null, null, $department),
-            'ecn_total_parts' => $this->ecnQuantityService->getEcnCountsForHierarchy($proj->id, null, null, null, $department),
+            'ecn_count' => $projEcnCount,
+            'ecn_total_parts' => $projEcnCount,
+            'ecn_part_count' => $projEcnCount,
+            'is_ecn_present' => ($projEcnCount > 0),
             'ecn_numbers' => $projEcnNums,
-            'ecn_number_display' => !empty($projEcnNums) ? implode(', ', $projEcnNums) : null,
+            'ecn_summary' => $projEcnSum,
+            'ecn_number_display' => $projEcnDisp,
         ];
     }
 
