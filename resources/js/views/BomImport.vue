@@ -114,8 +114,21 @@
               </form>
             </div>
 
-            <!-- Project Match Status Banner -->
+            <!-- Project Match Status / Format Indicator Banner -->
             <div v-if="matchedProjects.length" class="mb-3">
+              <!-- ECN Format Detected Pill -->
+              <div v-if="detectedImportType === 'ECN'" class="p-2 px-3 rounded border mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2" style="background-color: #fffbeb; border-color: #f59e0b !important;">
+                <div class="d-flex align-items-center gap-2">
+                  <span class="badge" style="background-color: #d97706; color: #ffffff;">
+                    <i class="fas fa-bolt me-1"></i>ECN Auto-Detected
+                  </span>
+                  <strong class="small" style="color: #92400e;">Engineering Change Notice (MFG ECN Master Sheet)</strong>
+                </div>
+                <div class="small fw-semibold" style="color: #b45309;">
+                  ECN parts will be attached directly to matching project hierarchy.
+                </div>
+              </div>
+
               <div
                 v-for="proj in matchedProjects"
                 :key="proj.project_code"
@@ -125,12 +138,12 @@
                 <div class="d-flex align-items-center gap-2">
                   <span class="badge" :class="proj.is_existing ? 'bg-primary' : 'bg-success'">
                     <i :class="proj.is_existing ? 'fas fa-code-branch me-1' : 'fas fa-plus me-1'"></i>
-                    {{ proj.is_existing ? 'Existing Project Revision' : 'New Project' }}
+                    {{ proj.is_existing ? (detectedImportType === 'ECN' ? 'Matched Existing Project' : 'Existing Project Revision') : 'New Project' }}
                   </span>
                   <strong class="small">{{ proj.project_name }} ({{ proj.project_code }})</strong>
                 </div>
                 <div class="small text-muted" v-if="proj.is_existing">
-                  Existing Jigs/Units reused. New requirements appended.
+                  {{ detectedImportType === 'ECN' ? 'Verified: Project exists in database. ECN parts will be isolated.' : 'Existing Jigs/Units reused. New requirements appended.' }}
                 </div>
               </div>
             </div>
@@ -213,13 +226,16 @@
                   <div>
                     <button
                       type="button"
-                      class="btn btn-success btn-sm px-3 fw-bold"
+                      class="btn btn-sm px-3 fw-bold"
+                      :class="detectedImportType === 'ECN' ? 'btn-warning text-dark' : 'btn-success'"
                       :disabled="loading || !canImport || conflicts.length > 0"
                       @click="importBom"
                     >
                       <span v-if="loading" class="spinner-border spinner-border-sm me-1"></span>
-                      <i v-else class="fas fa-check me-1"></i>
-                      {{ isRevisionMode ? 'Apply Changes' : 'IMPORT BOM' }}
+                      <span v-else>
+                        <i :class="detectedImportType === 'ECN' ? 'fas fa-bolt me-1 text-dark' : 'fas fa-check me-1'"></i>
+                        {{ detectedImportType === 'ECN' ? 'CONFIRM & IMPORT ECN' : (isRevisionMode ? 'Apply Changes' : 'IMPORT BOM') }}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -289,6 +305,7 @@
                   <tr>
                     <th style="width: 45px;">#</th>
                     <th style="width: 100px;">Status</th>
+                    <th v-if="detectedImportType === 'ECN'">ECN NO.</th>
                     <th>Project</th>
                     <th>Jig</th>
                     <th>Unit</th>
@@ -325,6 +342,11 @@
                         {{ row.action }}
                       </span>
                     </td>
+                    <td v-if="detectedImportType === 'ECN'">
+                      <span class="badge" style="background-color: #fef3c7; color: #92400e; border: 1px solid #fcd34d;">
+                        ⚡ {{ row.ecn_no || 'ECN' }}
+                      </span>
+                    </td>
                     <td class="fw-semibold">{{ row.project_code }}</td>
                     <td>{{ row.jig_no }}</td>
                     <td>Unit {{ row.unit_no }}</td>
@@ -333,12 +355,12 @@
                       <span
                         class="badge"
                         :class="{
-                          'bg-primary': row.side === 'RH',
-                          'bg-info text-dark': row.side === 'LH',
+                          'bg-primary': row.side_display === 'RH' || row.side === 'RH',
+                          'bg-info text-dark': row.side_display === 'LH' || row.side === 'LH',
                           'bg-secondary': row.side === 'COMMON'
                         }"
                       >
-                        {{ row.side }}
+                        {{ row.side_display ? `${row.side_display} (${row.side})` : row.side }}
                       </span>
                     </td>
                     <td>{{ row.existing_qty !== null ? row.existing_qty : '—' }}</td>
@@ -351,7 +373,7 @@
                         'text-dark': row.status === 'UNCHANGED'
                       }"
                     >
-                      {{ row.incoming_qty }}
+                      {{ row.incoming_qty !== undefined ? row.incoming_qty : row.qty }}
                     </td>
                     <td class="text-secondary">{{ row.received_qty || 0 }}</td>
                     <td :class="row.status === 'CONFLICT' ? 'text-danger fw-bold' : 'text-muted'">
@@ -545,6 +567,7 @@ const importHistory = ref([]);
 
 const duplicateInfo = ref(null);
 const selectedFile = ref(null);
+const detectedImportType = ref('REGULAR'); // 'REGULAR' | 'ECN'
 const previewRows = ref([]);
 const previewSummary = ref(null);
 const reconciliationSummary = ref(null);
@@ -586,6 +609,7 @@ const handleFileChange = (event) => {
 };
 
 const resetPreview = () => {
+  detectedImportType.value = 'REGULAR';
   previewRows.value = [];
   previewSummary.value = null;
   reconciliationSummary.value = null;
@@ -631,6 +655,7 @@ const previewBom = async () => {
       };
       error.value = response.data.message || 'This BOM filename has already been imported.';
     } else {
+      detectedImportType.value = response.data.import_type || 'REGULAR';
       previewRows.value = response.data.rows || [];
       previewSummary.value = response.data.summary || null;
       reconciliationSummary.value = response.data.reconciliation || null;
@@ -674,13 +699,14 @@ const importBom = async () => {
     const formData = new FormData();
     formData.append('file', selectedFile.value);
     formData.append('filename', selectedFile.value.name);
+    formData.append('import_type', detectedImportType.value);
 
     const response = await axios.post('/api/v1/bom/import', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
 
     if (response.data.success) {
-      successMessage.value = response.data.message || 'BOM imported and reconciled successfully.';
+      successMessage.value = response.data.message || (detectedImportType.value === 'ECN' ? 'ECN Master Sheet imported and attached successfully.' : 'BOM imported and reconciled successfully.');
       resetPreview();
       selectedFile.value = null;
       duplicateInfo.value = null;
