@@ -665,4 +665,12 @@ class QuantityCalculationService
             'is_complete' => $isComplete,
         ];
     }
+
+    /**
+     * Get aggregate ECN count for main dashboard without modifying regular calculations.
+     */
+    public function getEcnTotalForDashboard(array $filters = []): int
+    {
+        return (new EcnQuantityCalculationService())->getEcnTotalForDashboardCard($filters);
+    }
 }

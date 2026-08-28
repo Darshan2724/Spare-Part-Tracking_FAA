@@ -74,6 +74,22 @@
             </router-link>
           </li>
 
+          <!-- 2.5. Import ECN (Admin/Manager) -->
+          <li v-if="['ADMIN', 'MANAGER'].includes(authStore.userRole)" class="nav-item">
+            <router-link 
+              class="sidebar-nav-link" 
+              :class="{ 'active': route.name === 'ecn-import' }" 
+              :to="{ name: 'ecn-import' }"
+              :aria-label="isSidebarCollapsed ? 'Import ECN' : undefined"
+            >
+              <span class="nav-icon-wrap">
+                <i class="fas fa-file-import" style="color: #f59e0b;"></i>
+              </span>
+              <span v-if="!isSidebarCollapsed" class="nav-label">Import ECN</span>
+              <span v-if="isSidebarCollapsed" class="sidebar-tooltip">Import ECN</span>
+            </router-link>
+          </li>
+
           <!-- 3. Reports (Directly below Import BOM) -->
           <li class="nav-item">
             <router-link 
@@ -87,6 +103,22 @@
               </span>
               <span v-if="!isSidebarCollapsed" class="nav-label">Reports</span>
               <span v-if="isSidebarCollapsed" class="sidebar-tooltip">Reports</span>
+            </router-link>
+          </li>
+
+          <!-- 3.5. ECN Reports -->
+          <li class="nav-item">
+            <router-link 
+              class="sidebar-nav-link" 
+              :class="{ 'active': route.name === 'ecn-reports' }" 
+              :to="{ name: 'ecn-reports' }"
+              :aria-label="isSidebarCollapsed ? 'ECN' : undefined"
+            >
+              <span class="nav-icon-wrap">
+                <i class="fas fa-exchange-alt" style="color: #f59e0b;"></i>
+              </span>
+              <span v-if="!isSidebarCollapsed" class="nav-label">ECN</span>
+              <span v-if="isSidebarCollapsed" class="sidebar-tooltip">ECN</span>
             </router-link>
           </li>
 

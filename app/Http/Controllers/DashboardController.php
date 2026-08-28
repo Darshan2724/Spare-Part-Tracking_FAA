@@ -95,6 +95,8 @@ class DashboardController extends Controller
 
         $bulkMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $side, $filters);
         $canonicalSummary = $this->quantityService->calculateDashboardSummary($filters, $bulkMetrics);
+        $canonicalSummary['ecn_total_parts'] = $this->quantityService->getEcnTotalForDashboard($filters);
+        $canonicalSummary['ecn_total'] = $canonicalSummary['ecn_total_parts'];
         $canonicalProjectsProgress = $this->quantityService->calculateProjectsProgress($filters, $bulkMetrics);
         $topProjectsNearCompletion = $this->quantityService->getTopProjectsNearCompletion($filters, 10, $canonicalProjectsProgress);
         $healthDistribution = $this->quantityService->calculateProjectHealthDistribution($filters, $bulkMetrics);

@@ -16,6 +16,9 @@ use App\Http\Controllers\HealthController;
 use App\Http\Controllers\ExportController;
 
 use App\Http\Controllers\Admin\SystemLogController;
+use App\Http\Controllers\EcnImportController;
+use App\Http\Controllers\EcnDashboardController;
+use App\Http\Controllers\EcnWorkflowController;
 use App\Http\Middleware\CaptureSystemLogsMiddleware;
 
 /*
@@ -148,6 +151,32 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::get('/revert-items', [\App\Http\Controllers\WorkflowRevertController::class, 'getRevertItems']);
             Route::post('/revert', [\App\Http\Controllers\WorkflowRevertController::class, 'revert']);
             Route::post('/bulk-revert', [\App\Http\Controllers\WorkflowRevertController::class, 'bulkRevert']);
+        });
+
+        // ECN Management & Workflow (Strictly Isolated Classification)
+        Route::prefix('ecn')->group(function () {
+            // Import
+            Route::post('/preview', [EcnImportController::class, 'preview']);
+            Route::post('/import', [EcnImportController::class, 'import']);
+            Route::get('/history', [EcnImportController::class, 'history']);
+
+            // Dashboard & Reports
+            Route::get('/summary', [EcnDashboardController::class, 'summary']);
+            Route::get('/drilldown', [EcnDashboardController::class, 'drilldown']);
+            Route::get('/hierarchy', [EcnDashboardController::class, 'hierarchy']);
+
+            // Workflow Transitions
+            Route::post('/store/receive', [EcnWorkflowController::class, 'storeReceive']);
+            Route::post('/store/send-to-qc', [EcnWorkflowController::class, 'sendToQc']);
+            Route::post('/qc/receive', [EcnWorkflowController::class, 'qcReceive']);
+            Route::post('/qc/inspect', [EcnWorkflowController::class, 'qcInspect']);
+            Route::post('/rework/complete', [EcnWorkflowController::class, 'reworkComplete']);
+            Route::post('/paint/complete', [EcnWorkflowController::class, 'paintComplete']);
+            Route::post('/assembly/complete', [EcnWorkflowController::class, 'assemblyComplete']);
+            Route::post('/revert', [EcnWorkflowController::class, 'revert']);
+            Route::get('/revert-options', [EcnWorkflowController::class, 'revertOptions']);
+            Route::post('/mixed-bulk-intake', [EcnWorkflowController::class, 'mixedBulkIntake']);
+            Route::post('/mixed-bulk-revert', [EcnWorkflowController::class, 'mixedBulkRevert']);
         });
     });
 });

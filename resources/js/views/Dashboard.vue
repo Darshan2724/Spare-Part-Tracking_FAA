@@ -152,7 +152,7 @@
         </div>
       </div>
 
-      <!-- ROW 2: Parts and Operational Workflow Status Overview (8 Compact Cards) -->
+      <!-- ROW 2: Parts and Operational Workflow Status Overview (9 Compact Cards) -->
       <div class="row g-2 mb-4">
         <!-- 1. Total Parts -->
         <div class="col-6 col-sm-4 col-md-3 col-xl">
@@ -161,6 +161,9 @@
               <div>
                 <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
                   <span>Total Parts</span>
+                  <span v-if="metrics.ecn_total_parts" class="badge rounded-pill bg-light text-dark ms-1 px-1 py-0" style="font-size: 0.65rem; font-weight: 600;" title="Isolated ECN Parts Count">
+                    ECN: {{ metrics.ecn_total_parts }}
+                  </span>
                   <i class="fas fa-search-plus extra-small opacity-75"></i>
                 </div>
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.total_parts ?? metrics.total_required ?? 0 }}</h3>
@@ -284,6 +287,22 @@
                 <h3 class="fw-bold mb-0 fs-4">{{ metrics.parts_in_assembly || metrics.assembly_ready || 0 }}</h3>
               </div>
               <i class="fas fa-cogs text-white-50 fs-5"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- 9. ECN (Isolated Engineering Change Notices) -->
+        <div class="col-6 col-sm-4 col-md-3 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #b45309;" @click="openKpiDrilldown('ecn', 'ECN Parts (Isolated Engineering Change Notices)')">
+            <div class="card-body p-2 d-flex justify-content-between align-items-center">
+              <div>
+                <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
+                  <span>ECN</span>
+                  <i class="fas fa-search-plus extra-small opacity-75"></i>
+                </div>
+                <h3 class="fw-bold mb-0 fs-4">{{ metrics.ecn_total_parts || 0 }}</h3>
+              </div>
+              <i class="fas fa-exchange-alt text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
