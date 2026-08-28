@@ -1142,6 +1142,7 @@ function App() {
         const ecnReqId = selectedItemForReceive.ecn_requirement_id || Number(String(selectedItemForReceive.id).replace('ecn_', ''));
         await apiClient.post('/ecn/store/receive', {
           ecn_requirement_id: ecnReqId,
+          quantity: qty,
           received_quantity: qty,
           delivery_note_number: deliveryNote,
           remarks: 'Mobile ECN Store Intake',
@@ -2671,9 +2672,16 @@ function App() {
                         {proj.is_complete ? '100% DONE' : `${proj.completion_pct || 0}%`}
                       </Text>
                     </View>
-                    <Text style={styles.itemSubText}>
-                      Project Code: {proj.project_code || 'N/A'} • Required: {proj.total_required}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                      <Text style={styles.itemSubText}>
+                        Project Code: {proj.project_code || 'N/A'} • Total Parts: {proj.total_required || 0}
+                      </Text>
+                      {Boolean(proj.ecn_count && proj.ecn_count > 0) && (
+                        <View style={styles.ecnBadgeCompact}>
+                          <Text style={styles.ecnBadgeCompactText}>⚡ ECN: {proj.ecn_count}</Text>
+                        </View>
+                      )}
+                    </View>
                     <View style={styles.progressBarBg}>
                       <View style={[styles.progressBarFill, { width: `${proj.completion_pct || 0}%`, backgroundColor: proj.is_complete ? '#16a34a' : '#2563eb' }]} />
                     </View>
@@ -2736,9 +2744,16 @@ function App() {
                             {jig.is_complete ? '100% DONE' : `${jig.completion_pct}%`}
                           </Text>
                         </View>
-                        <Text style={styles.itemSubText}>
-                          {jig.complete_units} / {jig.total_units} Units Complete • {jig.total_parts} Parts
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                          <Text style={styles.itemSubText}>
+                            {jig.complete_units} / {jig.total_units} Units Complete • Total Parts: {jig.total_parts || jig.total_required || 0}
+                          </Text>
+                          {Boolean(jig.ecn_count && jig.ecn_count > 0) && (
+                            <View style={styles.ecnBadgeCompact}>
+                              <Text style={styles.ecnBadgeCompactText}>⚡ ECN: {jig.ecn_count}</Text>
+                            </View>
+                          )}
+                        </View>
                         <View style={styles.progressBarBg}>
                           <View style={[styles.progressBarFill, { width: `${jig.completion_pct}%`, backgroundColor: jig.is_complete ? '#16a34a' : '#2563eb' }]} />
                         </View>
@@ -2906,10 +2921,20 @@ function App() {
                             ]}>
                             {/* Single Unit Header */}
                             <View style={[styles.itemHeader, { marginBottom: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <View>
                                 <Text style={[styles.unitTitle, unit.is_complete && { color: '#15803d' }]}>
                                   {unit.is_complete ? '✓ ' : '📦 '}{unit.unit_no}
                                 </Text>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                                  <Text style={styles.unitPartsSubText}>
+                                    Total Parts: {unit.total_required || unit.total_parts || (unit.parts ? unit.parts.filter(p => !p.is_ecn).length : 0)}
+                                  </Text>
+                                  {Boolean(unit.ecn_count && unit.ecn_count > 0) && (
+                                    <View style={styles.ecnBadgeCompact}>
+                                      <Text style={styles.ecnBadgeCompactText}>⚡ ECN: {unit.ecn_count}</Text>
+                                    </View>
+                                  )}
+                                </View>
                               </View>
                               <Text style={[styles.unitBadge, unit.is_complete ? styles.jigBadgeComplete : styles.unitBadgePending]}>
                                 {unit.is_complete ? 'COMPLETED' : `${unit.completion_pct}%`}
@@ -5577,6 +5602,24 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#64748b',
     textAlign: 'center',
+  },
+  ecnBadgeCompact: {
+    backgroundColor: '#fff7ed',
+    borderColor: '#f97316',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  ecnBadgeCompactText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#c2410c',
+  },
+  unitPartsSubText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
   },
   // Universal Quantity Stepper & Split Validation Styles
   qtyStepperRow: {
