@@ -156,10 +156,10 @@
         </div>
       </div>
 
-      <!-- ROW 2: 9 ECN KPI CARDS (Completely Isolated ECN Ledger) -->
+      <!-- ROW 2: 8 ECN KPI CARDS (Completely Isolated ECN Ledger) -->
       <div class="row g-2 mb-4">
         <!-- 1. Total Parts -->
-        <div class="col-6 col-sm-4 col-md-3 col-xl">
+        <div class="col-6 col-sm-6 col-md-3 col-xl">
           <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #4f46e5;" @click="openKpiDrilldown('total_parts', 'Total ECN Parts')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
@@ -172,8 +172,8 @@
         </div>
 
         <!-- 2. Total Received -->
-        <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm bg-success text-white h-100 kpi-card-interactive" @click="openKpiDrilldown('total_received', 'Total ECN Parts Received')">
+        <div class="col-6 col-sm-6 col-md-3 col-xl">
+          <div class="card border-0 shadow-sm bg-success text-white h-100 kpi-card-interactive" @click="openKpiDrilldown('total_parts_received', 'Total ECN Parts Received')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Total Received</div>
@@ -185,7 +185,7 @@
         </div>
 
         <!-- 3. Parts Pending -->
-        <div class="col-6 col-sm-4 col-md-3 col-xl">
+        <div class="col-6 col-sm-6 col-md-3 col-xl">
           <div class="card border-0 shadow-sm bg-dark text-white h-100 kpi-card-interactive" @click="openKpiDrilldown('parts_pending', 'ECN Parts Pending Intake')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
@@ -197,12 +197,12 @@
           </div>
         </div>
 
-        <!-- 4. Store Bay -->
-        <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #d97706;" @click="openKpiDrilldown('parts_in_store', 'ECN Parts in Store Bay')">
+        <!-- 4. Store (renamed from Store Bay) -->
+        <div class="col-6 col-sm-6 col-md-3 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #d97706;" @click="openKpiDrilldown('store', 'ECN Parts in Store')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Store Bay</div>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Store</div>
                 <h3 class="fw-bold mb-0 fs-4">{{ summary.parts_in_store || 0 }}</h3>
               </div>
               <i class="fas fa-warehouse text-white-50 fs-5"></i>
@@ -210,13 +210,20 @@
           </div>
         </div>
 
-        <!-- 5. QC Bay -->
-        <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #0284c7;" @click="openKpiDrilldown('parts_in_qc', 'ECN Parts in Quality Control')">
+        <!-- 5. QC (renamed from QC Bay; Main: Active Inspection, Sub: Rejected) -->
+        <div class="col-6 col-sm-6 col-md-3 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #0284c7;" @click="openKpiDrilldown('qc', 'ECN Parts in Quality Control', 'all')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">QC Bay</div>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">QC</div>
                 <h3 class="fw-bold mb-0 fs-4">{{ summary.parts_in_qc || 0 }}</h3>
+                <span 
+                  class="badge px-1.5 py-0.5 rounded extra-small mt-1 text-nowrap"
+                  style="background-color: rgba(254, 226, 226, 0.95); color: #991b1b; cursor: pointer;"
+                  @click.stop="openKpiDrilldown('qc', 'ECN Parts - QC Rejected', 'rejected')"
+                >
+                  Rejected: <strong>{{ summary.qc_rejected || 0 }}</strong>
+                </span>
               </div>
               <i class="fas fa-clipboard-check text-white-50 fs-5"></i>
             </div>
@@ -224,8 +231,8 @@
         </div>
 
         <!-- 6. Rework -->
-        <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #ea580c;" @click="openKpiDrilldown('parts_in_rework', 'ECN Parts in Rework')">
+        <div class="col-6 col-sm-6 col-md-3 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #ea580c;" @click="openKpiDrilldown('rework', 'ECN Parts in Rework')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Rework</div>
@@ -237,11 +244,11 @@
         </div>
 
         <!-- 7. Paint -->
-        <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #7c3aed;" @click="openKpiDrilldown('parts_in_paint', 'ECN Parts in Paint Shop')">
+        <div class="col-6 col-sm-6 col-md-3 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #7c3aed;" @click="openKpiDrilldown('paint', 'ECN Parts in Paint Shop')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Paint Shop</div>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Paint</div>
                 <h3 class="fw-bold mb-0 fs-4">{{ summary.parts_in_paint || 0 }}</h3>
               </div>
               <i class="fas fa-paint-roller text-white-50 fs-5"></i>
@@ -249,28 +256,22 @@
           </div>
         </div>
 
-        <!-- 8. Assembly Queue -->
-        <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #db2777;" @click="openKpiDrilldown('parts_in_assembly', 'ECN Parts in Assembly Queue')">
+        <!-- 8. Assembly (includes Assembly Queue & Assembly Completed; standalone Completed card removed) -->
+        <div class="col-6 col-sm-6 col-md-3 col-xl">
+          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #db2777;" @click="openKpiDrilldown('assembly', 'ECN Parts in Assembly Bay', 'all')">
             <div class="card-body p-2 d-flex justify-content-between align-items-center">
               <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Assembly Queue</div>
+                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Assembly</div>
                 <h3 class="fw-bold mb-0 fs-4">{{ summary.parts_in_assembly || 0 }}</h3>
+                <span 
+                  class="badge px-1.5 py-0.5 rounded extra-small mt-1 text-nowrap"
+                  style="background-color: rgba(220, 252, 231, 0.95); color: #166534; cursor: pointer;"
+                  @click.stop="openKpiDrilldown('assembly', 'ECN Parts - Assembly Completed', 'completed')"
+                >
+                  Completed: <strong>{{ summary.assembly_completed || 0 }}</strong>
+                </span>
               </div>
               <i class="fas fa-cogs text-white-50 fs-5"></i>
-            </div>
-          </div>
-        </div>
-
-        <!-- 9. Assembly Completed -->
-        <div class="col-6 col-sm-4 col-md-3 col-xl">
-          <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #0d9488;" @click="openKpiDrilldown('assembly_completed', 'ECN Assembly Completed Parts')">
-            <div class="card-body p-2 d-flex justify-content-between align-items-center">
-              <div>
-                <div class="text-white-50 text-uppercase fw-bold" style="font-size: 0.72rem;">Completed</div>
-                <h3 class="fw-bold mb-0 fs-4">{{ summary.assembly_completed || 0 }}</h3>
-              </div>
-              <i class="fas fa-check-circle text-white-50 fs-5"></i>
             </div>
           </div>
         </div>
@@ -299,103 +300,90 @@
             <div v-for="(ecnNode, eIdx) in hierarchyNodes" :key="ecnNode.ecn_number" class="card border-0 shadow-sm overflow-hidden">
               <!-- ECN Node Header -->
               <div 
-                class="card-header py-3 px-3 d-flex justify-content-between align-items-center flex-wrap gap-2 cursor-pointer select-none bg-white border-bottom"
+                class="card-header bg-white py-2.5 px-3 d-flex justify-content-between align-items-center cursor-pointer border-bottom"
+                style="cursor: pointer;"
                 @click="toggleEcnExpand(ecnNode.ecn_number)"
               >
-                <div class="d-flex align-items-center gap-3">
-                  <button 
-                    type="button" 
-                    class="btn btn-sm btn-light border rounded-circle p-0 d-flex align-items-center justify-content-center"
-                    style="width: 28px; height: 28px;"
-                    @click.stop="toggleEcnExpand(ecnNode.ecn_number)"
-                  >
-                    <i class="fas" :class="expandedEcns[ecnNode.ecn_number] ? 'fa-chevron-down text-primary' : 'fa-chevron-right text-muted'"></i>
-                  </button>
-                  <div class="d-flex align-items-center gap-2">
-                    <span class="badge text-white px-2.5 py-1" style="background-color: #b45309; font-size: 0.85rem;">
-                      {{ ecnNode.ecn_number }}
-                    </span>
-                    <strong class="text-dark">{{ ecnNode.jigs?.length || 0 }} Jigs</strong>
-                  </div>
+                <div class="d-flex align-items-center gap-2">
+                  <i class="fas" :class="expandedEcns[ecnNode.ecn_number] ? 'fa-chevron-down text-primary' : 'fa-chevron-right text-muted'"></i>
+                  <span class="badge px-2 py-1" style="background-color: #fef3c7; color: #92400e; border: 1px solid #fcd34d;">
+                    ⚡ {{ ecnNode.ecn_number }}
+                  </span>
+                  <span class="text-muted small">({{ ecnNode.jigs?.length || 0 }} Jigs)</span>
                 </div>
                 <div class="d-flex align-items-center gap-2 small">
-                  <span class="badge bg-secondary">Required: {{ ecnNode.total_required }} pcs</span>
-                  <span class="badge bg-success">Received: {{ ecnNode.total_received }} pcs</span>
+                  <span class="badge bg-light text-dark border">Total Req: <strong>{{ ecnNode.total_required }}</strong></span>
+                  <span class="badge bg-success-subtle text-success border border-success-subtle">Received: <strong>{{ ecnNode.total_received }}</strong></span>
                 </div>
               </div>
 
-              <!-- ECN Node Body: JIGS -->
-              <div v-if="expandedEcns[ecnNode.ecn_number]" class="card-body p-3 bg-light">
-                <div class="d-flex flex-column gap-3">
+              <!-- Jigs Under ECN -->
+              <div v-if="expandedEcns[ecnNode.ecn_number]" class="card-body p-3 bg-light d-flex flex-column gap-2">
+                <div v-for="jig in ecnNode.jigs" :key="jig.jig_no" class="card border shadow-xs overflow-hidden">
+                  <!-- JIG HEADER -->
                   <div 
-                    v-for="jig in ecnNode.jigs" 
-                    :key="jig.jig_no" 
-                    class="card border-0 shadow-sm bg-white overflow-hidden"
+                    class="card-header bg-white py-2 px-3 d-flex justify-content-between align-items-center cursor-pointer"
+                    style="cursor: pointer;"
+                    @click="toggleJigExpand(`${ecnNode.ecn_number}_${jig.jig_no}`)"
                   >
-                    <!-- JIG HEADER (Level 3) -->
-                    <div 
-                      class="card-header py-2.5 px-3 d-flex justify-content-between align-items-center flex-wrap gap-2 cursor-pointer select-none bg-white border-bottom"
-                      @click="toggleJigExpand(`${ecnNode.ecn_number}_${jig.jig_no}`)"
-                    >
-                      <div class="d-flex align-items-center gap-3">
-                        <button 
-                          type="button"
-                          class="btn btn-sm btn-light border rounded-circle p-0 d-flex align-items-center justify-content-center"
-                          style="width: 26px; height: 26px;"
-                          @click.stop="toggleJigExpand(`${ecnNode.ecn_number}_${jig.jig_no}`)"
-                        >
-                          <i class="fas" :class="expandedJigs[`${ecnNode.ecn_number}_${jig.jig_no}`] ? 'fa-chevron-down text-primary' : 'fa-chevron-right text-muted'"></i>
-                        </button>
-                        <div class="d-flex align-items-center gap-2">
-                          <span class="fw-bold text-dark"><i class="fas fa-layer-group text-primary me-1.5"></i>JIG: {{ jig.jig_no }}</span>
-                          <span class="badge bg-light text-dark border">{{ jig.units?.length || 0 }} Units</span>
-                        </div>
-                      </div>
-                      <div class="d-flex align-items-center gap-2 small">
-                        <span class="badge bg-light text-dark border">Req: <strong>{{ jig.total_required }}</strong></span>
-                        <span class="badge bg-success-subtle text-success border border-success-subtle">Rec: <strong>{{ jig.total_received }}</strong></span>
+                    <div class="d-flex align-items-center gap-3">
+                      <button 
+                        type="button"
+                        class="btn btn-sm btn-light border rounded-circle p-0 d-flex align-items-center justify-content-center"
+                        style="width: 26px; height: 26px;"
+                        @click.stop="toggleJigExpand(`${ecnNode.ecn_number}_${jig.jig_no}`)"
+                      >
+                        <i class="fas" :class="expandedJigs[`${ecnNode.ecn_number}_${jig.jig_no}`] ? 'fa-chevron-down text-primary' : 'fa-chevron-right text-muted'"></i>
+                      </button>
+                      <div class="d-flex align-items-center gap-2">
+                        <span class="fw-bold text-dark"><i class="fas fa-layer-group text-primary me-1.5"></i>JIG: {{ jig.jig_no }}</span>
+                        <span class="badge bg-light text-dark border">{{ jig.units?.length || 0 }} Units</span>
                       </div>
                     </div>
+                    <div class="d-flex align-items-center gap-2 small">
+                      <span class="badge bg-light text-dark border">Req: <strong>{{ jig.total_required }}</strong></span>
+                      <span class="badge bg-success-subtle text-success border border-success-subtle">Rec: <strong>{{ jig.total_received }}</strong></span>
+                    </div>
+                  </div>
 
-                    <!-- JIG BODY: UNITS & PARTS (Hidden until Jig arrow is clicked) -->
-                    <div v-if="expandedJigs[`${ecnNode.ecn_number}_${jig.jig_no}`]" class="card-body p-3 bg-light">
-                      <div class="row g-2">
-                        <div v-for="unit in jig.units" :key="unit.unit_no" class="col-12 col-md-6 col-xl-4">
-                          <div class="p-2 border rounded bg-white shadow-xs">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                              <strong class="text-dark small">Unit {{ unit.unit_no }}</strong>
-                              <span class="badge bg-secondary" style="font-size: 0.7rem;">{{ unit.parts?.length || 0 }} Parts</span>
-                            </div>
-                            <div class="table-responsive">
-                              <table class="table table-sm table-borderless mb-0 extra-small">
-                                <thead>
-                                  <tr class="border-bottom text-muted">
-                                    <th>Part No</th>
-                                    <th>Side</th>
-                                    <th class="text-end">Req</th>
-                                    <th class="text-end">Rec</th>
-                                    <th>Status</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  <tr v-for="p in unit.parts" :key="p.id">
-                                    <td class="font-monospace fw-bold">{{ p.part_no }}</td>
-                                    <td>
-                                      <span :class="['badge', ['RH', 'RA', 'AR', 'R'].includes(p.side || p.original_side) ? 'bg-primary' : ['LH', 'LA', 'AL', 'L'].includes(p.side || p.original_side) ? 'bg-info text-dark' : 'bg-secondary']">
-                                        {{ p.side || p.original_side || p.side_display }}
-                                      </span>
-                                    </td>
-                                    <td class="text-end">{{ p.required_qty }}</td>
-                                    <td class="text-end fw-bold text-success">{{ p.received_qty }}</td>
-                                    <td>
-                                      <span class="badge" :class="p.current_state === 'ASSEMBLY_COMPLETED' ? 'bg-success' : 'bg-warning text-dark'" style="font-size: 0.65rem;">
-                                        {{ p.current_state }}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                </tbody>
-                              </table>
-                            </div>
+                  <!-- JIG BODY: UNITS & PARTS (Hidden until Jig arrow is clicked) -->
+                  <div v-if="expandedJigs[`${ecnNode.ecn_number}_${jig.jig_no}`]" class="card-body p-3 bg-light">
+                    <div class="row g-2">
+                      <div v-for="unit in jig.units" :key="unit.unit_no" class="col-12 col-md-6 col-xl-4">
+                        <div class="p-2 border rounded bg-white shadow-xs">
+                          <div class="d-flex justify-content-between align-items-center mb-1">
+                            <strong class="text-dark small">Unit {{ unit.unit_no }}</strong>
+                            <span class="badge bg-secondary" style="font-size: 0.7rem;">{{ unit.parts?.length || 0 }} Parts</span>
+                          </div>
+                          <div class="table-responsive">
+                            <table class="table table-sm table-borderless mb-0 extra-small">
+                              <thead>
+                                <tr class="border-bottom text-muted">
+                                  <th>Part No</th>
+                                  <th>Side</th>
+                                  <th class="text-end">Req</th>
+                                  <th class="text-end">Rec</th>
+                                  <th>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr v-for="p in unit.parts" :key="p.id">
+                                  <td class="font-monospace fw-bold">{{ p.part_no }}</td>
+                                  <td>
+                                    <span :class="['badge', ['RH', 'RA', 'AR', 'R'].includes(p.side || p.original_side) ? 'bg-primary' : ['LH', 'LA', 'AL', 'L'].includes(p.side || p.original_side) ? 'bg-info text-dark' : 'bg-secondary']">
+                                      {{ p.side || p.original_side || p.side_display }}
+                                    </span>
+                                  </td>
+                                  <td class="text-end">{{ p.required_qty }}</td>
+                                  <td class="text-end fw-bold text-success">{{ p.received_qty }}</td>
+                                  <td>
+                                    <span class="badge" :class="p.current_state === 'ASSEMBLY_COMPLETED' ? 'bg-success' : 'bg-warning text-dark'" style="font-size: 0.65rem;">
+                                      {{ p.current_state }}
+                                    </span>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
                           </div>
                         </div>
                       </div>
@@ -416,11 +404,67 @@
               <div class="d-flex align-items-center gap-2">
                 <i class="fas fa-list-alt text-warning"></i>
                 <h6 class="modal-title fw-bold mb-0">{{ drilldownTitle }}</h6>
-                <span class="badge bg-secondary ms-2">{{ drilldownData.length }} Records</span>
+                <span class="badge bg-secondary ms-2">{{ drilldownData.length }} Records (Qty: {{ drilldownTotalQty }})</span>
               </div>
-              <button type="button" class="btn-close btn-close-white" @click="closeDrilldownModal"></button>
+              <div class="d-flex align-items-center gap-2">
+                <button @click="exportEcnExcel" class="btn btn-success btn-sm text-nowrap" :disabled="exportingExcel">
+                  <i class="fas fa-file-excel me-1"></i> {{ exportingExcel ? 'Exporting...' : 'Export Excel' }}
+                </button>
+                <button type="button" class="btn-close btn-close-white" @click="closeDrilldownModal"></button>
+              </div>
             </div>
             <div class="modal-body p-3">
+              <!-- Substate Filters Bar (for QC and Assembly) -->
+              <div v-if="['qc', 'assembly'].includes(activeKpiKey)" class="d-flex gap-2 mb-3 pb-2 border-bottom flex-wrap">
+                <template v-if="activeKpiKey === 'qc'">
+                  <button 
+                    class="btn btn-sm"
+                    :class="activeSubstate === 'all' ? 'btn-primary' : 'btn-outline-secondary'"
+                    @click="setSubstate('all')"
+                  >
+                    All QC Items
+                  </button>
+                  <button 
+                    class="btn btn-sm"
+                    :class="activeSubstate === 'inspection' ? 'btn-primary' : 'btn-outline-secondary'"
+                    @click="setSubstate('inspection')"
+                  >
+                    🔬 Active Inspection Queue ({{ summary.parts_in_qc || 0 }})
+                  </button>
+                  <button 
+                    class="btn btn-sm"
+                    :class="activeSubstate === 'rejected' ? 'btn-danger text-white' : 'btn-outline-danger'"
+                    @click="setSubstate('rejected')"
+                  >
+                    ❌ QC Rejected ({{ summary.qc_rejected || 0 }})
+                  </button>
+                </template>
+                <template v-if="activeKpiKey === 'assembly'">
+                  <button 
+                    class="btn btn-sm"
+                    :class="activeSubstate === 'all' ? 'btn-primary' : 'btn-outline-secondary'"
+                    @click="setSubstate('all')"
+                  >
+                    All Assembly Items
+                  </button>
+                  <button 
+                    class="btn btn-sm"
+                    :class="activeSubstate === 'queue' ? 'btn-primary' : 'btn-outline-secondary'"
+                    @click="setSubstate('queue')"
+                  >
+                    ⚙️ In Assembly Queue ({{ summary.parts_in_assembly || 0 }})
+                  </button>
+                  <button 
+                    class="btn btn-sm"
+                    :class="activeSubstate === 'completed' ? 'btn-success text-white' : 'btn-outline-success'"
+                    @click="setSubstate('completed')"
+                  >
+                    🏁 Assembly Completed ({{ summary.assembly_completed || 0 }})
+                  </button>
+                </template>
+              </div>
+
+              <!-- Search Bar -->
               <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                 <input
                   type="text"
@@ -429,10 +473,11 @@
                   class="form-control form-control-sm"
                   style="max-width: 300px;"
                 />
-                <button class="btn btn-outline-secondary btn-sm" @click="fetchDrilldownData">
-                  <i class="fas fa-search me-1"></i>Filter
-                </button>
+                <span class="text-muted small">
+                  Showing <strong>{{ filteredDrilldownData.length }}</strong> matching parts
+                </span>
               </div>
+
               <div class="table-responsive border rounded">
                 <table class="table table-sm table-hover align-middle mb-0 small">
                   <thead class="table-light">
@@ -444,9 +489,8 @@
                       <th>Part Number</th>
                       <th>Side</th>
                       <th>Combined Identifier</th>
-                      <th class="text-end">Required</th>
-                      <th class="text-end">Received</th>
-                      <th>Current Stage</th>
+                      <th class="text-end">Quantity</th>
+                      <th>Status / Stage</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -457,35 +501,40 @@
                           ⚡ {{ item.ecn_number || item.ecn_no || 'ECN' }}
                         </span>
                       </td>
-                      <td class="fw-semibold">{{ item.project?.project_code || item.project_code || '—' }}</td>
+                      <td class="fw-semibold">{{ item.project_code || '—' }}</td>
                       <td>{{ item.jig_no }} / Unit {{ item.unit_no }}</td>
-                      <td class="font-monospace fw-bold">{{ item.part_no || item.standard_part_no }}</td>
+                      <td class="font-monospace fw-bold text-dark">{{ item.part_no || item.part_number }}</td>
                       <td>
                         <span :class="['badge', ['RH', 'RA', 'AR', 'R'].includes(item.side || item.original_side) ? 'bg-primary' : ['LH', 'LA', 'AL', 'L'].includes(item.side || item.original_side) ? 'bg-info text-dark' : 'bg-secondary']">
-                          {{ item.side || item.original_side || item.side_display }}
+                          {{ item.side || item.original_side || item.source_side }}
                         </span>
                       </td>
                       <td>
                         <code class="text-dark bg-light px-1.5 py-0.5 rounded border small">
-                          {{ item.combined_identifier || `${item.ecn_number || 'ECN'} | ${item.jig_no} | Unit ${item.unit_no} | Part ${item.part_no} | ${item.side}` }}
+                          {{ item.combined_identifier }}
                         </code>
                       </td>
-                      <td class="text-end">{{ item.required_qty || item.required_quantity || 0 }}</td>
-                      <td class="text-end fw-bold text-success">{{ item.received_qty || item.received_quantity || 0 }}</td>
+                      <td class="text-end fw-bold fs-6 text-primary">{{ item.quantity || 0 }}</td>
                       <td>
-                        <span class="badge" :class="item.current_state === 'ASSEMBLY_COMPLETED' ? 'bg-success' : 'bg-warning text-dark'">
-                          {{ item.current_state || 'ACTIVE' }}
+                        <span 
+                          class="badge" 
+                          :class="item.substate === 'rejected' ? 'bg-danger text-white' : item.substate === 'completed' ? 'bg-success text-white' : 'bg-warning text-dark'"
+                        >
+                          {{ item.status || 'ACTIVE' }}
                         </span>
                       </td>
                     </tr>
                     <tr v-if="!filteredDrilldownData.length">
-                      <td colspan="10" class="text-center py-4 text-muted">No records match drilldown filters.</td>
+                      <td colspan="9" class="text-center py-4 text-muted">No records match drilldown filters for this KPI.</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
-            <div class="modal-footer bg-light py-2 px-3">
+            <div class="modal-footer bg-light py-2 px-3 justify-content-between">
+              <span class="text-muted small">
+                Scope: <strong>{{ filters.project_id ? (selectedProjectObj?.project_code || 'Single Project') : 'All Active Projects' }}</strong>
+              </span>
               <button type="button" class="btn btn-secondary btn-sm" @click="closeDrilldownModal">Close</button>
             </div>
           </div>
@@ -504,6 +553,7 @@ import axios from 'axios';
 const authStore = useAuthStore();
 
 const loading = ref(false);
+const exportingExcel = ref(false);
 const allProjects = ref([]);
 const activeProjects = ref([]);
 const completedProjects = ref([]);
@@ -522,6 +572,7 @@ const summary = ref({
   parts_pending: 0,
   parts_in_store: 0,
   parts_in_qc: 0,
+  qc_rejected: 0,
   parts_in_rework: 0,
   parts_in_paint: 0,
   parts_in_assembly: 0,
@@ -531,6 +582,8 @@ const summary = ref({
 // Drilldown Modal
 const showDrilldownModal = ref(false);
 const drilldownTitle = ref('');
+const activeKpiKey = ref('total_parts');
+const activeSubstate = ref('all');
 const drilldownData = ref([]);
 const drilldownSearch = ref('');
 
@@ -561,13 +614,17 @@ const filteredDrilldownData = computed(() => {
   if (!drilldownSearch.value) return drilldownData.value;
   const q = drilldownSearch.value.toLowerCase().trim();
   return drilldownData.value.filter(item => {
-    return (item.part_no || '').toLowerCase().includes(q) ||
+    return (item.part_no || item.part_number || '').toLowerCase().includes(q) ||
            (item.ecn_number || '').toLowerCase().includes(q) ||
            (item.jig_no || '').toLowerCase().includes(q) ||
            (item.unit_no || '').toLowerCase().includes(q) ||
            (item.combined_identifier || '').toLowerCase().includes(q) ||
-           (item.current_state || '').toLowerCase().includes(q);
+           (item.status || '').toLowerCase().includes(q);
   });
+});
+
+const drilldownTotalQty = computed(() => {
+  return filteredDrilldownData.value.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
 });
 
 const fetchProjects = async () => {
@@ -599,6 +656,7 @@ const fetchEcnData = async () => {
       parts_pending: 0,
       parts_in_store: 0,
       parts_in_qc: 0,
+      qc_rejected: 0,
       parts_in_rework: 0,
       parts_in_paint: 0,
       parts_in_assembly: 0,
@@ -636,27 +694,64 @@ const resetFilters = () => {
   fetchEcnData();
 };
 
-const openKpiDrilldown = async (kpiKey, title) => {
+const openKpiDrilldown = async (kpiKey, title, substate = 'all') => {
+  activeKpiKey.value = kpiKey;
+  activeSubstate.value = substate;
   drilldownTitle.value = title;
   drilldownSearch.value = '';
   showDrilldownModal.value = true;
   await fetchDrilldownData();
 };
 
+const setSubstate = async (substate) => {
+  activeSubstate.value = substate;
+  await fetchDrilldownData();
+};
+
 const fetchDrilldownData = async () => {
   try {
     const params = {
+      kpi: activeKpiKey.value,
+      substate: activeSubstate.value,
       project_id: filters.value.project_id || undefined,
       side: filters.value.side || undefined,
       date_from: filters.value.date_from || undefined,
       date_to: filters.value.date_to || undefined,
-      per_page: 200,
+      per_page: 500,
     };
     const res = await axios.get('/api/v1/ecn/drilldown', { params });
     drilldownData.value = res.data.data || res.data.items || [];
   } catch (err) {
     console.error('Failed to fetch drilldown data:', err);
     drilldownData.value = [];
+  }
+};
+
+const exportEcnExcel = async () => {
+  exportingExcel.value = true;
+  try {
+    const payload = {
+      kpi: activeKpiKey.value,
+      substate: activeSubstate.value,
+      project_id: filters.value.project_id || undefined,
+      side: filters.value.side || undefined,
+      date_from: filters.value.date_from || undefined,
+      date_to: filters.value.date_to || undefined,
+    };
+    const response = await axios.post('/api/v1/export/drilldown', payload, {
+      responseType: 'blob',
+    });
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `SpareTrack_ECN_${activeKpiKey.value}_${Date.now()}.xlsx`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } catch (err) {
+    console.error('Failed to export ECN Excel:', err);
+  } finally {
+    exportingExcel.value = false;
   }
 };
 

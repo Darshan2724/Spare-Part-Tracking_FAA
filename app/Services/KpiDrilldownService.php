@@ -52,8 +52,8 @@ class KpiDrilldownService
             return $this->getProjectLevelDrilldown($kpiKey, $filters, $projectScope, $selectedProject, $page, $perPage);
         }
 
-        if ($kpiKey === 'ecn') {
-            return $this->getEcnDrilldown($filters, $projectScope, $selectedProject, $page, $perPage);
+        if ($kpiKey === 'ecn' || str_starts_with($kpiKey, 'ecn_') || !empty($filters['is_ecn']) || in_array($kpiKey, ['total_ecn_parts', 'parts_in_store', 'parts_in_qc', 'parts_in_rework', 'parts_in_paint', 'parts_in_assembly', 'assembly_completed', 'qc_rejected'])) {
+            return $this->getEcnKpiDrilldown($kpiKey, $filters, $projectScope, $selectedProject, $page, $perPage);
         }
 
         return $this->getPartLevelDrilldown($kpiKey, $filters, $projectScope, $selectedProject, $page, $perPage);
@@ -404,9 +404,10 @@ class KpiDrilldownService
     }
 
     /**
-     * Resolve ECN KPI drilldown dataset.
+     * Resolve ECN KPI drilldown dataset specifically for each operational KPI.
      */
-    protected function getEcnDrilldown(
+    protected function getEcnKpiDrilldown(
+        string $kpiKey,
         array $filters,
         string $projectScope,
         ?Project $selectedProject,
@@ -415,23 +416,22 @@ class KpiDrilldownService
     ): array {
         $projectId = $selectedProject?->id;
         $side = $filters['side'] ?? null;
+        $substate = !empty($filters['substate']) ? strtolower(trim($filters['substate'])) : 'all';
         $search = $filters['search'] ?? null;
 
-        $query = EcnRequirement::query()->with(['project']);
-
+        // Base requirements query
+        $reqQuery = EcnRequirement::query()->with(['project']);
         if ($projectId) {
-            $query->where('project_id', $projectId);
+            $reqQuery->where('project_id', $projectId);
         }
-
         if ($side) {
             $sUpper = strtoupper(trim($side));
-            $query->where(function ($q) use ($sUpper) {
+            $reqQuery->where(function ($q) use ($sUpper) {
                 $q->where('side', $sUpper)->orWhere('side_display', $sUpper);
             });
         }
-
         if ($search) {
-            $query->where(function ($q) use ($search) {
+            $reqQuery->where(function ($q) use ($search) {
                 $q->where('part_no', 'ILIKE', "%{$search}%")
                   ->orWhere('jig_no', 'ILIKE', "%{$search}%")
                   ->orWhere('unit_no', 'ILIKE', "%{$search}%")
@@ -439,12 +439,73 @@ class KpiDrilldownService
                   ->orWhereHas('project', fn($pq) => $pq->where('project_code', 'ILIKE', "%{$search}%")->orWhere('name', 'ILIKE', "%{$search}%"));
             });
         }
+        if (!empty($filters['date_from'])) {
+            $reqQuery->where('created_at', '>=', $filters['date_from']);
+        }
+        if (!empty($filters['date_to'])) {
+            $reqQuery->where('created_at', '<=', $filters['date_to']);
+        }
 
-        $allReqs = $query->orderBy('project_id')->orderBy('ecn_number')->orderBy('jig_no')->orderBy('unit_no')->orderBy('part_no')->get();
+        $allReqs = $reqQuery->orderBy('project_id')->orderBy('ecn_number')->orderBy('jig_no')->orderBy('unit_no')->orderBy('part_no')->get();
+        $reqIds = $allReqs->pluck('id')->toArray();
 
-        $rows = $allReqs->map(function ($req) {
-            return [
-                'id' => "ecn_{$req->id}",
+        // Load receipts and workflow records in bulk
+        $receiptQuery = EcnReceiptItem::query()->whereIn('ecn_requirement_id', $reqIds);
+        $wfQuery = EcnWorkflowRecord::query()->whereIn('ecn_requirement_id', $reqIds);
+
+        if (!empty($filters['date_from'])) {
+            $receiptQuery->where('created_at', '>=', $filters['date_from']);
+            $wfQuery->where('created_at', '>=', $filters['date_from']);
+        }
+        if (!empty($filters['date_to'])) {
+            $receiptQuery->where('created_at', '<=', $filters['date_to']);
+            $wfQuery->where('created_at', '<=', $filters['date_to']);
+        }
+
+        $receiptsGrouped = $receiptQuery->get()->groupBy('ecn_requirement_id');
+        $wfGrouped = $wfQuery->get()->groupBy('ecn_requirement_id');
+
+        $rows = new Collection();
+
+        // Normalize KPI key
+        $normKpi = match ($kpiKey) {
+            'ecn_total_parts', 'total_ecn_parts', 'total_parts', 'ecn' => 'total_parts',
+            'ecn_total_parts_received', 'total_received', 'total_parts_received' => 'total_parts_received',
+            'ecn_parts_pending', 'parts_pending' => 'parts_pending',
+            'ecn_store', 'parts_in_store', 'store' => 'store',
+            'ecn_qc', 'parts_in_qc', 'qc' => 'qc',
+            'qc_rejected' => 'qc_rejected',
+            'ecn_rework', 'parts_in_rework', 'rework' => 'rework',
+            'ecn_paint', 'parts_in_paint', 'paint' => 'paint',
+            'ecn_assembly', 'parts_in_assembly', 'assembly' => 'assembly',
+            'assembly_completed' => 'assembly_completed',
+            default => 'total_parts',
+        };
+
+        foreach ($allReqs as $req) {
+            $reqReceipts = $receiptsGrouped->get($req->id, collect());
+            $reqWf = $wfGrouped->get($req->id, collect());
+
+            $reqQty = (int) $req->required_qty;
+            $receivedQty = (int) $reqReceipts->whereIn('status', EcnQuantityCalculationService::VALID_RECEIPT_STATUSES)->sum('received_quantity');
+            $pendingQty = max(0, $reqQty - $receivedQty);
+
+            $storeQty = (int) $reqReceipts->whereIn('status', ['received', 'store_received'])->sum('received_quantity');
+            $qcInspectionQty = (int) $reqReceipts->whereIn('status', ['sent_to_qc', 'qc_received'])->sum('received_quantity');
+            $qcRejectedQty = (int) $reqWf->where('department', 'QC')->where('action', 'qc_rejected')->sum('rejected_quantity');
+            $reworkActiveQty = (int) $reqWf->where('department', 'REWORK')->where('status', 'in_progress')->sum('quantity');
+            $paintActiveQty = (int) $reqWf->where('department', 'PAINT')->where('status', 'in_progress')->sum('quantity');
+            $asmActiveQty = (int) $reqWf->where('department', 'ASSEMBLY')->where('status', 'in_progress')->sum('quantity');
+            $asmCompletedQty = (int) $reqWf->where('department', 'ASSEMBLY')->where('action', 'assembly_completed')->sum('quantity');
+
+            $sideChar = match (strtoupper($req->side)) {
+                'LA', 'AL', 'L', 'LH' => 'L',
+                'RA', 'AR', 'R', 'RH' => 'R',
+                default => '',
+            };
+            $excelPartNumber = "{$req->jig_no}{$req->unit_no}{$req->part_no}{$sideChar}";
+
+            $baseRow = [
                 'ecn_id' => $req->id,
                 'ecn_number' => $req->ecn_number,
                 'is_ecn' => true,
@@ -452,29 +513,123 @@ class KpiDrilldownService
                 'project_id' => $req->project_id,
                 'project_code' => $req->project?->project_code ?: 'N/A',
                 'project_name' => $req->project?->name ?: 'N/A',
-                'jig_no' => $req->jig_no,
-                'unit_no' => $req->unit_no,
+                'jig_no' => $req->jig_no ?: '00',
+                'unit_no' => $req->unit_no ?: '00',
                 'part_no' => $req->part_no,
+                'part_number' => $req->part_no,
                 'side' => $req->side,
+                'source_side' => $req->side,
                 'display_side' => $req->side,
                 'original_side' => $req->side,
-                'source_side' => $req->side,
                 'normalized_side' => $req->side_display,
-                'combined_identifier' => "{$req->ecn_number} | {$req->jig_no} | Unit {$req->unit_no} | Part {$req->part_no} | {$req->side}",
-                'status' => "ECN {$req->current_state}",
-                'quantity' => (int)$req->required_qty,
-                'required_qty' => (int)$req->required_qty,
-                'received_qty' => (int)$req->received_qty,
+                'combined_identifier' => "{$req->ecn_number} | {$req->jig_no} | Unit {$req->unit_no} | {$req->part_no} | {$req->side}",
+                'excel_part_number' => $excelPartNumber,
+                'required_qty' => $reqQty,
+                'received_qty' => $receivedQty,
+                'pending_qty' => $pendingQty,
             ];
-        });
+
+            if ($normKpi === 'total_parts') {
+                $rows->push(array_merge($baseRow, [
+                    'id' => "ecn_total_{$req->id}",
+                    'status' => "ECN Required ({$req->current_state})",
+                    'quantity' => $reqQty,
+                    'substate' => 'required',
+                ]));
+            } elseif ($normKpi === 'total_parts_received' && $receivedQty > 0) {
+                $rows->push(array_merge($baseRow, [
+                    'id' => "ecn_rec_{$req->id}",
+                    'status' => 'ECN Received',
+                    'quantity' => $receivedQty,
+                    'substate' => 'received',
+                ]));
+            } elseif ($normKpi === 'parts_pending' && $pendingQty > 0) {
+                $rows->push(array_merge($baseRow, [
+                    'id' => "ecn_pen_{$req->id}",
+                    'status' => 'Pending Store Intake',
+                    'quantity' => $pendingQty,
+                    'substate' => 'pending',
+                ]));
+            } elseif ($normKpi === 'store' && $storeQty > 0) {
+                $rows->push(array_merge($baseRow, [
+                    'id' => "ecn_store_{$req->id}",
+                    'status' => 'In Store',
+                    'quantity' => $storeQty,
+                    'substate' => 'store',
+                ]));
+            } elseif ($normKpi === 'qc') {
+                if (($substate === 'all' || $substate === 'inspection') && $qcInspectionQty > 0) {
+                    $rows->push(array_merge($baseRow, [
+                        'id' => "ecn_qc_insp_{$req->id}",
+                        'status' => 'QC Inspection Queue',
+                        'quantity' => $qcInspectionQty,
+                        'substate' => 'inspection',
+                    ]));
+                }
+                if (($substate === 'all' || $substate === 'rejected') && $qcRejectedQty > 0) {
+                    $rows->push(array_merge($baseRow, [
+                        'id' => "ecn_qc_rej_{$req->id}",
+                        'status' => 'QC Rejected',
+                        'quantity' => $qcRejectedQty,
+                        'substate' => 'rejected',
+                    ]));
+                }
+            } elseif ($normKpi === 'qc_rejected' && $qcRejectedQty > 0) {
+                $rows->push(array_merge($baseRow, [
+                    'id' => "ecn_qc_rej_{$req->id}",
+                    'status' => 'QC Rejected',
+                    'quantity' => $qcRejectedQty,
+                    'substate' => 'rejected',
+                ]));
+            } elseif ($normKpi === 'rework' && $reworkActiveQty > 0) {
+                $rows->push(array_merge($baseRow, [
+                    'id' => "ecn_rework_{$req->id}",
+                    'status' => 'In Rework Queue',
+                    'quantity' => $reworkActiveQty,
+                    'substate' => 'rework',
+                ]));
+            } elseif ($normKpi === 'paint' && $paintActiveQty > 0) {
+                $rows->push(array_merge($baseRow, [
+                    'id' => "ecn_paint_{$req->id}",
+                    'status' => 'In Paint Shop',
+                    'quantity' => $paintActiveQty,
+                    'substate' => 'paint',
+                ]));
+            } elseif ($normKpi === 'assembly') {
+                if (($substate === 'all' || $substate === 'queue') && $asmActiveQty > 0) {
+                    $rows->push(array_merge($baseRow, [
+                        'id' => "ecn_asm_queue_{$req->id}",
+                        'status' => 'In Assembly Queue',
+                        'quantity' => $asmActiveQty,
+                        'substate' => 'queue',
+                    ]));
+                }
+                if (($substate === 'all' || $substate === 'completed') && $asmCompletedQty > 0) {
+                    $rows->push(array_merge($baseRow, [
+                        'id' => "ecn_asm_comp_{$req->id}",
+                        'status' => 'Assembly Completed',
+                        'quantity' => $asmCompletedQty,
+                        'substate' => 'completed',
+                    ]));
+                }
+            } elseif ($normKpi === 'assembly_completed' && $asmCompletedQty > 0) {
+                $rows->push(array_merge($baseRow, [
+                    'id' => "ecn_asm_comp_{$req->id}",
+                    'status' => 'Assembly Completed',
+                    'quantity' => $asmCompletedQty,
+                    'substate' => 'completed',
+                ]));
+            }
+        }
 
         $totalCount = $rows->count();
         $totalQuantity = (int)$rows->sum('quantity');
         $paginatedRows = $rows->slice(($page - 1) * $perPage, $perPage)->values();
 
         return [
-            'kpi' => 'ecn',
+            'kpi' => $normKpi,
             'kpi_type' => 'part',
+            'is_ecn' => true,
             'project_scope' => $projectScope,
             'is_single_project' => ($projectId !== null),
             'selected_project' => $selectedProject ? [
@@ -483,7 +638,7 @@ class KpiDrilldownService
                 'name' => $selectedProject->name,
                 'status' => $selectedProject->status,
             ] : null,
-            'substate' => 'all',
+            'substate' => $substate,
             'total_records' => $totalCount,
             'total_quantity' => $totalQuantity,
             'page' => $page,
@@ -512,15 +667,15 @@ class KpiDrilldownService
             ];
         }
 
-        if ($kpiKey === 'ecn') {
+        if ($kpiKey === 'ecn' || str_starts_with($kpiKey, 'ecn_')) {
             return [
                 ['label' => 'ECN NO', 'key' => 'ecn_number', 'width' => '10%'],
                 ['label' => 'Project', 'key' => 'project_code', 'width' => '10%'],
                 ['label' => 'Jig No', 'key' => 'jig_no', 'width' => '10%'],
                 ['label' => 'Unit No', 'key' => 'unit_no', 'width' => '8%', 'align' => 'center'],
-                ['label' => 'Part No', 'key' => 'part_no', 'width' => '12%'],
+                ['label' => 'Part Number', 'key' => 'part_no', 'width' => '14%'],
                 ['label' => 'Side', 'key' => 'side', 'width' => '6%', 'align' => 'center'],
-                ['label' => 'Combined Identifier', 'key' => 'combined_identifier', 'width' => '24%'],
+                ['label' => 'Combined Identifier', 'key' => 'combined_identifier', 'width' => '22%'],
                 ['label' => 'Status', 'key' => 'status', 'width' => '12%'],
                 ['label' => 'Quantity', 'key' => 'quantity', 'width' => '8%', 'align' => 'center'],
             ];
