@@ -344,7 +344,7 @@
                     </td>
                     <td v-if="detectedImportType === 'ECN'">
                       <span class="badge" style="background-color: #fef3c7; color: #92400e; border: 1px solid #fcd34d;">
-                        ⚡ {{ row.ecn_no || 'ECN' }}
+                        ⚡ {{ row.ecn_number || row.ecn_no || 'ECN' }}
                       </span>
                     </td>
                     <td class="fw-semibold">{{ row.project_code }}</td>
