@@ -140,6 +140,9 @@ class EcnWorkflowService
             $item->status = 'qc_received';
             $item->save();
 
+            $req->current_state = 'QC';
+            $req->save();
+
             $wfRecord = EcnWorkflowRecord::create([
                 'ecn_receipt_item_id' => $item->id,
                 'ecn_requirement_id' => $req->id,

@@ -637,10 +637,10 @@ class HierarchyService
                     $qcPendingArrCalc = (int) $erReceipts->whereIn('status', ['received', 'store_received', 'sent_to_qc'])->sum('received_quantity');
                     $qcPendingInspCalc = (int) $erReceipts->where('status', 'qc_received')->sum('received_quantity');
 
-                    if ($deptKey === 'store' && !in_array($er->current_state, ['STORE', 'PENDING']) && (int)$er->required_qty <= (int)$er->received_qty && $erReceipts->where('status', 'received')->isEmpty()) {
+                    if ($deptKey === 'store' && $er->current_state !== 'PENDING' && (int)$er->required_qty <= (int)$er->received_qty) {
                         continue;
                     }
-                    if ($deptKey === 'qc' && !in_array($er->current_state, ['SENT_TO_QC', 'QC']) && $qcPendingArrCalc === 0 && $qcPendingInspCalc === 0) {
+                    if ($deptKey === 'qc' && !in_array($er->current_state, ['STORE', 'SENT_TO_QC', 'QC']) && $qcPendingArrCalc === 0 && $qcPendingInspCalc === 0) {
                         continue;
                     }
                     if ($deptKey === 'rework' && $er->current_state !== 'REWORK') {
