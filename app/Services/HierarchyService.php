@@ -501,8 +501,13 @@ class HierarchyService
         }
 
         // Ensure units containing ONLY ECN parts are initialized in $jigsTree
-        foreach ($ecnReqsByUnit as $jigAndUnitKey => $erList) {
-            [$jKey, $uKey] = explode('|', $jigAndUnitKey, 2);
+        foreach ($ecnReqs as $er) {
+            $jKey = strtoupper(trim($er->jig_no));
+            $uRaw = trim($er->unit_no);
+            $cleanNo = trim(str_ireplace('unit', '', $uRaw));
+            $paddedNo = is_numeric($cleanNo) ? sprintf('%02d', (int)$cleanNo) : $cleanNo;
+            $unitDisplay = 'Unit ' . $paddedNo;
+
             if (!isset($jigsTree[$jKey])) {
                 $jigsTree[$jKey] = [
                     'jig_name' => $jKey,
@@ -518,9 +523,20 @@ class HierarchyService
                     'units' => [],
                 ];
             }
-            if (!isset($jigsTree[$jKey]['units'][$uKey])) {
-                $jigsTree[$jKey]['units'][$uKey] = [
-                    'unit_no' => $uKey,
+
+            // Check if any variant of this unit already exists in $jigsTree[$jKey]['units']
+            $existingKey = null;
+            foreach ([$uRaw, $cleanNo, 'Unit ' . $cleanNo, 'Unit ' . $paddedNo, $unitDisplay] as $candidate) {
+                if (isset($jigsTree[$jKey]['units'][$candidate])) {
+                    $existingKey = $candidate;
+                    break;
+                }
+            }
+
+            if ($existingKey === null) {
+                $targetKey = $uRaw !== '' ? $uRaw : $unitDisplay;
+                $jigsTree[$jKey]['units'][$targetKey] = [
+                    'unit_no' => $targetKey,
                     'jig_name' => $jKey,
                     'total_required' => 0,
                     'total_received' => 0,
@@ -618,7 +634,7 @@ class HierarchyService
                     $erReceipts = $ecnReceiptsGrouped->get($er->id, collect());
                     $erWorkflow = $ecnWorkflowGrouped->get($er->id, collect());
 
-                    $qcPendingArrCalc = (int) $erReceipts->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
+                    $qcPendingArrCalc = (int) $erReceipts->whereIn('status', ['received', 'store_received', 'sent_to_qc'])->sum('received_quantity');
                     $qcPendingInspCalc = (int) $erReceipts->where('status', 'qc_received')->sum('received_quantity');
 
                     if ($deptKey === 'store' && !in_array($er->current_state, ['STORE', 'PENDING']) && (int)$er->required_qty <= (int)$er->received_qty && $erReceipts->where('status', 'received')->isEmpty()) {
@@ -895,8 +911,11 @@ class HierarchyService
                     ?? ($ecnMap['sides'][$jigName . '|Unit ' . $rawU . '|RH'] 
                     ?? ($ecnMap['sides'][$jigName . '|Unit ' . $paddedU . '|RH'] ?? 0)));
 
-                // Fallback: If map returned 0 but this unit actually contains ECN parts in its sides:
-                if ($uEcnCount <= 0 && (!empty($lhParts) || !empty($rhParts))) {
+                // Format display from canonical map or fallback
+                if ($uEcnCount > 0 && empty($uEcnDisp)) {
+                    $uWord = $uEcnCount === 1 ? 'part' : 'parts';
+                    $uEcnDisp = "ECN ({$uEcnCount} {$uWord})";
+                } elseif ($uEcnCount <= 0 && $department === 'manager' && (!empty($lhParts) || !empty($rhParts))) {
                     $unitEcnParts = array_filter(array_merge($lhParts, $rhParts), fn($p) => !empty($p['is_ecn']));
                     if (!empty($unitEcnParts)) {
                         $uEcnCount = count($unitEcnParts);
@@ -904,9 +923,6 @@ class HierarchyService
                         $uWord = $uEcnCount === 1 ? 'part' : 'parts';
                         $uEcnDisp = "ECN ({$uEcnCount} {$uWord})";
                     }
-                } elseif ($uEcnCount > 0 && empty($uEcnDisp)) {
-                    $uWord = $uEcnCount === 1 ? 'part' : 'parts';
-                    $uEcnDisp = "ECN ({$uEcnCount} {$uWord})";
                 }
 
                 $unitData['ecn_count'] = $uEcnCount;
@@ -1025,6 +1041,19 @@ class HierarchyService
         $allProjects = Project::orderBy('name')->get();
         $activeProjects = $allProjects->where('status', 'active')->values();
         $completedProjects = $allProjects->where('status', 'completed')->values();
+
+        if ($project) {
+            $projEcnTotal = $ecnMap['project_total'] ?? 0;
+            $project->ecn_parts = $projEcnTotal;
+            $project->ecn_total_parts = $projEcnTotal;
+            $project->ecn_part_count = $projEcnTotal;
+            $project->ecn_count = $projEcnTotal;
+            $project->is_ecn_present = ($projEcnTotal > 0);
+            $project->ecn_present = ($projEcnTotal > 0);
+            $project->ecn_numbers = $ecnMap['project_ecn_numbers'] ?? [];
+            $project->ecn_summary = $ecnMap['project_ecn_summary'] ?? [];
+            $project->ecn_number_display = $ecnMap['project_ecn_display'] ?? null;
+        }
 
         return [
             'is_hierarchical' => count($formattedJigs) > 0,
