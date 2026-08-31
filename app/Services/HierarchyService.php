@@ -655,7 +655,7 @@ class HierarchyService
                 $allUnitParts = $unitData['parts']; // starts with regular parts
 
                 foreach ($unitEcnReqs as $er) {
-                    $deptKey = strtolower($department ?? 'manager');
+                    $deptKey = strtolower($ecnDeptContext ?? $department ?? 'manager');
                     $erReceipts = $ecnReceiptsGrouped->get($er->id, collect());
                     $erWorkflow = $ecnWorkflowGrouped->get($er->id, collect());
 
@@ -668,10 +668,10 @@ class HierarchyService
                     if (($deptKey === 'store_resident' || $deptKey === 'qc_arrival') && !in_array($er->current_state, ['STORE', 'SENT_TO_QC'])) {
                         continue;
                     }
-                    if ($deptKey === 'qc' && !in_array($er->current_state, ['STORE', 'SENT_TO_QC', 'QC'])) {
+                    if ($deptKey === 'qc_inspection' && $er->current_state !== 'QC') {
                         continue;
                     }
-                    if ($deptKey === 'qc_inspection' && $er->current_state !== 'QC') {
+                    if ($deptKey === 'qc' && !in_array($er->current_state, ['STORE', 'SENT_TO_QC', 'QC'])) {
                         continue;
                     }
                     if ($deptKey === 'rework' && $er->current_state !== 'REWORK') {
