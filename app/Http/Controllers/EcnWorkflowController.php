@@ -157,6 +157,10 @@ class EcnWorkflowController extends Controller
 
     public function reworkComplete(Request $request)
     {
+        if (!$request->filled('workflow_record_id') && $request->filled('ecn_workflow_record_id')) {
+            $request->merge(['workflow_record_id' => $request->input('ecn_workflow_record_id')]);
+        }
+
         $request->validate([
             'workflow_record_id' => ['required', 'integer', 'exists:ecn_workflow_records,id'],
             'quantity' => ['required', 'integer', 'min:1'],
@@ -175,6 +179,10 @@ class EcnWorkflowController extends Controller
 
     public function paintComplete(Request $request)
     {
+        if (!$request->filled('workflow_record_id') && $request->filled('ecn_workflow_record_id')) {
+            $request->merge(['workflow_record_id' => $request->input('ecn_workflow_record_id')]);
+        }
+
         $request->validate([
             'workflow_record_id' => ['required', 'integer', 'exists:ecn_workflow_records,id'],
             'quantity' => ['required', 'integer', 'min:1'],
@@ -193,6 +201,10 @@ class EcnWorkflowController extends Controller
 
     public function assemblyComplete(Request $request)
     {
+        if (!$request->filled('workflow_record_id') && $request->filled('ecn_workflow_record_id')) {
+            $request->merge(['workflow_record_id' => $request->input('ecn_workflow_record_id')]);
+        }
+
         $request->validate([
             'workflow_record_id' => ['required', 'integer', 'exists:ecn_workflow_records,id'],
             'quantity' => ['required', 'integer', 'min:1'],
