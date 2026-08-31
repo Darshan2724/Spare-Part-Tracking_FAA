@@ -35,6 +35,15 @@ class EcnWorkflowRecord extends Model
         'rework_quantity' => 'integer',
     ];
 
+    protected static function booted()
+    {
+        static::saving(function ($model) {
+            if (empty($model->side_display)) {
+                $model->side_display = in_array(strtoupper(trim($model->side ?? '')), ['LH', 'LA', 'AL', 'L', 'LEFT']) ? 'LH' : 'RH';
+            }
+        });
+    }
+
     public function receiptItem()
     {
         return $this->belongsTo(EcnReceiptItem::class, 'ecn_receipt_item_id');
