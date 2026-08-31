@@ -471,6 +471,9 @@
                 <div>
                   <div class="d-flex align-items-center gap-2">
                     <h6 class="fw-bold mb-0 text-dark fs-6">{{ jig.jig_name }}</h6>
+                    <span v-if="jig.ecn_present || jig.is_ecn_present || (jig.ecn_count > 0)" class="badge bg-warning text-dark px-1.5 py-0.5 fs-7 fw-bold border border-warning" title="Contains ECN parts">
+                      ECN
+                    </span>
                     <span v-if="jig.is_complete" class="badge bg-success px-2 py-1 fs-7">
                       <i class="fas fa-check-circle me-1"></i> Completed
                     </span>
@@ -523,6 +526,9 @@
                     <div class="d-flex align-items-center gap-2">
                       <i class="fas fa-cube" :class="unit.is_complete ? 'text-success' : 'text-primary'"></i>
                       <span class="fw-bold text-dark">{{ unit.unit_no }}</span>
+                      <span v-if="unit.ecn_present || unit.is_ecn_present || (unit.ecn_count > 0)" class="badge bg-warning text-dark px-1.5 py-0.5 fs-7 fw-bold border border-warning" title="Contains ECN parts">
+                        ECN
+                      </span>
                       <span v-if="unit.is_complete" class="badge bg-success px-2 py-1 fs-7">
                         <i class="fas fa-check-double me-1"></i> Unit Complete (LH &amp; RH)
                       </span>
@@ -566,8 +572,11 @@
                           :class="unit.sides?.LH?.is_complete ? 'border-success bg-success-subtle bg-opacity-10' : 'border-light bg-light'"
                         >
                           <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="fw-bold text-uppercase small d-flex align-items-center gap-1">
+                            <span class="fw-bold text-uppercase small d-flex align-items-center gap-1.5">
                               <i class="fas fa-arrow-left text-primary"></i> Left Hand (LH)
+                              <span v-if="unit.sides?.LH?.ecn_present || unit.sides?.LH?.is_ecn_present || (unit.sides?.LH?.ecn_count > 0)" class="badge bg-warning text-dark px-1.5 py-0.5 extra-small fw-bold border border-warning" title="Contains ECN parts">
+                                ECN
+                              </span>
                             </span>
                             <span v-if="unit.sides?.LH?.is_complete" class="badge bg-success">
                               <i class="fas fa-check me-1"></i> LH Complete
@@ -622,8 +631,11 @@
                           :class="unit.sides?.RH?.is_complete ? 'border-success bg-success-subtle bg-opacity-10' : 'border-light bg-light'"
                         >
                           <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="fw-bold text-uppercase small d-flex align-items-center gap-1">
+                            <span class="fw-bold text-uppercase small d-flex align-items-center gap-1.5">
                               <i class="fas fa-arrow-right text-primary"></i> Right Hand (RH)
+                              <span v-if="unit.sides?.RH?.ecn_present || unit.sides?.RH?.is_ecn_present || (unit.sides?.RH?.ecn_count > 0)" class="badge bg-warning text-dark px-1.5 py-0.5 extra-small fw-bold border border-warning" title="Contains ECN parts">
+                                ECN
+                              </span>
                             </span>
                             <span v-if="unit.sides?.RH?.is_complete" class="badge bg-success">
                               <i class="fas fa-check me-1"></i> RH Complete

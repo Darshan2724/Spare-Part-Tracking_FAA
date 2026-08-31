@@ -656,6 +656,9 @@ class HierarchyService
 
                 foreach ($unitEcnReqs as $er) {
                     $deptKey = strtolower($ecnDeptContext ?? $department ?? 'manager');
+                    if ($deptKey === 'manager') {
+                        continue;
+                    }
                     $erReceipts = $ecnReceiptsGrouped->get($er->id, collect());
                     $erWorkflow = $ecnWorkflowGrouped->get($er->id, collect());
 
@@ -935,12 +938,20 @@ class HierarchyService
                 $lhEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|LH'] 
                     ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|LH'] 
                     ?? ($ecnMap['sides'][$jigName . '|Unit ' . $rawU . '|LH'] 
-                    ?? ($ecnMap['sides'][$jigName . '|Unit ' . $paddedU . '|LH'] ?? 0)));
+                    ?? ($ecnMap['sides'][$jigName . '|Unit ' . $paddedU . '|LH'] 
+                    ?? ($ecnMap['sides'][strtoupper($jigName) . '|' . $rawU . '|LH'] 
+                    ?? ($ecnMap['sides'][strtoupper($jigName) . '|' . $unitNo . '|LH'] 
+                    ?? ($ecnMap['sides'][strtoupper($jigName) . '|Unit ' . $rawU . '|LH'] 
+                    ?? ($ecnMap['sides'][strtoupper($jigName) . '|Unit ' . $paddedU . '|LH'] ?? 0)))))));
 
                 $rhEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|RH'] 
                     ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|RH'] 
                     ?? ($ecnMap['sides'][$jigName . '|Unit ' . $rawU . '|RH'] 
-                    ?? ($ecnMap['sides'][$jigName . '|Unit ' . $paddedU . '|RH'] ?? 0)));
+                    ?? ($ecnMap['sides'][$jigName . '|Unit ' . $paddedU . '|RH'] 
+                    ?? ($ecnMap['sides'][strtoupper($jigName) . '|' . $rawU . '|RH'] 
+                    ?? ($ecnMap['sides'][strtoupper($jigName) . '|' . $unitNo . '|RH'] 
+                    ?? ($ecnMap['sides'][strtoupper($jigName) . '|Unit ' . $rawU . '|RH'] 
+                    ?? ($ecnMap['sides'][strtoupper($jigName) . '|Unit ' . $paddedU . '|RH'] ?? 0)))))));
 
                 // Format display from canonical map or fallback
                 if ($uEcnCount > 0 && empty($uEcnDisp)) {
@@ -969,6 +980,8 @@ class HierarchyService
                         'side' => 'LH',
                         'total_parts' => count($lhParts),
                         'ecn_count' => $lhEcnCount,
+                        'ecn_present' => ($lhEcnCount > 0),
+                        'is_ecn_present' => ($lhEcnCount > 0),
                         'total_required' => $lhRequired,
                         'total_received' => $lhReceived,
                         'pending_quantity' => $lhPending,
@@ -982,6 +995,8 @@ class HierarchyService
                         'side' => 'RH',
                         'total_parts' => count($rhParts),
                         'ecn_count' => $rhEcnCount,
+                        'ecn_present' => ($rhEcnCount > 0),
+                        'is_ecn_present' => ($rhEcnCount > 0),
                         'total_required' => $rhRequired,
                         'total_received' => $rhReceived,
                         'pending_quantity' => $rhPending,
