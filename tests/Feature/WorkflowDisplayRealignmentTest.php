@@ -461,7 +461,7 @@ class WorkflowDisplayRealignmentTest extends TestCase
                 $this->assertFalse($j['is_ecn_present']);
             }
 
-            // 3. Receive 4 parts of ECN-001 into Store
+            // 3. Receive 4 parts of ECN-001 into Store (Now in Store, awaiting QC Arrival)
             $rec1 = EcnReceiptItem::create([
                 'ecn_requirement_id' => $ecn1->id,
                 'received_quantity' => 4,
@@ -469,6 +469,19 @@ class WorkflowDisplayRealignmentTest extends TestCase
                 'status' => 'received',
             ]);
             $ecn1->update(['received_qty' => 4, 'current_state' => 'STORE']);
+
+            // Test QC Arrival Hierarchy: Should report 4 parts in Arrival
+            $qcArrivalH = $hierarchyService->getDepartmentHierarchy('qc', $project->id, ['stage' => 'arrival']);
+            $this->assertEquals(4, $qcArrivalH['project']['ecn_parts'], 'QC Arrival Project ECN must be 4');
+            $this->assertEquals('ECN (4 parts)', $qcArrivalH['project']['ecn_number_display']);
+            $qcArrJig1 = collect($qcArrivalH['jigs'])->firstWhere('jig_name', 'JIG-01');
+            $this->assertNotNull($qcArrJig1);
+            $this->assertEquals(4, $qcArrJig1['ecn_parts']);
+            $this->assertEquals('ECN (4 parts)', $qcArrJig1['ecn_number_display']);
+
+            // Test QC Inspection Hierarchy: Should report 0 parts in active Inspection before acceptance
+            $qcInspBeforeH = $hierarchyService->getDepartmentHierarchy('qc', $project->id, ['stage' => 'inspection']);
+            $this->assertEquals(0, $qcInspBeforeH['project']['ecn_parts'], 'QC Inspection Project ECN must be 0 before acceptance');
 
             // Accept 4 parts of ECN-001 into QC Inspection
             $acceptRes = $this->postJson('/api/v1/qc/receive', [
@@ -479,8 +492,8 @@ class WorkflowDisplayRealignmentTest extends TestCase
             ]);
             $acceptRes->assertStatus(200);
 
-            // Now in QC: ECN-001 (4 parts) is in QC
-            $qcH2 = $hierarchyService->getDepartmentHierarchy('qc', $project->id);
+            // Now in QC: ECN-001 (4 parts) is in QC Inspection
+            $qcH2 = $hierarchyService->getDepartmentHierarchy('qc', $project->id, ['stage' => 'inspection']);
             $this->assertEquals(4, $qcH2['project']['ecn_parts'], 'QC Project ECN must now be 4');
             $this->assertEquals('ECN (4 parts)', $qcH2['project']['ecn_number_display']);
             $this->assertTrue($qcH2['project']['is_ecn_present']);
