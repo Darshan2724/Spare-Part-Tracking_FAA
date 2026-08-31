@@ -1016,7 +1016,14 @@ function App() {
       } else {
         // Operational department hierarchy: store, qc, rework, paint, assembly
         const hierarchyEndpoint = `/${tab}/hierarchy`;
-        const res = await apiClient.get(hierarchyEndpoint, { params: { project_id: selectedProject, side: selectedSide, search: activeSearch } });
+        const res = await apiClient.get(hierarchyEndpoint, {
+          params: {
+            project_id: selectedProject,
+            side: selectedSide,
+            search: activeSearch,
+            stage: subTab,
+          }
+        });
         mobileCacheRef.current.set(cacheKey, res.data);
 
         // Guard against stale responses from previous tabs or rapid switches
@@ -1088,8 +1095,16 @@ function App() {
     const thisReqId = ++currentRequestIdRef.current;
     setLoading(true);
     try {
-      const hierarchyEndpoint = `/${activeTab === 'dashboard' ? 'store' : activeTab}/hierarchy`;
-      const res = await apiClient.get(hierarchyEndpoint, { params: { project_id: projId, side: selectedSide } });
+      const activeDept = activeTab === 'dashboard' ? 'store' : activeTab;
+      const currentSub = getCurrentSubTabForDept(activeDept);
+      const hierarchyEndpoint = `/${activeDept}/hierarchy`;
+      const res = await apiClient.get(hierarchyEndpoint, {
+        params: {
+          project_id: projId,
+          side: selectedSide,
+          stage: currentSub,
+        }
+      });
       if (thisReqId === currentRequestIdRef.current) {
         if (res.data.is_hierarchical) {
           setHierarchyJigs(res.data.jigs || []);
