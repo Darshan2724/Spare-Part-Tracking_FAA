@@ -665,13 +665,13 @@ class HierarchyService
                     if ($deptKey === 'store' && $er->current_state !== 'PENDING') {
                         continue;
                     }
-                    if (($deptKey === 'store_resident' || $deptKey === 'qc_arrival') && !in_array($er->current_state, ['STORE', 'SENT_TO_QC'])) {
+                    if (($deptKey === 'store_resident' || $deptKey === 'qc_arrival') && (!in_array($er->current_state, ['STORE', 'SENT_TO_QC']) || ($erReceipts->isNotEmpty() && $qcPendingArrCalc === 0))) {
                         continue;
                     }
-                    if ($deptKey === 'qc_inspection' && $er->current_state !== 'QC') {
+                    if ($deptKey === 'qc_inspection' && ($er->current_state !== 'QC' || ($erReceipts->isNotEmpty() && $qcPendingInspCalc === 0))) {
                         continue;
                     }
-                    if ($deptKey === 'qc' && !in_array($er->current_state, ['STORE', 'SENT_TO_QC', 'QC'])) {
+                    if ($deptKey === 'qc' && (!in_array($er->current_state, ['STORE', 'SENT_TO_QC', 'QC']) || ($erReceipts->isNotEmpty() && $qcPendingArrCalc === 0 && $qcPendingInspCalc === 0))) {
                         continue;
                     }
                     if ($deptKey === 'rework' && $er->current_state !== 'REWORK') {
@@ -692,7 +692,7 @@ class HierarchyService
                     // Compute accurate QC state metrics
                     $qcPendingArrival = $qcPendingArrCalc;
                     $qcPendingInspection = $qcPendingInspCalc;
-                    if ($qcPendingArrival === 0 && $qcPendingInspection === 0) {
+                    if ($qcPendingArrival === 0 && $qcPendingInspection === 0 && $erReceipts->isEmpty()) {
                         if ($er->current_state === 'SENT_TO_QC') {
                             $qcPendingArrival = $recQ;
                         } elseif ($er->current_state === 'QC') {
