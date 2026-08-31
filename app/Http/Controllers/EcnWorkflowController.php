@@ -139,20 +139,28 @@ class EcnWorkflowController extends Controller
         $paintQty = (int)($request->input('paint_quantity') ?? 0);
         $assemblyQty = (int)($request->input('assembly_quantity') ?? 0);
         $appQty = (int)($request->input('approved_quantity') ?? ($paintQty + $assemblyQty));
+        $remarks = $request->input('remarks') ?: ($request->input('rejection_reason') ?: $request->input('rework_reason'));
 
-        $result = $this->ecnWorkflowService->qcInspect(
-            (int)$request->input('ecn_receipt_item_id'),
-            $appQty,
-            $request->input('destination') ?: 'ASSEMBLY',
-            (int)($request->input('rejected_quantity') ?? 0),
-            (int)($request->input('rework_quantity') ?? 0),
-            $request->input('remarks'),
-            $request->user()?->id,
-            $paintQty,
-            $assemblyQty
-        );
+        try {
+            $result = $this->ecnWorkflowService->qcInspect(
+                (int)$request->input('ecn_receipt_item_id'),
+                $appQty,
+                $request->input('destination') ?: 'ASSEMBLY',
+                (int)($request->input('rejected_quantity') ?? 0),
+                (int)($request->input('rework_quantity') ?? 0),
+                $remarks,
+                $request->user()?->id,
+                $paintQty,
+                $assemblyQty
+            );
 
-        return response()->json($result);
+            return response()->json($result);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
     }
 
     public function reworkComplete(Request $request)
@@ -223,18 +231,47 @@ class EcnWorkflowController extends Controller
 
     public function revert(Request $request)
     {
+        $recordId = $request->input('record_id') 
+            ?? $request->input('source_id') 
+            ?? $request->input('ecn_receipt_item_id') 
+            ?? $request->input('ecn_workflow_record_id');
+
+        // Fallback: If only ecn_requirement_id is passed, look up active record for this department
+        if (!$recordId && $request->filled('ecn_requirement_id')) {
+            $reqId = (int)$request->input('ecn_requirement_id');
+            $dept = strtolower(trim($request->input('department', '')));
+            if ($dept === 'store') {
+                $recordId = \App\Models\EcnReceiptItem::where('ecn_requirement_id', $reqId)->whereIn('status', ['received', 'store_received'])->latest('id')->value('id');
+            } elseif ($dept === 'qc') {
+                $recordId = \App\Models\EcnReceiptItem::where('ecn_requirement_id', $reqId)->whereIn('status', ['qc_received', 'sent_to_qc'])->latest('id')->value('id');
+            } elseif ($dept === 'rework') {
+                $recordId = \App\Models\EcnWorkflowRecord::where('ecn_requirement_id', $reqId)->where('department', 'REWORK')->where('status', 'in_progress')->latest('id')->value('id');
+            } elseif ($dept === 'paint') {
+                $recordId = \App\Models\EcnWorkflowRecord::where('ecn_requirement_id', $reqId)->where('department', 'PAINT')->where('status', 'in_progress')->latest('id')->value('id');
+            } elseif ($dept === 'assembly') {
+                $recordId = \App\Models\EcnWorkflowRecord::where('ecn_requirement_id', $reqId)->where('department', 'ASSEMBLY')->whereIn('status', ['in_progress', 'completed'])->latest('id')->value('id');
+            }
+        }
+
+        if ($recordId) {
+            $request->merge(['record_id' => $recordId]);
+        }
+
         $request->validate([
             'department' => ['required', 'string', 'in:store,qc,rework,paint,assembly'],
             'record_id' => ['required', 'integer'],
             'quantity' => ['required', 'integer', 'min:1'],
             'remarks' => ['nullable', 'string', 'max:500'],
+            'reason' => ['nullable', 'string', 'max:500'],
         ]);
+
+        $remarks = $request->input('remarks') ?: $request->input('reason');
 
         $result = $this->ecnWorkflowService->revert(
             $request->input('department'),
             (int)$request->input('record_id'),
             (int)$request->input('quantity'),
-            $request->input('remarks'),
+            $remarks,
             $request->user()?->id
         );
 

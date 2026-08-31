@@ -582,6 +582,25 @@ class WorkflowRevertController extends Controller
      */
     public function revert(Request $request)
     {
+        $rawBomId = (string) $request->input('bom_item_id', '');
+        $isEcn = $request->input('classification') === 'ECN' 
+            || (bool) $request->input('is_ecn') 
+            || str_starts_with(strtolower($rawBomId), 'ecn_')
+            || str_starts_with(strtolower((string)$request->input('source_type', '')), 'ecn_');
+
+        if ($isEcn) {
+            $dept = strtolower($request->input('department'));
+            $qty = (int) $request->input('quantity', 1);
+            $reason = $request->input('reason') ?? 'Operational ECN revert';
+            $recordId = (int) ($request->input('source_id') 
+                ?? $request->input('record_id') 
+                ?? $request->input('ecn_receipt_item_id') 
+                ?? $request->input('ecn_workflow_record_id') 
+                ?? (str_starts_with(strtolower($rawBomId), 'ecn_') ? str_replace('ecn_', '', strtolower($rawBomId)) : 0));
+
+            return response()->json($this->ecnWorkflowService->revert($dept, $recordId, $qty, $reason, $request->user()?->id));
+        }
+
         $request->validate([
             'department' => ['required', 'in:store,qc,rework,paint,assembly'],
             'bom_item_id' => ['required', 'exists:bom_items,id'],
