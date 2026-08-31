@@ -38,11 +38,21 @@ class HierarchyService
         $activeProjects = $projects->where('status', 'active')->values();
         $completedProjects = $projects->where('status', 'completed')->values();
 
+        $stage = strtolower($filters['stage'] ?? $filters['queue_type'] ?? $filters['subtab'] ?? '');
+        $ecnDeptContext = $department;
+        if ($department === 'qc') {
+            if ($stage === 'arrival') {
+                $ecnDeptContext = 'qc_arrival';
+            } elseif ($stage === 'inspection') {
+                $ecnDeptContext = 'qc_inspection';
+            }
+        }
+
         $bulkMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $filters['side'] ?? null, $filters);
 
-        $projectsList = $projects->map(function ($proj) use ($department, $bulkMetrics) {
+        $projectsList = $projects->map(function ($proj) use ($department, $bulkMetrics, $filters) {
             $m = $bulkMetrics->get($proj->id) ?? [];
-            return $this->formatProjectOverviewStatsFromMetrics($proj, $department, $m);
+            return $this->formatProjectOverviewStatsFromMetrics($proj, $department, $m, $filters);
         });
 
         if (!$projectId) {
@@ -89,8 +99,23 @@ class HierarchyService
         }
 
         $bomItems = $query->orderBy('standard_part_no')->get();
+        $hasEcn = EcnRequirement::where('project_id', $project->id)->exists();
 
-        if ($bomItems->isEmpty()) {
+        if ($bomItems->isEmpty() && !$hasEcn) {
+            $ecnMap = $this->ecnQuantityService->preloadProjectDepartmentEcnMap($project->id, $ecnDeptContext);
+            $projEcnTotal = $ecnMap['project_total'] ?? 0;
+            $project->setAttribute('ecn_parts', $projEcnTotal);
+            $project->setAttribute('ecn_total_parts', $projEcnTotal);
+            $project->setAttribute('ecn_part_count', $projEcnTotal);
+            $project->setAttribute('ecn_count', $projEcnTotal);
+            $project->setAttribute('is_ecn_present', ($projEcnTotal > 0));
+            $project->setAttribute('ecn_present', ($projEcnTotal > 0));
+            $project->setAttribute('ecn_numbers', $ecnMap['project_ecn_numbers'] ?? []);
+            $project->setAttribute('ecn_summary', $ecnMap['project_ecn_summary'] ?? []);
+            $project->setAttribute('ecn_number_display', $ecnMap['project_ecn_display'] ?? null);
+            $project->ecn_parts = $projEcnTotal;
+            $project->ecn_number_display = $ecnMap['project_ecn_display'] ?? null;
+
             return [
                 'is_hierarchical' => false,
                 'project' => $project,
@@ -133,7 +158,7 @@ class HierarchyService
             ->groupBy('bom_item_id');
 
         // Pre-load department-specific ECN hierarchy breakdown map and requirements
-        $ecnMap = $this->ecnQuantityService->preloadProjectDepartmentEcnMap($project->id, $department);
+        $ecnMap = $this->ecnQuantityService->preloadProjectDepartmentEcnMap($project->id, $ecnDeptContext);
         $ecnReqs = EcnRequirement::where('project_id', $project->id)->get();
         $ecnReqIds = $ecnReqs->pluck('id')->toArray();
         $ecnReceiptsGrouped = EcnReceiptItem::whereIn('ecn_requirement_id', $ecnReqIds)->get()->groupBy('ecn_requirement_id');
@@ -637,10 +662,16 @@ class HierarchyService
                     $qcPendingArrCalc = (int) $erReceipts->whereIn('status', ['received', 'store_received', 'sent_to_qc'])->sum('received_quantity');
                     $qcPendingInspCalc = (int) $erReceipts->where('status', 'qc_received')->sum('received_quantity');
 
-                    if ($deptKey === 'store' && $er->current_state !== 'PENDING' && (int)$er->required_qty <= (int)$er->received_qty) {
+                    if ($deptKey === 'store' && $er->current_state !== 'PENDING') {
                         continue;
                     }
-                    if ($deptKey === 'qc' && !in_array($er->current_state, ['STORE', 'SENT_TO_QC', 'QC']) && $qcPendingArrCalc === 0 && $qcPendingInspCalc === 0) {
+                    if (($deptKey === 'store_resident' || $deptKey === 'qc_arrival') && !in_array($er->current_state, ['STORE', 'SENT_TO_QC'])) {
+                        continue;
+                    }
+                    if ($deptKey === 'qc' && !in_array($er->current_state, ['STORE', 'SENT_TO_QC', 'QC'])) {
+                        continue;
+                    }
+                    if ($deptKey === 'qc_inspection' && $er->current_state !== 'QC') {
                         continue;
                     }
                     if ($deptKey === 'rework' && $er->current_state !== 'REWORK') {
@@ -1044,14 +1075,16 @@ class HierarchyService
 
         if ($project) {
             $projEcnTotal = $ecnMap['project_total'] ?? 0;
+            $project->setAttribute('ecn_parts', $projEcnTotal);
+            $project->setAttribute('ecn_total_parts', $projEcnTotal);
+            $project->setAttribute('ecn_part_count', $projEcnTotal);
+            $project->setAttribute('ecn_count', $projEcnTotal);
+            $project->setAttribute('is_ecn_present', ($projEcnTotal > 0));
+            $project->setAttribute('ecn_present', ($projEcnTotal > 0));
+            $project->setAttribute('ecn_numbers', $ecnMap['project_ecn_numbers'] ?? []);
+            $project->setAttribute('ecn_summary', $ecnMap['project_ecn_summary'] ?? []);
+            $project->setAttribute('ecn_number_display', $ecnMap['project_ecn_display'] ?? null);
             $project->ecn_parts = $projEcnTotal;
-            $project->ecn_total_parts = $projEcnTotal;
-            $project->ecn_part_count = $projEcnTotal;
-            $project->ecn_count = $projEcnTotal;
-            $project->is_ecn_present = ($projEcnTotal > 0);
-            $project->ecn_present = ($projEcnTotal > 0);
-            $project->ecn_numbers = $ecnMap['project_ecn_numbers'] ?? [];
-            $project->ecn_summary = $ecnMap['project_ecn_summary'] ?? [];
             $project->ecn_number_display = $ecnMap['project_ecn_display'] ?? null;
         }
 
@@ -1073,17 +1106,26 @@ class HierarchyService
     /**
      * Get high level progress stats for Project level cards from pre-calculated metrics
      */
-    public function formatProjectOverviewStatsFromMetrics(Project $proj, string $department, array $m): array
+    public function formatProjectOverviewStatsFromMetrics(Project $proj, string $department, array $m = [], array $filters = []): array
     {
-        $reqSum = $m['required_qty'] ?? $m['total_required'] ?? 0;
-        $recSum = $m['received_qty'] ?? $m['total_received'] ?? 0;
-        $appSum = $m['approved_qty'] ?? $m['qc_approved'] ?? 0;
-        $paintCompSum = $m['paint_qty'] ?? $m['paint_completed'] ?? 0;
-        $asmCompSum = $m['assembly_qty'] ?? $m['assembly_completed'] ?? 0;
-        $rewActiveSum = $m['rework_qty'] ?? $m['parts_in_rework'] ?? 0;
-        $rewCompSum = $m['rework_completed'] ?? 0;
-        $qcPendingSum = $m['awaiting_qc'] ?? $m['parts_in_qc'] ?? 0;
+        $stage = strtolower($filters['stage'] ?? $filters['queue_type'] ?? $filters['subtab'] ?? '');
+        $ecnDeptContext = $department;
+        if ($department === 'qc') {
+            if ($stage === 'arrival') {
+                $ecnDeptContext = 'qc_arrival';
+            } elseif ($stage === 'inspection') {
+                $ecnDeptContext = 'qc_inspection';
+            }
+        }
 
+        $reqSum = $m['total_required'] ?? $m['required_qty'] ?? 0;
+        $recSum = $m['total_received'] ?? $m['received_qty'] ?? 0;
+        $appSum = $m['approved_qty'] ?? $m['qc_approved'] ?? 0;
+        $qcPendingSum = $m['pending_qc'] ?? $m['qc_pending_inspection'] ?? ($recSum - $appSum);
+        $rewCompSum = $m['rework_completed'] ?? 0;
+        $rewActiveSum = $m['rework_active'] ?? $m['rework_pending'] ?? 0;
+        $paintCompSum = $m['paint_completed'] ?? $m['paint_qty'] ?? 0;
+        $asmCompSum = $m['assembly_completed'] ?? $m['assembly_qty'] ?? 0;
         $paintReadySum = $m['paint_ready'] ?? $m['parts_in_paint'] ?? 0;
         $asmReadySum = $m['assembly_ready'] ?? $m['parts_in_assembly'] ?? 0;
 
@@ -1105,10 +1147,10 @@ class HierarchyService
             default => ($reqSum > 0 ? min(100, round(($asmCompSum / $reqSum) * 100, 1)) : 100),
         };
 
-        $projEcnCount = $this->ecnQuantityService->getEcnCountsForHierarchy($proj->id, null, null, null, $department);
-        $projEcnNums = $this->ecnQuantityService->getEcnNumbersForHierarchy($proj->id, null, null, $department);
-        $projEcnSum = $this->ecnQuantityService->getEcnSummaryForHierarchy($proj->id, null, null, $department);
-        $projEcnDisp = $this->ecnQuantityService->getEcnDisplayForHierarchy($proj->id, null, null, $department);
+        $projEcnCount = $this->ecnQuantityService->getEcnCountsForHierarchy($proj->id, null, null, null, $ecnDeptContext);
+        $projEcnNums = $this->ecnQuantityService->getEcnNumbersForHierarchy($proj->id, null, null, $ecnDeptContext);
+        $projEcnSum = $this->ecnQuantityService->getEcnSummaryForHierarchy($proj->id, null, null, $ecnDeptContext);
+        $projEcnDisp = $this->ecnQuantityService->getEcnDisplayForHierarchy($proj->id, null, null, $ecnDeptContext);
 
         if ($projEcnCount > 0 && empty($projEcnDisp)) {
             $pWord = $projEcnCount === 1 ? 'part' : 'parts';

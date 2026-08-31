@@ -149,14 +149,14 @@ class EcnDataReconciliationAndBranchGovernanceTest extends TestCase
         // Hierarchy API calls for each department
         $hierarchyService = new HierarchyService();
 
-        // 1. Store Hierarchy API
+        // 1. Store Hierarchy API: Shows Pending Intake (2 parts pending)
         $storeHierarchy = $hierarchyService->getDepartmentHierarchy('store', $project->id);
-        $this->assertEquals(4, $storeHierarchy['project']['ecn_parts']);
-        $this->assertEquals('ECN (4 parts)', $storeHierarchy['project']['ecn_number_display']);
-        $this->assertEquals(4, $storeHierarchy['jigs'][0]['ecn_parts']);
-        $this->assertEquals('ECN (4 parts)', $storeHierarchy['jigs'][0]['ecn_number_display']);
-        $this->assertEquals(4, $storeHierarchy['jigs'][0]['units'][0]['ecn_parts']);
-        $this->assertEquals('ECN (4 parts)', $storeHierarchy['jigs'][0]['units'][0]['ecn_number_display']);
+        $this->assertEquals(2, $storeHierarchy['project']['ecn_parts']);
+        $this->assertEquals('ECN (2 parts)', $storeHierarchy['project']['ecn_number_display']);
+        $this->assertEquals(2, $storeHierarchy['jigs'][0]['ecn_parts']);
+        $this->assertEquals('ECN (2 parts)', $storeHierarchy['jigs'][0]['ecn_number_display']);
+        $this->assertEquals(2, $storeHierarchy['jigs'][0]['units'][0]['ecn_parts']);
+        $this->assertEquals('ECN (2 parts)', $storeHierarchy['jigs'][0]['units'][0]['ecn_number_display']);
 
         // 2. QC Hierarchy API
         $qcHierarchy = $hierarchyService->getDepartmentHierarchy('qc', $project->id);
@@ -341,8 +341,8 @@ class EcnDataReconciliationAndBranchGovernanceTest extends TestCase
             'part_no' => 'ECN-L1',
             'side' => 'LA',
             'required_qty' => 3,
-            'received_qty' => 3,
-            'current_state' => 'STORE',
+            'received_qty' => 0,
+            'current_state' => 'PENDING',
         ]);
 
         $reqR = EcnRequirement::create([
@@ -353,8 +353,8 @@ class EcnDataReconciliationAndBranchGovernanceTest extends TestCase
             'part_no' => 'ECN-R1',
             'side' => 'RA',
             'required_qty' => 2,
-            'received_qty' => 2,
-            'current_state' => 'STORE',
+            'received_qty' => 0,
+            'current_state' => 'PENDING',
         ]);
 
         $service = new EcnQuantityCalculationService();
@@ -376,42 +376,29 @@ class EcnDataReconciliationAndBranchGovernanceTest extends TestCase
         $user = $this->getAdminUser();
         $this->actingAs($user, 'sanctum');
 
-        $code = 'TEST-FLOW-' . uniqid();
         $project = Project::create([
-            'project_code' => $code,
-            'name' => "Flow Project {$code}",
+            'name' => 'Full Workflow ECN Project',
+            'project_code' => 'PROJ-FULL-' . uniqid(),
             'status' => 'active',
-        ]);
-
-        $bomItem = BomItem::create([
-            'project_id' => $project->id,
-            'standard_part_no' => 'BASE-PART-10',
-            'item_no' => 'BP10',
-            'jig_no' => 'JIG-FLOW',
-            'unit_no' => '01',
-        ]);
-        BomRequirement::create([
-            'bom_item_id' => $bomItem->id,
-            'side' => 'LH',
-            'required_quantity' => 10,
-        ]);
-
-        $ecnReq = EcnRequirement::create([
-            'project_id' => $project->id,
-            'ecn_number' => 'ECN-FLOW-1',
-            'jig_no' => 'JIG-FLOW',
-            'unit_no' => '01',
-            'part_no' => 'ECN-FLOW-PART',
-            'side' => 'LH',
-            'required_qty' => 5,
-            'received_qty' => 0,
-            'current_state' => 'PENDING',
         ]);
 
         $calc = new EcnQuantityCalculationService();
         $hService = new HierarchyService();
 
-        // 1. Initial State: PENDING (5 pending, 0 in store)
+        // 1. Initial Requirement: 5 pcs PENDING
+        $ecnReq = EcnRequirement::create([
+            'project_id' => $project->id,
+            'ecn_number' => 'ECN-FULL',
+            'jig_no' => 'JIG-01',
+            'unit_no' => '01',
+            'part_no' => 'P-FULL',
+            'side' => 'LH',
+            'side_display' => 'LH',
+            'required_qty' => 5,
+            'received_qty' => 0,
+            'current_state' => 'PENDING',
+        ]);
+
         $s1 = $calc->calculateEcnDashboardSummary(['project_id' => $project->id]);
         $this->assertEquals(5, $s1['parts_pending']);
         $this->assertEquals(0, $s1['parts_in_store']);
@@ -429,8 +416,7 @@ class EcnDataReconciliationAndBranchGovernanceTest extends TestCase
         $this->assertEquals(0, $s2['parts_in_qc']);
 
         $hStore = $hService->getDepartmentHierarchy('store', $project->id);
-        $this->assertEquals(5, $hStore['project']['ecn_parts']);
-        $this->assertEquals('ECN (5 parts)', $hStore['project']['ecn_number_display']);
+        $this->assertEquals(0, $hStore['project']['ecn_parts'], 'Store Pending ECN drops to 0 after full receipt');
 
         // 3. Store Send to QC
         $receiptItem = EcnReceiptItem::where('ecn_requirement_id', $ecnReq->id)->first();

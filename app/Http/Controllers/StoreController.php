@@ -510,6 +510,8 @@ class StoreController extends Controller
         $filters = [
             'side' => $request->input('side'),
             'search' => $request->input('search'),
+            'stage' => $request->input('stage') ?? $request->input('queue_type') ?? $request->input('subtab'),
+            'queue_type' => $request->input('queue_type') ?? $request->input('stage'),
         ];
 
         $data = $hierarchyService->getDepartmentHierarchy('store', $projectId, $filters);
