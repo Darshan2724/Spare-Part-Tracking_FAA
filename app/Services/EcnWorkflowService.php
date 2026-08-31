@@ -213,6 +213,11 @@ class EcnWorkflowService
             $item = EcnReceiptItem::lockForUpdate()->findOrFail($ecnReceiptItemId);
             $req = EcnRequirement::lockForUpdate()->findOrFail($item->ecn_requirement_id);
 
+            // Strict check: item must be in active QC inspection queue
+            if (!in_array($item->status, ['qc_received', 'sent_to_qc'])) {
+                throw new \InvalidArgumentException("This ECN item (status: {$item->status}) is no longer in the active QC inspection queue.");
+            }
+
             if ($paintQty > 0 || $assemblyQty > 0) {
                 $effectiveApproved = $paintQty + $assemblyQty;
             } else {
@@ -222,6 +227,10 @@ class EcnWorkflowService
             $totalInspected = $effectiveApproved + $rejectedQty + $reworkQty;
             if ($totalInspected <= 0) {
                 throw new \InvalidArgumentException("Total inspection quantity must be greater than zero.");
+            }
+
+            if ($totalInspected > $item->received_quantity) {
+                throw new \InvalidArgumentException("Total inspected quantity ({$totalInspected}) exceeds available quantity ({$item->received_quantity}).");
             }
 
             $destUpper = strtoupper(trim($destination));
@@ -359,32 +368,54 @@ class EcnWorkflowService
                     ? strtoupper($req->side_display ?: $req->side) 
                     : (str_starts_with(strtoupper($req->side), 'R') ? 'RH' : 'LH');
 
-                \App\Models\PurchaseQueueItem::create([
-                    'bom_item_id' => null,
-                    'qc_inspection_id' => null,
-                    'project_id' => $req->project_id,
-                    'standard_part_no' => $req->part_no,
-                    'side' => $normalizedSide,
-                    'rejected_quantity' => $rejectedQty,
-                    'rejection_reason' => $remarks ?: 'ECN QC Inspection Rejection',
-                    'rejected_by' => $userId,
-                    'rejected_at' => now(),
-                    'status' => 'pending_purchase',
-                    'remarks' => "ECN: {$req->ecn_number} | Jig: {$req->jig_no} | Unit: {$req->unit_no} | Original Side: {$req->side}",
-                ]);
+                // Deduplicate PurchaseQueueItem per ECN requirement / receipt item
+                $existingPurchase = \App\Models\PurchaseQueueItem::where('project_id', $req->project_id)
+                    ->where('standard_part_no', $req->part_no)
+                    ->where('side', $normalizedSide)
+                    ->where('status', 'pending_purchase')
+                    ->where('remarks', 'LIKE', "%Req #{$req->id}%")
+                    ->first();
+
+                if ($existingPurchase) {
+                    $existingPurchase->increment('rejected_quantity', $rejectedQty);
+                } else {
+                    \App\Models\PurchaseQueueItem::create([
+                        'bom_item_id' => null,
+                        'qc_inspection_id' => null,
+                        'project_id' => $req->project_id,
+                        'standard_part_no' => $req->part_no,
+                        'side' => $normalizedSide,
+                        'rejected_quantity' => $rejectedQty,
+                        'rejection_reason' => $remarks ?: 'ECN QC Inspection Rejection',
+                        'rejected_by' => $userId,
+                        'rejected_at' => now(),
+                        'status' => 'pending_purchase',
+                        'remarks' => "ECN: {$req->ecn_number} | Req #{$req->id} | ReceiptItem #{$item->id} | Jig: {$req->jig_no} | Unit: {$req->unit_no} | Original Side: {$req->side}",
+                    ]);
+                }
+
+                // If rejected, decrement received_qty and update current_state so it leaves active QC
+                $req->received_qty = max(0, $req->received_qty - $rejectedQty);
+                if ($effectiveApproved === 0 && $reworkQty === 0) {
+                    $req->current_state = $req->received_qty > 0 ? 'STORE' : 'PENDING';
+                }
+                $req->save();
             }
+
+            $finalState = $req->current_state;
+            $eventType = ($rejectedQty > 0 && $effectiveApproved === 0) ? 'ECN_QC_REJECTED' : 'ECN_QC_APPROVED';
 
             EcnWorkflowEvent::create([
                 'ecn_requirement_id' => $req->id,
                 'project_id' => $req->project_id,
                 'ecn_number' => $req->ecn_number,
                 'user_id' => $userId,
-                'event_type' => 'ECN_QC_APPROVED',
+                'event_type' => $eventType,
                 'side' => $req->side,
                 'side_display' => $req->side_display,
                 'quantity' => $totalInspected,
                 'previous_state' => 'QC',
-                'new_state' => $destUpper,
+                'new_state' => $finalState,
                 'remarks' => $remarks,
                 'metadata' => [
                     'approved' => $approvedQty,
@@ -405,8 +436,8 @@ class EcnWorkflowService
                 'side_display' => $req->side_display,
                 'quantity' => $totalInspected,
                 'previous_state' => 'QC',
-                'new_state' => $destUpper,
-                'event_type' => 'ECN_APPROVED',
+                'new_state' => $finalState,
+                'event_type' => $eventType,
             ]));
 
             return [
@@ -649,6 +680,14 @@ class EcnWorkflowService
                     $record->status = 'reverted';
                     $record->save();
 
+                    if ($record->ecn_receipt_item_id) {
+                        $recItem = EcnReceiptItem::find($record->ecn_receipt_item_id);
+                        if ($recItem) {
+                            $recItem->status = 'qc_received';
+                            $recItem->save();
+                        }
+                    }
+
                     $req->current_state = 'QC';
                     $req->save();
 
@@ -661,6 +700,14 @@ class EcnWorkflowService
 
                     $record->status = 'reverted';
                     $record->save();
+
+                    if ($record->ecn_receipt_item_id) {
+                        $recItem = EcnReceiptItem::find($record->ecn_receipt_item_id);
+                        if ($recItem) {
+                            $recItem->status = 'qc_received';
+                            $recItem->save();
+                        }
+                    }
 
                     $req->current_state = 'QC';
                     $req->save();
@@ -682,6 +729,15 @@ class EcnWorkflowService
                         ->exists();
 
                     $targetDept = $hasPaint ? 'PAINT' : 'QC';
+
+                    if ($targetDept === 'QC' && $record->ecn_receipt_item_id) {
+                        $recItem = EcnReceiptItem::find($record->ecn_receipt_item_id);
+                        if ($recItem) {
+                            $recItem->status = 'qc_received';
+                            $recItem->save();
+                        }
+                    }
+
                     $req->current_state = $targetDept;
                     $req->save();
                     break;

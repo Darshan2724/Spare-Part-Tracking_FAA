@@ -561,6 +561,7 @@ function App() {
   const [qcReworkQty, setQcReworkQty] = useState('0');
   const [qcReason, setQcReason] = useState('');
   const [qcRemarks, setQcRemarks] = useState('');
+  const [isSubmittingQc, setIsSubmittingQc] = useState(false);
 
   // Paint Modal state
   const [showPaintModal, setShowPaintModal] = useState(false);
@@ -1341,7 +1342,7 @@ function App() {
   };
 
   const submitQcInspection = async () => {
-    if (!selectedQcItem) return;
+    if (!selectedQcItem || isSubmittingQc) return;
     const avail = selectedQcItem.received_quantity || selectedQcItem.quantity || 1;
     const app = parseInt(qcApprovedQty, 10) || 0;
     const paint = parseInt(qcPaintQty, 10) || 0;
@@ -1377,6 +1378,7 @@ function App() {
     const payloadReceiptId = selectedQcItem.id || selectedQcItem.receipt_item_id;
     const payloadBomId = selectedQcItem.bom_item_id || selectedQcItem.bom_item?.id;
 
+    setIsSubmittingQc(true);
     try {
       if (selectedQcItem.is_ecn || selectedQcItem.bom_item?.is_ecn || String(payloadBomId).startsWith('ecn_')) {
         const ecnReqId = selectedQcItem.ecn_requirement_id || selectedQcItem.bom_item?.ecn_requirement_id || Number(String(payloadBomId || payloadReceiptId).replace('ecn_', ''));
@@ -1424,6 +1426,8 @@ function App() {
       loadData('qc', false, null, true);
     } catch (err) {
       Alert.alert('Inspection Failed', err.response?.data?.message || 'Could not record QC inspection.');
+    } finally {
+      setIsSubmittingQc(false);
     }
   };
 
@@ -1650,24 +1654,29 @@ function App() {
     try {
       if (revertTargetItem.is_ecn || selectedRevertOption?.is_ecn || String(revertTargetItem.id).startsWith('ecn_')) {
         const ecnReqId = revertTargetItem.ecn_requirement_id || Number(String(revertTargetItem.id).replace('ecn_', ''));
+        const sourceRecId = selectedRevertOption?.source_id || selectedRevertOption?.id;
         const res = await apiClient.post('/ecn/revert', {
           department: revertDept,
+          record_id: sourceRecId,
+          source_id: sourceRecId,
+          source_type: selectedRevertOption?.source_type,
           ecn_requirement_id: ecnReqId,
           quantity: qty,
-          source_type: selectedRevertOption?.source_type,
-          source_id: selectedRevertOption?.source_id,
           reason: revertReason || 'Mobile ECN revert',
+          remarks: revertReason || 'Mobile ECN revert',
         });
         showToast(res.data?.message || `Successfully reverted ${qty} pcs of ECN ${revertTargetItem.standard_part_no}`);
       } else {
         const payload = {
           department: revertDept,
           bom_item_id: revertTargetItem.id,
+          record_id: selectedRevertOption?.source_id || selectedRevertOption?.id,
           side: revertSide,
           quantity: qty,
           source_type: selectedRevertOption?.source_type,
           source_id: selectedRevertOption?.source_id,
           reason: revertReason || 'Mobile workflow revert',
+          remarks: revertReason || 'Mobile workflow revert',
         };
         const res = await apiClient.post('/workflow/revert', payload);
         showToast(res.data?.message || `Successfully reverted ${qty} pcs of ${revertTargetItem.standard_part_no}`);
@@ -1701,20 +1710,40 @@ function App() {
       return;
     }
 
+    const isEcn = Boolean(item.is_ecn || item.source_type === 'ecn_workflow_record' || item.source_type === 'ecn_receipt_item' || String(item.bom_item_id).startsWith('ecn_'));
+
     setIsSubmittingGlobalRevert(true);
     try {
-      const payload = {
-        department: activeTab,
-        bom_item_id: item.bom_item_id,
-        side: item.side,
-        quantity: qty,
-        source_type: item.source_type,
-        source_id: item.source_id,
-        reason: 'Global department workflow revert',
-      };
+      if (isEcn) {
+        const ecnReqId = item.ecn_requirement_id || (String(item.bom_item_id).startsWith('ecn_') ? Number(String(item.bom_item_id).replace('ecn_', '')) : Number(item.id));
+        const sourceRecId = item.source_id || item.id;
+        const res = await apiClient.post('/ecn/revert', {
+          department: activeTab,
+          record_id: sourceRecId,
+          source_id: sourceRecId,
+          source_type: item.source_type,
+          ecn_requirement_id: ecnReqId,
+          quantity: qty,
+          reason: 'Global department ECN revert',
+          remarks: 'Global department ECN revert',
+        });
+        showToast(res.data?.message || `Successfully reverted ${qty} pcs of ECN ${item.standard_part_no}`);
+      } else {
+        const payload = {
+          department: activeTab,
+          bom_item_id: item.bom_item_id,
+          record_id: item.source_id || item.id,
+          side: item.side,
+          quantity: qty,
+          source_type: item.source_type,
+          source_id: item.source_id,
+          reason: 'Global department workflow revert',
+          remarks: 'Global department workflow revert',
+        };
 
-      const res = await apiClient.post('/workflow/revert', payload);
-      showToast(res.data?.message || `Successfully reverted ${qty} pcs of ${item.standard_part_no}`);
+        const res = await apiClient.post('/workflow/revert', payload);
+        showToast(res.data?.message || `Successfully reverted ${qty} pcs of ${item.standard_part_no}`);
+      }
 
       // Invalidate caches
       invalidateMobileCache('store');
