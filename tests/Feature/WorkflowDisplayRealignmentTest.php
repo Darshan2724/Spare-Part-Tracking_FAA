@@ -119,16 +119,20 @@ class WorkflowDisplayRealignmentTest extends TestCase
             $this->assertEquals(5, $ecnSummary['total_parts']);
             $this->assertEquals(5, $ecnSummary['parts_pending'], 'Website ECN Summary parts_pending must be strictly ECN (5)');
 
-            // Mobile Store Hierarchy: Pending Intake & Store Resident
+            // Mobile Store Hierarchy: Pending Intake (Regular Pending + ECN Pending)
             $storeHierarchy = $hierarchyService->getDepartmentHierarchy('store', $project->id);
             $storeProjCard = $hierarchyService->formatProjectOverviewStatsFromMetrics($project, 'store', $webMetrics);
             $this->assertEquals(10, $storeProjCard['pending_qty'], 'Store mobile project card pending_qty must show Regular pending (10)');
-            $this->assertEquals(0, $storeProjCard['ecn_count'], 'Store mobile project card ecn_count is 0 before any ECN parts received in store');
+            $this->assertEquals(5, $storeProjCard['ecn_count'], 'Store mobile project card ecn_count is 5 for pending ECN parts');
+            $this->assertEquals(5, $storeHierarchy['project']['ecn_parts']);
+            $this->assertEquals(5, $storeHierarchy['jigs'][0]['ecn_parts']);
+            $this->assertEquals(5, $storeHierarchy['jigs'][0]['units'][0]['ecn_parts']);
 
             // Mobile QC Hierarchy
             $qcHierarchy = $hierarchyService->getDepartmentHierarchy('qc', $project->id);
             $qcProjCard = $hierarchyService->formatProjectOverviewStatsFromMetrics($project, 'qc', $webMetrics);
             $this->assertEquals(0, $qcProjCard['eligible_qty'], 'QC mobile card must have 0 eligible initially');
+            $this->assertEquals(0, $qcHierarchy['project']['ecn_parts'], 'QC mobile card must have 0 ECN parts initially');
 
             // --- STAGE 1: Store Receipt (Partial Intake) ---
             // Receive 6 Regular items into Store
@@ -358,6 +362,141 @@ class WorkflowDisplayRealignmentTest extends TestCase
             $this->assertEquals(2, $metrics['qc_rejected'], 'Rejected count is 2');
             $this->assertEquals(0, $metrics['parts_in_qc'], 'Active QC inspection is 0 (all 5 accounted for)');
             $this->assertEquals(3, $metrics['parts_in_paint'], 'Paint active is 3');
+
+        } finally {
+            $this->cleanupTestProject($project->id);
+        }
+    }
+
+    /**
+     * Test ECN Hierarchical Reconciliation & Department Isolation:
+     * - Project ECN = SUM(Jig ECN) = SUM(Unit ECN)
+     * - Store shows Pending ECN
+     * - QC shows active QC inspection ECN
+     * - Rework, Paint, Assembly show active department ECN
+     * - Strict isolation between stages
+     */
+    public function test_ecn_hierarchical_reconciliation_and_department_isolation()
+    {
+        $user = $this->getAdminUser();
+        $this->actingAs($user, 'sanctum');
+
+        $testCode = 'TEST-HIER-ECN-' . uniqid();
+        $project = Project::create([
+            'project_code' => $testCode,
+            'name' => "Hierarchy ECN Test Project {$testCode}",
+            'status' => 'active',
+        ]);
+
+        try {
+            // Create ECN items across 2 Jigs and 3 Units
+            // Jig-01 / Unit-01 (4 parts)
+            $ecn1 = EcnRequirement::create([
+                'project_id' => $project->id,
+                'ecn_number' => 'ECN-001',
+                'part_no' => 'P01',
+                'jig_no' => 'JIG-01',
+                'unit_no' => '01',
+                'side' => 'LH',
+                'side_display' => 'LH',
+                'required_qty' => 4,
+                'received_qty' => 0,
+                'current_state' => 'PENDING',
+            ]);
+
+            // Jig-01 / Unit-02 (2 parts)
+            $ecn2 = EcnRequirement::create([
+                'project_id' => $project->id,
+                'ecn_number' => 'ECN-002',
+                'part_no' => 'P02',
+                'jig_no' => 'JIG-01',
+                'unit_no' => '02',
+                'side' => 'RH',
+                'side_display' => 'RH',
+                'required_qty' => 2,
+                'received_qty' => 0,
+                'current_state' => 'PENDING',
+            ]);
+
+            // Jig-02 / Unit-01 (3 parts)
+            $ecn3 = EcnRequirement::create([
+                'project_id' => $project->id,
+                'ecn_number' => 'ECN-003',
+                'part_no' => 'P03',
+                'jig_no' => 'JIG-02',
+                'unit_no' => '01',
+                'side' => 'COMMON',
+                'side_display' => 'COMMON',
+                'required_qty' => 3,
+                'received_qty' => 0,
+                'current_state' => 'PENDING',
+            ]);
+
+            $hierarchyService = app(HierarchyService::class);
+
+            // 1. Initial Store Pending state: Total ECN Pending = 4 + 2 + 3 = 9
+            $storeH = $hierarchyService->getDepartmentHierarchy('store', $project->id);
+            $this->assertEquals(9, $storeH['project']['ecn_parts'], 'Project Store Pending ECN must be 9');
+            $this->assertEquals('ECN (9 parts)', $storeH['project']['ecn_number_display']);
+            
+            $jig1 = collect($storeH['jigs'])->firstWhere('jig_name', 'JIG-01');
+            $this->assertNotNull($jig1);
+            $this->assertEquals(6, $jig1['ecn_parts'], 'JIG-01 Store Pending ECN must be 4 + 2 = 6');
+            $this->assertEquals('ECN (6 parts)', $jig1['ecn_number_display']);
+
+            $jig2 = collect($storeH['jigs'])->firstWhere('jig_name', 'JIG-02');
+            $this->assertNotNull($jig2);
+            $this->assertEquals(3, $jig2['ecn_parts'], 'JIG-02 Store Pending ECN must be 3');
+
+            // Hierarchical check: Project == sum(Jigs)
+            $sumJigs = array_sum(array_column($storeH['jigs'], 'ecn_parts'));
+            $this->assertEquals($storeH['project']['ecn_parts'], $sumJigs, 'Project ECN must equal sum of Jig ECNs');
+
+            // 2. Initial QC state: 0 items in QC
+            $qcH = $hierarchyService->getDepartmentHierarchy('qc', $project->id);
+            $this->assertEquals(0, $qcH['project']['ecn_parts'], 'QC Project ECN must be 0 when nothing in QC');
+            $this->assertFalse($qcH['project']['is_ecn_present']);
+            foreach ($qcH['jigs'] as $j) {
+                $this->assertEquals(0, $j['ecn_parts']);
+                $this->assertFalse($j['is_ecn_present']);
+            }
+
+            // 3. Receive 4 parts of ECN-001 into Store
+            $rec1 = EcnReceiptItem::create([
+                'ecn_requirement_id' => $ecn1->id,
+                'received_quantity' => 4,
+                'received_by' => $user->id,
+                'status' => 'received',
+            ]);
+            $ecn1->update(['received_qty' => 4, 'current_state' => 'STORE']);
+
+            // Accept 4 parts of ECN-001 into QC Inspection
+            $acceptRes = $this->postJson('/api/v1/qc/receive', [
+                'is_ecn' => true,
+                'ecn_requirement_id' => $ecn1->id,
+                'ecn_receipt_item_id' => $rec1->id,
+                'quantity' => 4,
+            ]);
+            $acceptRes->assertStatus(200);
+
+            // Now in QC: ECN-001 (4 parts) is in QC
+            $qcH2 = $hierarchyService->getDepartmentHierarchy('qc', $project->id);
+            $this->assertEquals(4, $qcH2['project']['ecn_parts'], 'QC Project ECN must now be 4');
+            $this->assertEquals('ECN (4 parts)', $qcH2['project']['ecn_number_display']);
+            $this->assertTrue($qcH2['project']['is_ecn_present']);
+
+            $qcJig1 = collect($qcH2['jigs'])->firstWhere('jig_name', 'JIG-01');
+            $this->assertNotNull($qcJig1);
+            $this->assertEquals(4, $qcJig1['ecn_parts']);
+            $this->assertEquals('ECN (4 parts)', $qcJig1['ecn_number_display']);
+            $this->assertTrue($qcJig1['is_ecn_present']);
+
+            $qcJig2 = collect($qcH2['jigs'])->firstWhere('jig_name', 'JIG-02');
+            $this->assertNull($qcJig2, 'JIG-02 has 0 QC parts and is cleanly excluded from QC active queue');
+
+            // Hierarchical check in QC: Project == sum(Jigs)
+            $sumQcJigs = array_sum(array_column($qcH2['jigs'], 'ecn_parts'));
+            $this->assertEquals($qcH2['project']['ecn_parts'], $sumQcJigs, 'QC Project ECN must equal sum of QC Jig ECNs');
 
         } finally {
             $this->cleanupTestProject($project->id);

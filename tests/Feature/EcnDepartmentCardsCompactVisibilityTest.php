@@ -114,14 +114,14 @@ class EcnDepartmentCardsCompactVisibilityTest extends TestCase
             'side' => 'LH',
             'side_display' => 'LH',
             'required_qty' => 4,
-            'received_qty' => 4,
-            'current_state' => 'STORE',
+            'received_qty' => 0,
+            'current_state' => 'PENDING',
             'action_type' => 'ADD',
         ]);
 
         $hierarchyService = app(HierarchyService::class);
 
-        // 1. In Store Department Hierarchy
+        // 1. In Store Department Hierarchy (Pending Intake)
         $storeHierarchy = $hierarchyService->getDepartmentHierarchy('store', $this->project->id);
         $this->assertTrue($storeHierarchy['is_hierarchical']);
         $this->assertNotEmpty($storeHierarchy['jigs']);
@@ -138,7 +138,7 @@ class EcnDepartmentCardsCompactVisibilityTest extends TestCase
         $this->assertEquals(4, $storeUnit['ecn_part_count']);
         $this->assertEquals('ECN (4 parts)', $storeUnit['ecn_number_display']);
 
-        // 2. In QC Department Hierarchy (should be 0 because item is in STORE, not QC)
+        // 2. In QC Department Hierarchy (should be 0 because item is PENDING, not in QC inspection)
         $qcHierarchy = $hierarchyService->getDepartmentHierarchy('qc', $this->project->id);
         $qcJig = $qcHierarchy['jigs'][0];
         $this->assertFalse($qcJig['is_ecn_present']);
@@ -146,8 +146,9 @@ class EcnDepartmentCardsCompactVisibilityTest extends TestCase
         $this->assertEquals(0, $qcJig['ecn_parts']);
         $this->assertNull($qcJig['ecn_number_display']);
 
-        // Move ECN requirement to QC
+        // Move ECN requirement to QC: state becomes QC and received_qty becomes 4
         $ecnReq1->current_state = 'QC';
+        $ecnReq1->received_qty = 4;
         $ecnReq1->save();
 
         // 3. Now QC should report the ECN card badge
@@ -157,7 +158,7 @@ class EcnDepartmentCardsCompactVisibilityTest extends TestCase
         $this->assertEquals(4, $qcJigAfter['ecn_part_count']);
         $this->assertEquals('ECN (4 parts)', $qcJigAfter['ecn_number_display']);
 
-        // And Store should no longer show it in active stock
+        // And Store should no longer show it in pending intake
         $storeHierarchyAfter = $hierarchyService->getDepartmentHierarchy('store', $this->project->id);
         $storeJigAfter = $storeHierarchyAfter['jigs'][0];
         $this->assertFalse($storeJigAfter['is_ecn_present']);
@@ -190,8 +191,8 @@ class EcnDepartmentCardsCompactVisibilityTest extends TestCase
             'side' => 'LH',
             'side_display' => 'LH',
             'required_qty' => 2,
-            'received_qty' => 2,
-            'current_state' => 'STORE',
+            'received_qty' => 0,
+            'current_state' => 'PENDING',
             'action_type' => 'ADD',
         ]);
 

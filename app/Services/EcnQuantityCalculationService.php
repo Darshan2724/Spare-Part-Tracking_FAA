@@ -163,15 +163,26 @@ class EcnQuantityCalculationService
             $q = EcnRequirement::query();
             if ($dept !== 'manager' && !empty($dept)) {
                 if ($dept === 'store') {
-                    $q->where('current_state', 'STORE');
-                } elseif ($dept === 'qc') {
-                    $q->whereIn('current_state', ['SENT_TO_QC', 'QC']);
+                    $q->where(function ($sq) {
+                        $sq->where('current_state', 'PENDING')
+                           ->orWhereRaw('required_qty > received_qty');
+                    });
+                    return max(0, (int)$q->sum('required_qty') - (int)$q->sum('received_qty'));
+                } elseif ($dept === 'store_resident' || $dept === 'qc_arrival') {
+                    $q->whereIn('current_state', ['STORE', 'SENT_TO_QC']);
+                    return (int)$q->sum('received_qty');
+                } elseif ($dept === 'qc' || $dept === 'qc_inspection') {
+                    $q->where('current_state', 'QC');
+                    return (int)$q->sum('received_qty');
                 } elseif ($dept === 'rework') {
                     $q->where('current_state', 'REWORK');
+                    return (int)$q->sum('received_qty');
                 } elseif ($dept === 'paint') {
                     $q->where('current_state', 'PAINT');
+                    return (int)$q->sum('received_qty');
                 } elseif ($dept === 'assembly') {
                     $q->whereIn('current_state', ['ASSEMBLY', 'ASSEMBLY_COMPLETED']);
+                    return (int)$q->sum('received_qty');
                 }
                 return (int)$q->sum('received_qty');
             }
@@ -414,9 +425,14 @@ class EcnQuantityCalculationService
         $query = EcnRequirement::with(['workflowRecords' => fn($wq) => $wq->where('status', 'in_progress')])->where('project_id', $projectId);
 
         if ($dept === 'store') {
-            $query->where('current_state', 'STORE');
-        } elseif ($dept === 'qc') {
-            $query->whereIn('current_state', ['SENT_TO_QC', 'QC']);
+            $query->where(function ($q) {
+                $q->where('current_state', 'PENDING')
+                  ->orWhereRaw('required_qty > received_qty');
+            });
+        } elseif ($dept === 'store_resident' || $dept === 'qc_arrival') {
+            $query->whereIn('current_state', ['STORE', 'SENT_TO_QC']);
+        } elseif ($dept === 'qc' || $dept === 'qc_inspection') {
+            $query->where('current_state', 'QC');
         } elseif ($dept === 'rework') {
             $query->where(function ($q) {
                 $q->where('current_state', 'REWORK')
@@ -457,8 +473,9 @@ class EcnQuantityCalculationService
 
         foreach ($reqs as $r) {
             $qty = match ($dept) {
-                'store' => (int)($r->current_state === 'STORE' ? ($r->received_qty ?: $r->required_qty) : 0),
-                'qc' => (int)(in_array($r->current_state, ['QC', 'SENT_TO_QC']) ? ($r->received_qty ?: $r->required_qty) : 0),
+                'store' => (int)max(0, (int)$r->required_qty - (int)$r->received_qty),
+                'store_resident', 'qc_arrival' => (int)(in_array($r->current_state, ['STORE', 'SENT_TO_QC']) ? ($r->received_qty ?: $r->required_qty) : 0),
+                'qc', 'qc_inspection' => (int)($r->current_state === 'QC' ? ($r->received_qty ?: $r->required_qty) : 0),
                 'rework' => (int)($r->workflowRecords->where('department', 'REWORK')->where('status', 'in_progress')->sum('quantity') ?: ($r->current_state === 'REWORK' ? ($r->received_qty ?: $r->required_qty) : 0)),
                 'paint' => (int)($r->workflowRecords->where('department', 'PAINT')->where('status', 'in_progress')->sum('quantity') ?: ($r->current_state === 'PAINT' ? ($r->received_qty ?: $r->required_qty) : 0)),
                 'assembly' => (int)($r->workflowRecords->where('department', 'ASSEMBLY')->where('status', 'in_progress')->sum('quantity') ?: (in_array($r->current_state, ['ASSEMBLY', 'ASSEMBLY_COMPLETED']) ? ($r->received_qty ?: $r->required_qty) : 0)),

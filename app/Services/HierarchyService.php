@@ -89,8 +89,23 @@ class HierarchyService
         }
 
         $bomItems = $query->orderBy('standard_part_no')->get();
+        $hasEcn = EcnRequirement::where('project_id', $project->id)->exists();
 
-        if ($bomItems->isEmpty()) {
+        if ($bomItems->isEmpty() && !$hasEcn) {
+            $ecnMap = $this->ecnQuantityService->preloadProjectDepartmentEcnMap($project->id, $department);
+            $projEcnTotal = $ecnMap['project_total'] ?? 0;
+            $project->setAttribute('ecn_parts', $projEcnTotal);
+            $project->setAttribute('ecn_total_parts', $projEcnTotal);
+            $project->setAttribute('ecn_part_count', $projEcnTotal);
+            $project->setAttribute('ecn_count', $projEcnTotal);
+            $project->setAttribute('is_ecn_present', ($projEcnTotal > 0));
+            $project->setAttribute('ecn_present', ($projEcnTotal > 0));
+            $project->setAttribute('ecn_numbers', $ecnMap['project_ecn_numbers'] ?? []);
+            $project->setAttribute('ecn_summary', $ecnMap['project_ecn_summary'] ?? []);
+            $project->setAttribute('ecn_number_display', $ecnMap['project_ecn_display'] ?? null);
+            $project->ecn_parts = $projEcnTotal;
+            $project->ecn_number_display = $ecnMap['project_ecn_display'] ?? null;
+
             return [
                 'is_hierarchical' => false,
                 'project' => $project,
@@ -637,10 +652,16 @@ class HierarchyService
                     $qcPendingArrCalc = (int) $erReceipts->whereIn('status', ['received', 'store_received', 'sent_to_qc'])->sum('received_quantity');
                     $qcPendingInspCalc = (int) $erReceipts->where('status', 'qc_received')->sum('received_quantity');
 
-                    if ($deptKey === 'store' && $er->current_state !== 'PENDING' && (int)$er->required_qty <= (int)$er->received_qty) {
+                    if ($deptKey === 'store' && $er->current_state !== 'PENDING') {
                         continue;
                     }
-                    if ($deptKey === 'qc' && !in_array($er->current_state, ['STORE', 'SENT_TO_QC', 'QC']) && $qcPendingArrCalc === 0 && $qcPendingInspCalc === 0) {
+                    if (($deptKey === 'store_resident' || $deptKey === 'qc_arrival') && !in_array($er->current_state, ['STORE', 'SENT_TO_QC'])) {
+                        continue;
+                    }
+                    if ($deptKey === 'qc' && !in_array($er->current_state, ['STORE', 'SENT_TO_QC', 'QC'])) {
+                        continue;
+                    }
+                    if ($deptKey === 'qc_inspection' && $er->current_state !== 'QC') {
                         continue;
                     }
                     if ($deptKey === 'rework' && $er->current_state !== 'REWORK') {
@@ -1044,14 +1065,16 @@ class HierarchyService
 
         if ($project) {
             $projEcnTotal = $ecnMap['project_total'] ?? 0;
+            $project->setAttribute('ecn_parts', $projEcnTotal);
+            $project->setAttribute('ecn_total_parts', $projEcnTotal);
+            $project->setAttribute('ecn_part_count', $projEcnTotal);
+            $project->setAttribute('ecn_count', $projEcnTotal);
+            $project->setAttribute('is_ecn_present', ($projEcnTotal > 0));
+            $project->setAttribute('ecn_present', ($projEcnTotal > 0));
+            $project->setAttribute('ecn_numbers', $ecnMap['project_ecn_numbers'] ?? []);
+            $project->setAttribute('ecn_summary', $ecnMap['project_ecn_summary'] ?? []);
+            $project->setAttribute('ecn_number_display', $ecnMap['project_ecn_display'] ?? null);
             $project->ecn_parts = $projEcnTotal;
-            $project->ecn_total_parts = $projEcnTotal;
-            $project->ecn_part_count = $projEcnTotal;
-            $project->ecn_count = $projEcnTotal;
-            $project->is_ecn_present = ($projEcnTotal > 0);
-            $project->ecn_present = ($projEcnTotal > 0);
-            $project->ecn_numbers = $ecnMap['project_ecn_numbers'] ?? [];
-            $project->ecn_summary = $ecnMap['project_ecn_summary'] ?? [];
             $project->ecn_number_display = $ecnMap['project_ecn_display'] ?? null;
         }
 

@@ -144,9 +144,9 @@ class EcnComprehensiveFixTest extends TestCase
         $qcCount = $ecnCalcService->getEcnCountsForHierarchy($this->project->id, null, null, null, 'qc');
         $this->assertEquals(0, $qcCount, 'QC view must report 0 ECN parts when parts are in Store');
 
-        // In Store view: count must be 5 (received) or 15 (pending intake)
+        // In Store view: count must be 15 (pending intake = 20 required - 5 received)
         $storeCount = $ecnCalcService->getEcnCountsForHierarchy($this->project->id, null, null, null, 'store');
-        $this->assertEquals(5, $storeCount, 'Store view must report active Store ECN stock');
+        $this->assertEquals(15, $storeCount, 'Store view must report pending intake ECN quantity (15)');
 
         // Move to QC: state becomes QC
         $ecnReq->current_state = 'QC';
