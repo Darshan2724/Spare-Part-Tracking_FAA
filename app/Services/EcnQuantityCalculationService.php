@@ -313,6 +313,9 @@ class EcnQuantityCalculationService
         ];
 
         foreach ($reqs as $r) {
+            if ($r->current_state === 'ASSEMBLY_COMPLETED') {
+                continue;
+            }
             $qty = (int)$r->required_qty;
             if ($qty <= 0) continue;
 

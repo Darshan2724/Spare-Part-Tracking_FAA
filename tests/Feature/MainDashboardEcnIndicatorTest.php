@@ -240,4 +240,57 @@ class MainDashboardEcnIndicatorTest extends TestCase
         $this->assertGreaterThan(0, $unit['sides']['RH']['ecn_count']);
         $this->assertEquals(0, $unit['sides']['LH']['ecn_count']);
     }
+
+    public function test_assembled_completed_ecn_label_vanishes_from_dashboard()
+    {
+        $item = BomItem::create([
+            'project_id' => $this->testProject->id,
+            'standard_part_no' => 'REG-VANISH-TEST',
+            'jig_no' => 'JIG-VANISH',
+            'unit_no' => '09',
+        ]);
+        \App\Models\BomRequirement::create([
+            'bom_item_id' => $item->id,
+            'side' => 'LH',
+            'required_quantity' => 2,
+        ]);
+
+        $ecnReq = EcnRequirement::create([
+            'project_id' => $this->testProject->id,
+            'ecn_number' => 'ECN-VANISH-1',
+            'jig_no' => 'JIG-VANISH',
+            'unit_no' => '09',
+            'part_no' => 'ECN-VANISH-PART',
+            'side' => 'LA',
+            'side_display' => 'LH',
+            'required_qty' => 1,
+            'received_qty' => 1,
+            'current_state' => 'ASSEMBLY',
+        ]);
+
+        // When current_state is ASSEMBLY, ECN is still active -> ecn_present is true
+        $res1 = $this->getJson("/api/v1/dashboard/project-hierarchy?project_id={$this->testProject->id}");
+        $res1->assertStatus(200);
+        $jig1 = collect($res1->json()['jigs'])->firstWhere('jig_name', 'JIG-VANISH');
+        $unit1 = collect($jig1['units'])->firstWhere('unit_no', 'Unit 09');
+        $this->assertTrue((bool)$jig1['ecn_present']);
+        $this->assertTrue((bool)$unit1['ecn_present']);
+        $this->assertTrue((bool)$unit1['sides']['LH']['ecn_present']);
+
+        // Now mark ECN requirement as ASSEMBLY_COMPLETED
+        $ecnReq->current_state = 'ASSEMBLY_COMPLETED';
+        $ecnReq->save();
+
+        // ECN label must vanish from Jig, Unit, and LH side cards
+        $res2 = $this->getJson("/api/v1/dashboard/project-hierarchy?project_id={$this->testProject->id}");
+        $res2->assertStatus(200);
+        $jig2 = collect($res2->json()['jigs'])->firstWhere('jig_name', 'JIG-VANISH');
+        $unit2 = collect($jig2['units'])->firstWhere('unit_no', 'Unit 09');
+        $this->assertFalse((bool)$jig2['ecn_present'], 'Jig ECN label must vanish when ECN is assembled completed');
+        $this->assertFalse((bool)$unit2['ecn_present'], 'Unit ECN label must vanish when ECN is assembled completed');
+        $this->assertFalse((bool)$unit2['sides']['LH']['ecn_present'], 'LH ECN label must vanish when ECN is assembled completed');
+        $this->assertEquals(0, $jig2['ecn_count']);
+        $this->assertEquals(0, $unit2['ecn_count']);
+        $this->assertEquals(0, $unit2['sides']['LH']['ecn_count']);
+    }
 }
