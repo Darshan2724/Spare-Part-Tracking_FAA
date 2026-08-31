@@ -471,7 +471,7 @@
                 <div>
                   <div class="d-flex align-items-center gap-2">
                     <h6 class="fw-bold mb-0 text-dark fs-6">{{ jig.jig_name }}</h6>
-                    <span v-if="jig.ecn_present || jig.is_ecn_present || (jig.ecn_count > 0)" class="badge rounded-pill border" style="font-size: 0.62rem; font-weight: 700; background-color: #fffbeb; color: #b45309; border-color: #fde68a !important; padding: 2px 6px; letter-spacing: 0.4px; line-height: 1;" title="Contains ECN parts">
+                    <span v-if="jig.ecn_present || jig.is_ecn_present || (jig.ecn_count > 0)" class="badge shadow-xs" style="font-size: 0.68rem; font-weight: 700; background-color: #f59e0b; color: #ffffff; padding: 1.5px 6px; border-radius: 4px; letter-spacing: 0.4px; line-height: 1.2;" title="Contains ECN parts">
                       ECN
                     </span>
                     <span v-if="jig.is_complete" class="badge bg-success px-2 py-1 fs-7">
@@ -526,7 +526,7 @@
                     <div class="d-flex align-items-center gap-2">
                       <i class="fas fa-cube" :class="unit.is_complete ? 'text-success' : 'text-primary'"></i>
                       <span class="fw-bold text-dark">{{ unit.unit_no }}</span>
-                      <span v-if="unit.ecn_present || unit.is_ecn_present || (unit.ecn_count > 0)" class="badge rounded-pill border" style="font-size: 0.60rem; font-weight: 700; background-color: #fffbeb; color: #b45309; border-color: #fde68a !important; padding: 2px 5px; letter-spacing: 0.4px; line-height: 1;" title="Contains ECN parts">
+                      <span v-if="unit.ecn_present || unit.is_ecn_present || (unit.ecn_count > 0)" class="badge shadow-xs" style="font-size: 0.66rem; font-weight: 700; background-color: #f59e0b; color: #ffffff; padding: 1.5px 6px; border-radius: 4px; letter-spacing: 0.4px; line-height: 1.2;" title="Contains ECN parts">
                         ECN
                       </span>
                       <span v-if="unit.is_complete" class="badge bg-success px-2 py-1 fs-7">
@@ -574,7 +574,7 @@
                           <div class="d-flex justify-content-between align-items-center mb-2">
                             <span class="fw-bold text-uppercase small d-flex align-items-center gap-1.5">
                               <i class="fas fa-arrow-left text-primary"></i> Left Hand (LH)
-                              <span v-if="unit.sides?.LH?.ecn_present || unit.sides?.LH?.is_ecn_present || (unit.sides?.LH?.ecn_count > 0)" class="badge rounded-pill border" style="font-size: 0.58rem; font-weight: 700; background-color: #fffbeb; color: #b45309; border-color: #fde68a !important; padding: 1.5px 5px; letter-spacing: 0.3px; line-height: 1;" title="Contains ECN parts">
+                              <span v-if="unit.sides?.LH?.ecn_present || unit.sides?.LH?.is_ecn_present || (unit.sides?.LH?.ecn_count > 0)" class="badge shadow-xs" style="font-size: 0.64rem; font-weight: 700; background-color: #f59e0b; color: #ffffff; padding: 1px 5px; border-radius: 4px; letter-spacing: 0.4px; line-height: 1.2;" title="Contains ECN parts">
                                 ECN
                               </span>
                             </span>
@@ -633,7 +633,7 @@
                           <div class="d-flex justify-content-between align-items-center mb-2">
                             <span class="fw-bold text-uppercase small d-flex align-items-center gap-1.5">
                               <i class="fas fa-arrow-right text-primary"></i> Right Hand (RH)
-                              <span v-if="unit.sides?.RH?.ecn_present || unit.sides?.RH?.is_ecn_present || (unit.sides?.RH?.ecn_count > 0)" class="badge rounded-pill border" style="font-size: 0.58rem; font-weight: 700; background-color: #fffbeb; color: #b45309; border-color: #fde68a !important; padding: 1.5px 5px; letter-spacing: 0.3px; line-height: 1;" title="Contains ECN parts">
+                              <span v-if="unit.sides?.RH?.ecn_present || unit.sides?.RH?.is_ecn_present || (unit.sides?.RH?.ecn_count > 0)" class="badge shadow-xs" style="font-size: 0.64rem; font-weight: 700; background-color: #f59e0b; color: #ffffff; padding: 1px 5px; border-radius: 4px; letter-spacing: 0.4px; line-height: 1.2;" title="Contains ECN parts">
                                 ECN
                               </span>
                             </span>
