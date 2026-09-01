@@ -14,8 +14,18 @@ abstract class TestCase extends BaseTestCase
     protected function tearDown(): void
     {
         try {
-            $realProjectIds = [16, 723];
-            $testProjects = Project::whereNotIn('id', $realProjectIds)->get();
+            $protectedCodes = ['FA-273', 'FA-279'];
+            $testProjects = Project::whereNotIn('project_code', $protectedCodes)
+                ->where(function ($q) {
+                    $q->where('project_code', 'LIKE', 'TEST-%')
+                      ->orWhere('project_code', 'LIKE', 'SP-1-%')
+                      ->orWhere('project_code', 'LIKE', 'AP-1-%')
+                      ->orWhere('project_code', 'LIKE', 'CP-2-%')
+                      ->orWhere('project_code', 'LIKE', 'FA-NAV-%')
+                      ->orWhere('name', 'LIKE', '%Test%')
+                      ->orWhere('is_test_data', true);
+                })
+                ->get();
             $testProjIds = $testProjects->pluck('id')->toArray();
 
             if (!empty($testProjIds)) {
@@ -45,6 +55,17 @@ abstract class TestCase extends BaseTestCase
 
                 DB::table('projects')->whereIn('id', $testProjIds)->delete();
             }
+
+            DB::table('suppliers')
+                ->where('code', 'LIKE', 'TEST_%')
+                ->orWhere('code', 'LIKE', 'SUPP-T-%')
+                ->orWhere('code', 'LIKE', 'TSC-%')
+                ->orWhere('code', 'LIKE', 'TSF-%')
+                ->orWhere('code', 'LIKE', 'TSQ-%')
+                ->orWhere('code', 'LIKE', 'TSP-%')
+                ->orWhere('code', 'LIKE', 'TSC2-%')
+                ->orWhere('is_test_data', true)
+                ->delete();
         } catch (\Throwable $e) {
             // Ignore DB errors during teardown
         }

@@ -480,6 +480,17 @@
                     <span v-else class="badge bg-primary-subtle text-primary border border-primary-subtle px-2 py-1 fs-7">
                       <i class="fas fa-cogs me-1"></i> In Progress
                     </span>
+                    <button 
+                      v-if="['ADMIN', 'MANAGER', 'PURCHASE'].includes(authStore.userRole)"
+                      type="button" 
+                      class="btn btn-xs btn-outline-dark ms-1 shadow-xs d-inline-flex align-items-center gap-1"
+                      style="font-size: 0.72rem; padding: 1px 7px; border-radius: 4px;"
+                      title="View Jig Assigned Suppliers"
+                      @click.stop="openJigSupplierModal(jig)"
+                    >
+                      <i class="fas fa-truck text-primary"></i>
+                      <span>Supplier</span>
+                    </button>
                   </div>
                   <small class="text-muted">{{ jig.total_units || jig.units?.length || 0 }} Units &bull; {{ jig.total_parts || 0 }} Parts</small>
                 </div>
@@ -1074,6 +1085,92 @@
         </div>
       </div>
     </div>
+
+    <!-- JIG SUPPLIER VISIBILITY POPUP MODAL (Admin / Manager / Purchase) -->
+    <div v-if="showJigSupplierModal" class="modal fade show d-block" tabindex="-1" style="background-color: rgba(15, 23, 42, 0.6); z-index: 1060;" @click.self="showJigSupplierModal = false">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content shadow-lg border-0">
+          <div class="modal-header bg-dark text-white py-3">
+            <div class="d-flex align-items-center gap-2">
+              <i class="fas fa-truck text-warning fs-5"></i>
+              <div>
+                <h5 class="modal-title fw-bold mb-0">JIG {{ selectedJigSupplierData?.jig_no }} &mdash; Supplier Visibility</h5>
+                <small class="text-white-50">Active supplier assignments allocated across units and categories</small>
+              </div>
+            </div>
+            <button type="button" class="btn-close btn-close-white" @click="showJigSupplierModal = false"></button>
+          </div>
+
+          <div class="modal-body p-3">
+            <div v-if="jigSupplierLoading" class="text-center py-5">
+              <div class="spinner-border text-primary mb-2" role="status"></div>
+              <p class="text-muted small mb-0">Loading Jig Supplier Assignments...</p>
+            </div>
+
+            <div v-else>
+              <!-- Unique Suppliers Summary Chips -->
+              <div class="mb-3 p-2.5 bg-light rounded border">
+                <span class="extra-small text-uppercase fw-bold text-muted d-block mb-1.5">Associated Suppliers for this Jig:</span>
+                <div class="d-flex flex-wrap gap-2">
+                  <span 
+                    v-for="supp in selectedJigSupplierData?.unique_suppliers" 
+                    :key="supp.supplier_id"
+                    class="badge bg-white text-dark border px-2.5 py-1.5 d-inline-flex align-items-center gap-1 shadow-xs"
+                  >
+                    <i class="fas fa-industry text-primary"></i>
+                    <strong class="text-dark">{{ supp.supplier_name }}</strong>
+                    <span class="badge bg-light text-muted border ms-1">{{ supp.supplier_code || 'SUP' }}</span>
+                  </span>
+                  <span v-if="!selectedJigSupplierData?.unique_suppliers?.length" class="text-muted small">
+                    No suppliers allocated to this Jig yet.
+                  </span>
+                </div>
+              </div>
+
+              <!-- Detailed Assignments Table -->
+              <div class="table-responsive bg-white rounded border">
+                <table class="table table-hover table-sm align-middle mb-0">
+                  <thead class="table-dark">
+                    <tr>
+                      <th>Unit</th>
+                      <th>Category</th>
+                      <th>Assigned Supplier</th>
+                      <th>Target Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="assign in selectedJigSupplierData?.assignments" :key="assign.id">
+                      <td><strong class="text-dark">{{ assign.unit_no }}</strong></td>
+                      <td>
+                        <span class="badge" :class="assign.category === 'BASE' ? 'bg-success' : (assign.category === 'WELDMENT' ? 'bg-info text-dark' : 'bg-warning text-dark')">
+                          {{ assign.category }}
+                        </span>
+                      </td>
+                      <td><strong class="text-primary">{{ assign.supplier_name }}</strong></td>
+                      <td>
+                        <span class="badge bg-light text-dark border">
+                          <i class="fas fa-calendar-day me-1 text-muted"></i>{{ assign.assignment_date || '—' }}
+                        </span>
+                      </td>
+                    </tr>
+                    <tr v-if="!selectedJigSupplierData?.assignments?.length">
+                      <td colspan="4" class="text-center py-4 text-muted">
+                        <i class="fas fa-info-circle me-1 text-info"></i>
+                        No supplier allocations have been made for JIG {{ selectedJigSupplierData?.jig_no }} yet.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer bg-light py-2">
+            <button type="button" class="btn btn-secondary btn-sm" @click="showJigSupplierModal = false">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
     </div>
   </div>
 </template>
@@ -1095,6 +1192,36 @@ const cacheStore = useAppCacheStore();
 const metrics = ref({});
 const statusDistribution = ref({});
 const projectsProgress = ref([]);
+
+// --- JIG SUPPLIER MODAL STATE & HANDLERS ---
+const showJigSupplierModal = ref(false);
+const jigSupplierLoading = ref(false);
+const selectedJigSupplierData = ref(null);
+
+const openJigSupplierModal = async (jig) => {
+  if (!filters.value.project_id) return;
+  showJigSupplierModal.value = true;
+  jigSupplierLoading.value = true;
+  selectedJigSupplierData.value = {
+    jig_no: jig.jig_name,
+    unique_suppliers: [],
+    assignments: [],
+  };
+
+  try {
+    const res = await axios.get('/api/v1/dashboard/jig-suppliers', {
+      params: {
+        project_id: filters.value.project_id,
+        jig_no: jig.jig_name,
+      },
+    });
+    selectedJigSupplierData.value = res.data.data;
+  } catch (err) {
+    console.error('Failed to load jig suppliers:', err);
+  } finally {
+    jigSupplierLoading.value = false;
+  }
+};
 
 // --- KPI DRILL-DOWN MODAL STATE & HANDLERS ---
 const showKpiDrilldownModal = ref(false);
