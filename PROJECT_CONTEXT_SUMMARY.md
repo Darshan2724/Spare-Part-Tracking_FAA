@@ -7,7 +7,7 @@
 **Web Frontend Framework:** Vue 3.4+ (Vite, Bootstrap 5.3, Chart.js, Pinia)  
 **Mobile Application:** React Native 0.74.5 / Expo SDK 51 (Standalone Android APK + EAS OTA Updates)  
 **Infrastructure:** Docker Compose (7 Microservices), Windows 11 Desktop On-Premise LAN Server  
-**Document Revision:** August 28, 2026  
+**Document Revision:** August 31, 2026  
 
 ---
 
@@ -16,7 +16,7 @@
 2. [Strict Architectural Laws & Mathematical Invariants](#2-strict-architectural-laws--mathematical-invariants)
 3. [Manufacturing Workflow & State Machine Rules](#3-manufacturing-workflow--state-machine-rules)
 4. [Strict Multi-Department Lineage Revert Engine](#4-strict-multi-department-lineage-revert-engine)
-5. [Chronological Development Milestones (1 to 10)](#5-chronological-development-milestones-1-to-10)
+5. [Chronological Development Milestones (1 to 12)](#5-chronological-development-milestones-1-to-12)
 6. [Default Roles, Accounts & Credentials](#6-default-roles-accounts--credentials)
 7. [Network Architecture & Port Allocations](#7-network-architecture--port-allocations)
 8. [Complete Server Upload & Deployment SOP](#8-complete-server-upload--deployment-sop)
@@ -190,7 +190,20 @@ SpareTrack implements a reverse-lineage state machine (`WorkflowRevertController
 * Added quick switcher chips (`Wi-Fi (192.168.100.60)` and `Plant LAN (192.168.9.200)`).
 * Added `⚡ Test Connection` real-time ping tool.
 * Configured launch auto-check for OTA updates and in-app header manual update button (`🔄 Update`).
-* Expanded test suite to **81 passing PHPUnit feature tests (801 assertions)**.
+
+### Milestone 11: ECN Workflow Hardening, QC Reject Idempotency & Queue Stale State Elimination
+* **Root Cause & Fix**: Identified that when an ECN part was rejected from QC mobile inspection (`ecn_receipt_items.status = 'qc_rejected'`), the requirement remained at `current_state = 'QC'` with `received_qty = 1`, causing rejected parts to reappear in the QC inspection queue.
+* **Hierarchy Verification**: Hardened `HierarchyService::getDepartmentHierarchy('qc', ...)` to strictly verify `$qcPendingInspCalc > 0` and uninspected receipt items exist before rendering in QC inspection.
+* **ECN Reject Idempotency**: Prevented duplicate rejections from creating multiple duplicate Purchase records for the same physical quantity.
+* **ECN Revert Identity**: Added multi-format ID resolution across departments (accepts requirement ID, receipt item ID, or numeric string).
+* **Database Reconciliation**: Reconciled historical orphaned records in PostgreSQL back to clean pending state.
+
+### Milestone 12: Scoped ECN Indicators on Main Dashboard Hierarchy & Git History Normalization
+* **Pure Regular Part Lists**: Main Dashboard part listings (`allUnitParts`, `lhParts`, `rhParts`) display strictly 100% regular BOM parts (`if ($deptKey === 'manager') continue;` in ECN requirements loop). No ECN items or quantities are merged into normal part tables.
+* **Scoped `[ECN]` Badge**: Small, high-contrast amber chip (`#f59e0b` background with bold white text and subtle shadow) displayed on Jig, Unit, LH, and RH section headers if and only if active ECN parts exist within that exact scope.
+* **Auto-Vanish on Completion**: When an ECN requirement reaches `ASSEMBLY_COMPLETED`, the `[ECN]` indicator badge automatically vanishes from that LH/RH, Unit, and Jig card on the Main Dashboard.
+* **Git Author Normalization**: Rewrote entire repository Git history (154 commits) with `git-filter-repo` to map all author and committer emails to verified GitHub primary email `Darshan2724 <darshilvant@gmail.com>`.
+* **Complete Regression Suite**: Expanded test suite to **140 passing PHPUnit feature tests (1,371 assertions)** covering all manufacturing, revert, and ECN invariants.
 
 ---
 
