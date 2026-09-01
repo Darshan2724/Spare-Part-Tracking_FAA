@@ -232,4 +232,18 @@ class SupplierManagementNavigationAndImportTest extends TestCase
 
         $this->assertTrue(collect($response->json('data'))->contains('jig_no', 'JIG-NAV-01'));
     }
+
+    /**
+     * Test Purchase Queue endpoints (/purchase/items and /purchase/queue alias).
+     */
+    public function test_purchase_queue_endpoints()
+    {
+        $response1 = $this->actingAs($this->purchaseUser)->getJson('/api/v1/purchase/items');
+        $response1->assertStatus(200)
+            ->assertJsonStructure(['items', 'projects']);
+
+        $response2 = $this->actingAs($this->purchaseUser)->getJson('/api/v1/purchase/queue');
+        $response2->assertStatus(200)
+            ->assertJsonStructure(['items', 'projects']);
+    }
 }

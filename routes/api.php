@@ -150,7 +150,10 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
         // Purchase Queue Operations
         Route::prefix('purchase')->group(function () {
             Route::get('/items', [PurchaseQueueController::class, 'index']);
+            Route::get('/queue', [PurchaseQueueController::class, 'index']);
             Route::patch('/items/{id}/status', [PurchaseQueueController::class, 'updateStatus']);
+            Route::patch('/queue/{id}', [PurchaseQueueController::class, 'updateStatus']);
+            Route::patch('/queue/{id}/status', [PurchaseQueueController::class, 'updateStatus']);
             Route::get('/export', [PurchaseQueueController::class, 'export']);
             Route::post('/export', [PurchaseQueueController::class, 'export']);
         });

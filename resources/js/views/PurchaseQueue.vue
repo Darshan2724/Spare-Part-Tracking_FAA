@@ -21,9 +21,9 @@
                   type="button" 
                   class="btn btn-sm fw-semibold px-3 py-1.5 shadow-xs transition-all" 
                   :class="activeTab === 'allocation' ? 'btn-primary text-white' : 'btn-outline-secondary'"
-                  @click="activeTab = 'allocation'"
+                  @click="selectTab('allocation')"
                 >
-                  <i class="fas fa-truck me-1.5"></i>Supplier Allocation
+                  <i class="fas fa-truck me-1.5"></i> Supplier Allocation
                 </button>
 
                 <!-- TAB 2: Overview Table -->
@@ -31,9 +31,9 @@
                   type="button" 
                   class="btn btn-sm fw-semibold px-3 py-1.5 shadow-xs transition-all" 
                   :class="activeTab === 'overview' ? 'btn-info text-white' : 'btn-outline-secondary'"
-                  @click="activeTab = 'overview'"
+                  @click="selectTab('overview')"
                 >
-                  <i class="fas fa-table-list me-1.5"></i>Overview Table
+                  <i class="fas fa-table-list me-1.5"></i> Overview Table
                 </button>
 
                 <!-- TAB 3: Supplier Add -->
@@ -41,9 +41,9 @@
                   type="button" 
                   class="btn btn-sm fw-semibold px-3 py-1.5 shadow-xs transition-all" 
                   :class="activeTab === 'supplier_add' ? 'btn-success text-white' : 'btn-outline-secondary'"
-                  @click="activeTab = 'supplier_add'"
+                  @click="selectTab('supplier_add')"
                 >
-                  <i class="fas fa-user-plus me-1.5"></i>Supplier Add
+                  <i class="fas fa-user-plus me-1.5"></i> Supplier Add
                 </button>
 
                 <!-- TAB 4: Rejected Parts -->
@@ -51,9 +51,9 @@
                   type="button" 
                   class="btn btn-sm fw-semibold px-3 py-1.5 shadow-xs transition-all" 
                   :class="activeTab === 'rejected' ? 'btn-danger text-white' : 'btn-outline-secondary'"
-                  @click="activeTab = 'rejected'"
+                  @click="selectTab('rejected')"
                 >
-                  <i class="fas fa-shopping-cart me-1.5"></i>Rejected Parts
+                  <i class="fas fa-shopping-cart me-1.5"></i> Rejected Parts
                 </button>
               </div>
             </div>
@@ -234,6 +234,14 @@ import SupplierAddTab from '@/components/SupplierAddTab.vue';
 // 4 Top-Level Tabs: 'allocation', 'overview', 'supplier_add', 'rejected'
 const activeTab = ref('allocation');
 
+const selectTab = (tab) => {
+  activeTab.value = tab;
+  error.value = '';
+  if (tab === 'rejected') {
+    loadItems(1);
+  }
+};
+
 // Rejected Parts State
 const items = ref([]);
 const projects = ref([]);
@@ -254,19 +262,33 @@ const loadItems = async (page = 1) => {
     if (projectId.value) params.append('project_id', projectId.value);
     if (status.value) params.append('status', status.value);
 
-    const res = await axios.get(`/api/v1/purchase/queue?${params.toString()}`);
-    items.value = res.data.data;
-    currentPage.value = res.data.current_page;
-    totalPages.value = res.data.last_page;
+    const res = await axios.get(`/api/v1/purchase/items?${params.toString()}`);
+    if (res.data.items) {
+      items.value = res.data.items.data || [];
+      currentPage.value = res.data.items.current_page || 1;
+      totalPages.value = res.data.items.last_page || 1;
+    } else if (res.data.data) {
+      items.value = res.data.data || [];
+      currentPage.value = res.data.current_page || 1;
+      totalPages.value = res.data.last_page || 1;
+    } else {
+      items.value = [];
+      currentPage.value = 1;
+      totalPages.value = 1;
+    }
+    if (res.data.projects) {
+      projects.value = res.data.projects;
+    }
   } catch (err) {
-    error.value = 'Failed to load purchase queue.';
+    console.error('Failed to load purchase queue:', err);
+    error.value = err.response?.data?.message || 'Failed to load purchase queue.';
   }
 };
 
 const loadProjects = async () => {
   try {
     const res = await axios.get('/api/v1/projects');
-    projects.value = res.data.data || res.data;
+    projects.value = res.data.data || res.data || [];
   } catch (err) {
     console.error('Failed to load projects:', err);
   }
@@ -316,13 +338,13 @@ const getRowClass = (s) => {
 const updateStatus = async (id, newStatus) => {
   error.value = '';
   try {
-    const res = await axios.patch(`/api/v1/purchase/queue/${id}`, {
+    const res = await axios.patch(`/api/v1/purchase/items/${id}/status`, {
       status: newStatus,
     });
     successMessage.value = res.data.message;
-    loadItems();
+    loadItems(currentPage.value);
   } catch (err) {
-    error.value = 'Failed to update status.';
+    error.value = err.response?.data?.message || 'Failed to update status.';
   }
 };
 
