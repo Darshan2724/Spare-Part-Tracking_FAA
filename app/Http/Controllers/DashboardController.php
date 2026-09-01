@@ -16,6 +16,7 @@ use App\Models\Supplier;
 use App\Services\QuantityCalculationService;
 use App\Services\HierarchyService;
 use App\Services\KpiDrilldownService;
+use App\Services\SupplierAnalyticsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -24,7 +25,8 @@ class DashboardController extends Controller
     public function __construct(
         protected QuantityCalculationService $quantityService = new QuantityCalculationService(),
         protected HierarchyService $hierarchyService = new HierarchyService(),
-        protected KpiDrilldownService $kpiDrilldownService = new KpiDrilldownService()
+        protected KpiDrilldownService $kpiDrilldownService = new KpiDrilldownService(),
+        protected SupplierAnalyticsService $supplierAnalyticsService = new SupplierAnalyticsService()
     ) {}
 
     public function kpiDrilldown(Request $request)
@@ -971,6 +973,30 @@ class DashboardController extends Controller
             'project_velocity' => $projectVelocity,
             'supplier_fill_accuracy' => $supplierFillAccuracy,
             'quality_cost_pressure' => $qualityCostPressure,
+        ]);
+    }
+
+    /**
+     * Get active supplier assignments for a specific Jig within a project.
+     * Restricted to ADMIN, MANAGER, and PURCHASE roles.
+     */
+    public function jigSuppliers(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'PURCHASE']) ?: abort(403, 'Unauthorized. Jig supplier visibility is restricted to Admin, Manager, and Purchase.');
+
+        $request->validate([
+            'project_id' => ['required', 'exists:projects,id'],
+            'jig_no' => ['required', 'string'],
+        ]);
+
+        $projectId = (int) $request->input('project_id');
+        $jigNo = trim($request->input('jig_no'));
+
+        $data = $this->supplierAnalyticsService->getJigSuppliers($projectId, $jigNo);
+
+        return response()->json([
+            'success' => true,
+            'data' => $data,
         ]);
     }
 }

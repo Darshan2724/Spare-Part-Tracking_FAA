@@ -11,7 +11,6 @@ use App\Models\EcnWorkflowRecord;
 use App\Models\User;
 use App\Services\EcnQuantityCalculationService;
 use App\Services\HierarchyService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 

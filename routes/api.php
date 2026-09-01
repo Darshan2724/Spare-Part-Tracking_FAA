@@ -12,6 +12,8 @@ use App\Http\Controllers\QcController;
 use App\Http\Controllers\ReworkController;
 use App\Http\Controllers\StoreController;
 use App\Http\Controllers\SupplierController;
+use App\Http\Controllers\SupplierAllocationController;
+use App\Http\Controllers\SupplierAnalyticsController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\ExportController;
 
@@ -71,9 +73,33 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
         Route::get('/dashboard/pipeline-status', [DashboardController::class, 'pipelineStatus']);
         Route::get('/dashboard/priority-map', [DashboardController::class, 'priorityMap']);
         Route::get('/dashboard/analytics', [DashboardController::class, 'managementAnalytics']);
+        Route::get('/dashboard/jig-suppliers', [DashboardController::class, 'jigSuppliers']);
 
-        // Suppliers CRUD
+        // Suppliers CRUD & Dropdown List & Excel Import
+        Route::get('/suppliers/active-list', [SupplierController::class, 'activeList']);
+        Route::post('/suppliers/import/preview', [SupplierController::class, 'importPreview']);
+        Route::post('/suppliers/import/commit', [SupplierController::class, 'commitImport']);
         Route::apiResource('suppliers', SupplierController::class);
+
+        // Supplier Allocation (Purchase Section)
+        Route::prefix('supplier-allocation')->group(function () {
+            Route::get('/hierarchy', [SupplierAllocationController::class, 'hierarchy']);
+            Route::get('/assignments', [SupplierAllocationController::class, 'getAssignments']);
+            Route::post('/assign', [SupplierAllocationController::class, 'saveAssignment']);
+            Route::post('/bulk-assign', [SupplierAllocationController::class, 'bulkAssign']);
+            Route::delete('/assignments/{id}', [SupplierAllocationController::class, 'removeAssignment']);
+            Route::get('/overview', [SupplierAllocationController::class, 'overview']);
+        });
+
+        // Supplier Management & Analytics
+        Route::prefix('supplier-analytics')->group(function () {
+            Route::get('/kpis', [SupplierAnalyticsController::class, 'kpis']);
+            Route::get('/ranking', [SupplierAnalyticsController::class, 'ranking']);
+            Route::get('/rework', [SupplierAnalyticsController::class, 'rework']);
+            Route::get('/allocation', [SupplierAnalyticsController::class, 'allocation']);
+            Route::get('/history', [SupplierAnalyticsController::class, 'history']);
+            Route::get('/suppliers/{id}', [SupplierAnalyticsController::class, 'supplierDetail']);
+        });
 
         // BOM Import
         Route::prefix('bom')->group(function () {

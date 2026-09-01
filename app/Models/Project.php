@@ -67,4 +67,9 @@ class Project extends Model
     {
         return $this->hasMany(EcnReceiptItem::class);
     }
+
+    public function supplierAssignments()
+    {
+        return $this->hasMany(SupplierAssignment::class);
+    }
 }
