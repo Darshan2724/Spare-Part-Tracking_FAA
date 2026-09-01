@@ -21,7 +21,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { registerRootComponent } from 'expo';
 import * as Updates from 'expo-updates';
-import apiClient, { setAuthToken, setBaseUrl } from './src/api/client';
+import apiClient, { setAuthToken, setBaseUrl, normalizeServerHost, SERVER_PRESETS } from './src/api/client';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.3; // 30% of screen width triggers action
@@ -438,8 +438,8 @@ function App() {
   const [userRole, setUserRole] = useState('');
   const [serverHost, setServerHost] = useState(
     process.env.EXPO_PUBLIC_API_URL 
-      ? process.env.EXPO_PUBLIC_API_URL.replace(/^https?:\/\//i, '').replace(/\/api\/v1\/?$/i, '')
-      : '192.168.9.200:8080'
+      ? normalizeServerHost(process.env.EXPO_PUBLIC_API_URL)
+      : '192.168.100.30:8080'
   );
   const [email, setEmail] = useState('admin@sparetrack.internal');
   const [password, setPassword] = useState('password123');
@@ -829,26 +829,25 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState(null);
 
   const handleTestConnection = async (hostOverride = null) => {
-    const targetHost = hostOverride || serverHost;
+    const targetHost = normalizeServerHost(hostOverride || serverHost);
     setTestingConnection(true);
     setConnectionStatus(null);
     try {
-      if (targetHost) {
-        setBaseUrl(targetHost);
-      }
+      setBaseUrl(targetHost);
       const startTime = Date.now();
-      const res = await apiClient.get('/health', { timeout: 5000 });
+      const res = await apiClient.get('/health', { timeout: 6000 });
       const elapsed = Date.now() - startTime;
+      const hostDisplay = targetHost;
       setConnectionStatus({
         success: true,
-        msg: `✓ Connected to Faith Automation API (${elapsed}ms)`,
+        msg: `✓ Connected to Faith Automation API (${elapsed}ms)\nHost: ${hostDisplay}\nDB: ${res.data?.checks?.database?.status || 'UP'} • Server Time: ${res.data?.checks?.application?.server_time || 'OK'}`,
       });
       showToast(`✓ Server connected (${elapsed}ms)`);
     } catch (err) {
       const targetUrl = `${apiClient.defaults.baseURL || getBaseUrl()}/health`;
       setConnectionStatus({
         success: false,
-        msg: `❌ Cannot reach ${targetUrl}\n${err.message || 'Connection timeout'}. Please verify phone is on same Wi-Fi and Mobile Data is OFF.`,
+        msg: `❌ Cannot reach ${targetUrl}\n${err.message || 'Connection timeout'}.\n\nPlease ensure:\n1. Phone is on Wi-Fi (192.168.100.x)\n2. Mobile 4G/5G Data is turned OFF\n3. Port :8080 is specified`,
       });
     } finally {
       setTestingConnection(false);
@@ -864,14 +863,8 @@ function App() {
     setLoading(true);
     setErrorMsg('');
     try {
-      if (serverHost) {
-        let cleanHost = serverHost.trim();
-        cleanHost = cleanHost.replace(/^https?:\/\//i, '');
-        cleanHost = cleanHost.replace(/\/api\/v1\/?$/i, '');
-        cleanHost = cleanHost.replace(/\/+$/, '');
-        const newBase = `http://${cleanHost}/api/v1`;
-        apiClient.defaults.baseURL = newBase;
-      }
+      const cleanHost = normalizeServerHost(serverHost);
+      setBaseUrl(cleanHost);
 
       const res = await apiClient.post('/auth/login', { email, password });
       const { token: receivedToken, user: receivedUser } = res.data;
@@ -897,7 +890,7 @@ function App() {
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Could not connect to server.';
       const targetUrl = `${apiClient.defaults.baseURL || getBaseUrl()}/auth/login`;
-      setErrorMsg(`Connection Error: ${msg}\n\nTarget Endpoint: ${targetUrl}\n\nPlease ensure phone is on the same Wi-Fi and Mobile Data is turned OFF.`);
+      setErrorMsg(`Connection Error: ${msg}\n\nTarget Endpoint: ${targetUrl}\n\nPlease ensure phone is on the same Wi-Fi (192.168.100.x) and Mobile Data is turned OFF.`);
       Alert.alert('Login Failed', `${msg}\n\nTarget: ${targetUrl}`);
     } finally {
       setLoading(false);
@@ -2270,10 +2263,77 @@ function App() {
                 setServerHost(text);
                 setBaseUrl(text);
               }}
-              placeholder="e.g. 192.168.9.200:8080"
+              placeholder="e.g. 192.168.100.30:8080 or 100.30"
               autoCapitalize="none"
               autoCorrect={false}
             />
+
+            {/* Quick-Connect Presets & Connection Tester */}
+            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+              {SERVER_PRESETS.map((preset) => {
+                const isSelected = normalizeServerHost(serverHost) === normalizeServerHost(preset.host);
+                return (
+                  <TouchableOpacity
+                    key={preset.id}
+                    style={{
+                      paddingVertical: 5,
+                      paddingHorizontal: 9,
+                      borderRadius: 6,
+                      backgroundColor: isSelected ? '#eff6ff' : '#f8fafc',
+                      borderWidth: 1,
+                      borderColor: isSelected ? '#3b82f6' : '#cbd5e1',
+                    }}
+                    onPress={() => {
+                      setServerHost(preset.host);
+                      setBaseUrl(preset.host);
+                      handleTestConnection(preset.host);
+                    }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: isSelected ? '#1d4ed8' : '#475569' }}>
+                      {preset.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity
+                style={{
+                  paddingVertical: 5,
+                  paddingHorizontal: 9,
+                  borderRadius: 6,
+                  backgroundColor: '#f1f5f9',
+                  borderWidth: 1,
+                  borderColor: '#94a3b8',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+                onPress={() => handleTestConnection()}
+                disabled={testingConnection}>
+                {testingConnection ? (
+                  <ActivityIndicator size="small" color="#2563eb" />
+                ) : (
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#2563eb' }}>⚡ Test Ping</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {connectionStatus && (
+              <View style={{
+                padding: 8,
+                borderRadius: 6,
+                marginBottom: 10,
+                backgroundColor: connectionStatus.success ? '#f0fdf4' : '#fef2f2',
+                borderWidth: 1,
+                borderColor: connectionStatus.success ? '#bbf7d0' : '#fecaca',
+              }}>
+                <Text style={{
+                  fontSize: 11,
+                  fontWeight: '600',
+                  color: connectionStatus.success ? '#166534' : '#991b1b',
+                }}>
+                  {connectionStatus.msg}
+                </Text>
+              </View>
+            )}
 
             <Text style={styles.label}>Email Address</Text>
             <TextInput

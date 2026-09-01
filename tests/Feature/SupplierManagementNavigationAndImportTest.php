@@ -189,14 +189,17 @@ class SupplierManagementNavigationAndImportTest extends TestCase
      */
     public function test_standalone_overview_table_api()
     {
-        $project = Project::firstOrCreate(
-            ['project_code' => 'FA-NAV-TEST'],
-            ['name' => 'FA-NAV-TEST Project', 'is_test_data' => true, 'is_active' => true]
-        );
+        $projectCode = 'FA-NAV-TEST-' . uniqid();
+        $project = Project::create([
+            'project_code' => $projectCode,
+            'name' => 'FA-NAV-TEST Project',
+            'is_test_data' => true,
+            'is_active' => true,
+        ]);
 
         $supplier = Supplier::create([
-            'name' => 'Omni Engineering Test ' . time(),
-            'code' => '153OMNI_' . time(),
+            'name' => 'Omni Engineering Test ' . uniqid(),
+            'code' => '153OMNI_' . uniqid(),
             'is_active' => true,
             'is_test_data' => true,
         ]);
@@ -231,6 +234,10 @@ class SupplierManagementNavigationAndImportTest extends TestCase
             ]);
 
         $this->assertTrue(collect($response->json('data'))->contains('jig_no', 'JIG-NAV-01'));
+
+        SupplierAssignment::where('project_id', $project->id)->delete();
+        $supplier->forceDelete();
+        $project->forceDelete();
     }
 
     /**
