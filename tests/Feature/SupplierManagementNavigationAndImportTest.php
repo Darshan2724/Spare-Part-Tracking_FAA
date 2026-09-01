@@ -189,14 +189,17 @@ class SupplierManagementNavigationAndImportTest extends TestCase
      */
     public function test_standalone_overview_table_api()
     {
-        $project = Project::firstOrCreate(
-            ['project_code' => 'FA-NAV-TEST'],
-            ['name' => 'FA-NAV-TEST Project', 'is_test_data' => true, 'is_active' => true]
-        );
+        $projectCode = 'FA-NAV-TEST-' . uniqid();
+        $project = Project::create([
+            'project_code' => $projectCode,
+            'name' => 'FA-NAV-TEST Project',
+            'is_test_data' => true,
+            'is_active' => true,
+        ]);
 
         $supplier = Supplier::create([
-            'name' => 'Omni Engineering Test ' . time(),
-            'code' => '153OMNI_' . time(),
+            'name' => 'Omni Engineering Test ' . uniqid(),
+            'code' => '153OMNI_' . uniqid(),
             'is_active' => true,
             'is_test_data' => true,
         ]);
@@ -231,5 +234,23 @@ class SupplierManagementNavigationAndImportTest extends TestCase
             ]);
 
         $this->assertTrue(collect($response->json('data'))->contains('jig_no', 'JIG-NAV-01'));
+
+        SupplierAssignment::where('project_id', $project->id)->delete();
+        $supplier->forceDelete();
+        $project->forceDelete();
+    }
+
+    /**
+     * Test Purchase Queue endpoints (/purchase/items and /purchase/queue alias).
+     */
+    public function test_purchase_queue_endpoints()
+    {
+        $response1 = $this->actingAs($this->purchaseUser)->getJson('/api/v1/purchase/items');
+        $response1->assertStatus(200)
+            ->assertJsonStructure(['items', 'projects']);
+
+        $response2 = $this->actingAs($this->purchaseUser)->getJson('/api/v1/purchase/queue');
+        $response2->assertStatus(200)
+            ->assertJsonStructure(['items', 'projects']);
     }
 }

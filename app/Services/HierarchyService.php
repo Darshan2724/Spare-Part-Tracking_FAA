@@ -261,7 +261,7 @@ class HierarchyService
                 // Location Residencies
                 $validReceived = $recForSide->whereIn('status', ['received', 'sent_to_qc', 'qc_received', 'qc_approved', 'qc_rejected', 'qc_rework', 'qc_inspected', 'returned_to_store'])->sum('received_quantity');
                 $storeResident = (int) $recForSide->whereIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
-                $qcPendingArrival = (int) $recForSide->where('status', 'sent_to_qc')->sum('received_quantity');
+                $qcPendingArrival = (int) $recForSide->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
                 $totalQcArrived = (int) $recForSide->whereIn('status', ['qc_received', 'qc_approved', 'qc_rejected', 'qc_rework', 'qc_inspected'])->sum('received_quantity');
                 $qcPendingInspection = max(0, ($totalQcArrived + $rewComp) - ($qcApp + $qcRej + $qcRew));
                 $qcResident = $qcPendingArrival + $qcPendingInspection;
