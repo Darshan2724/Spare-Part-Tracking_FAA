@@ -439,7 +439,7 @@ function App() {
   const [serverHost, setServerHost] = useState(
     process.env.EXPO_PUBLIC_API_URL 
       ? normalizeServerHost(process.env.EXPO_PUBLIC_API_URL)
-      : '192.168.100.30:8080'
+      : '192.168.9.200:8080'
   );
   const [email, setEmail] = useState('admin@sparetrack.internal');
   const [password, setPassword] = useState('password123');
@@ -2263,7 +2263,7 @@ function App() {
                 setServerHost(text);
                 setBaseUrl(text);
               }}
-              placeholder="e.g. 192.168.100.30:8080 or 100.30"
+              placeholder="e.g. 192.168.9.200:8080 or 100.30"
               autoCapitalize="none"
               autoCorrect={false}
             />
