@@ -21,7 +21,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { registerRootComponent } from 'expo';
 import * as Updates from 'expo-updates';
-import apiClient, { setAuthToken, setBaseUrl, normalizeServerHost, SERVER_PRESETS } from './src/api/client';
+import apiClient, { setAuthToken, setBaseUrl, normalizeServerHost } from './src/api/client';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.3; // 30% of screen width triggers action
@@ -2267,73 +2267,6 @@ function App() {
               autoCapitalize="none"
               autoCorrect={false}
             />
-
-            {/* Quick-Connect Presets & Connection Tester */}
-            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-              {SERVER_PRESETS.map((preset) => {
-                const isSelected = normalizeServerHost(serverHost) === normalizeServerHost(preset.host);
-                return (
-                  <TouchableOpacity
-                    key={preset.id}
-                    style={{
-                      paddingVertical: 5,
-                      paddingHorizontal: 9,
-                      borderRadius: 6,
-                      backgroundColor: isSelected ? '#eff6ff' : '#f8fafc',
-                      borderWidth: 1,
-                      borderColor: isSelected ? '#3b82f6' : '#cbd5e1',
-                    }}
-                    onPress={() => {
-                      setServerHost(preset.host);
-                      setBaseUrl(preset.host);
-                      handleTestConnection(preset.host);
-                    }}>
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: isSelected ? '#1d4ed8' : '#475569' }}>
-                      {preset.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-              <TouchableOpacity
-                style={{
-                  paddingVertical: 5,
-                  paddingHorizontal: 9,
-                  borderRadius: 6,
-                  backgroundColor: '#f1f5f9',
-                  borderWidth: 1,
-                  borderColor: '#94a3b8',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-                onPress={() => handleTestConnection()}
-                disabled={testingConnection}>
-                {testingConnection ? (
-                  <ActivityIndicator size="small" color="#2563eb" />
-                ) : (
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#2563eb' }}>⚡ Test Ping</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            {connectionStatus && (
-              <View style={{
-                padding: 8,
-                borderRadius: 6,
-                marginBottom: 10,
-                backgroundColor: connectionStatus.success ? '#f0fdf4' : '#fef2f2',
-                borderWidth: 1,
-                borderColor: connectionStatus.success ? '#bbf7d0' : '#fecaca',
-              }}>
-                <Text style={{
-                  fontSize: 11,
-                  fontWeight: '600',
-                  color: connectionStatus.success ? '#166534' : '#991b1b',
-                }}>
-                  {connectionStatus.msg}
-                </Text>
-              </View>
-            )}
 
             <Text style={styles.label}>Email Address</Text>
             <TextInput
