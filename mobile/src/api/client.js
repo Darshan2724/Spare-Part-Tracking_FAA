@@ -8,7 +8,7 @@ export const SERVER_PRESETS = [
   { id: 'server_9_200', label: '192.168.9.200:8080 (Company Server)', host: '192.168.9.200:8080' },
 ];
 
-export const DEFAULT_HOST = 'http://192.168.100.30:8080/api/v1';
+export const DEFAULT_HOST = 'http://192.168.9.200:8080/api/v1';
 const ENV_API_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_HOST;
 
 let currentBaseUrl = ENV_API_URL;
@@ -41,7 +41,7 @@ apiClient.interceptors.request.use((config) => {
  * - "192.168.9.200:8080/api/v1" -> "http://192.168.9.200:8080/api/v1"
  */
 export const normalizeServerHost = (input) => {
-  if (!input || typeof input !== 'string') return '192.168.100.30:8080';
+  if (!input || typeof input !== 'string') return '192.168.9.200:8080';
   let host = input.trim();
 
   // Strip protocol and trailing paths
