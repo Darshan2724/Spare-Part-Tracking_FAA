@@ -10,9 +10,8 @@
       <button type="button" class="btn-close py-2" @click="successMessage = ''"></button>
     </div>
 
-    <!-- Navigation Context & View Toggle Bar -->
+    <!-- Navigation Context & View Breadcrumbs -->
     <div class="d-flex justify-content-between align-items-center mb-2.5">
-      <!-- Breadcrumb / Hierarchy Context -->
       <nav aria-label="breadcrumb">
         <ol class="breadcrumb mb-0 align-items-center small">
           <li class="breadcrumb-item">
@@ -37,21 +36,21 @@
     <!-- ========================================================================= -->
 
     <!-- Loading State -->
-    <div v-if="loading && !hierarchyJigs.length" class="text-center py-4 bg-white rounded border shadow-xs app-card">
-      <div class="spinner-border spinner-border-sm text-primary mb-2" role="status"></div>
-      <div class="small text-muted">Loading Supplier Allocation Hierarchy...</div>
+    <div v-if="loading && !hierarchyJigs.length" class="text-center py-5 bg-white rounded border shadow-xs app-card">
+      <div class="spinner-border text-primary mb-2" role="status"></div>
+      <div class="small text-muted fw-semibold">Loading Supplier Allocation Hierarchy...</div>
     </div>
 
     <!-- LEVEL 1: PROJECT CARDS -->
     <div v-else-if="!selectedProjectId">
-      <div class="row g-2.5">
+      <div class="row g-3">
         <div v-for="proj in projects" :key="proj.id" class="col-12 col-sm-6 col-md-4 col-lg-3">
           <div 
-            class="card project-card hover-card bg-white cursor-pointer h-100"
+            class="card project-card hover-card bg-white cursor-pointer h-100 p-3"
             @click="selectProject(proj.id)"
           >
-            <div class="d-flex justify-content-between align-items-start mb-1.5">
-              <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-bold">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+              <span class="badge bg-primary-subtle text-primary border border-primary-subtle fw-bold px-2 py-1">
                 {{ proj.project_code || 'PROJ' }}
               </span>
               <span class="badge bg-light text-dark border extra-small">
@@ -59,13 +58,13 @@
               </span>
             </div>
             <h6 class="fw-bold text-dark mb-1 text-truncate" :title="proj.name">{{ proj.name }}</h6>
-            <div class="d-flex justify-content-between align-items-center mt-2.5 border-top pt-1.5">
+            <div class="d-flex justify-content-between align-items-center mt-3 border-top pt-2">
               <span class="extra-small text-muted">Select Project</span>
               <span class="extra-small text-primary fw-bold">Open &rarr;</span>
             </div>
           </div>
         </div>
-        <div v-if="!projects.length" class="col-12 text-center py-4 text-muted">
+        <div v-if="!projects.length" class="col-12 text-center py-5 text-muted">
           <p class="small mb-0">No active projects found.</p>
         </div>
       </div>
@@ -73,34 +72,35 @@
 
     <!-- LEVEL 2: JIG CARDS -->
     <div v-else-if="selectedProjectId && !selectedJig">
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <div class="small fw-bold text-dark">
-          <i class="fas fa-cubes me-1 text-primary"></i> Jigs in {{ selectedProject?.project_code || selectedProject?.name }} ({{ hierarchyJigs.length }} Jigs)
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="small fw-bold text-dark d-flex align-items-center gap-1.5">
+          <i class="fas fa-cubes text-primary"></i>
+          <span>Jigs in <strong>{{ selectedProject?.project_code || selectedProject?.name }}</strong> ({{ hierarchyJigs.length }} Jigs)</span>
         </div>
-        <button class="btn btn-xs btn-outline-secondary" @click="goToProjects">
+        <button class="btn btn-sm btn-outline-secondary py-1 px-2.5" @click="goToProjects">
           <i class="fas fa-arrow-left me-1"></i> Back to Projects
         </button>
       </div>
 
-      <div class="row g-2.5">
+      <div class="row g-3">
         <div v-for="jig in hierarchyJigs" :key="jig.jig_no" class="col-12 col-sm-6 col-md-4 col-lg-3">
           <div 
-            class="card jig-card hover-card bg-white cursor-pointer h-100"
+            class="card jig-card hover-card bg-white cursor-pointer h-100 p-3"
             :class="{ 'border-success-subtle': jig.allocation_pct === 100 }"
             @click="selectJig(jig)"
           >
-            <div class="d-flex justify-content-between align-items-center mb-1.5">
-              <strong class="text-dark fs-6">{{ jig.jig_no }}</strong>
-              <span class="badge extra-small" :class="jig.allocation_pct === 100 ? 'bg-success' : (jig.assigned_slots > 0 ? 'bg-primary' : 'bg-secondary')">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <strong class="text-dark fs-6">JIG {{ jig.jig_no }}</strong>
+              <span class="badge extra-small px-2 py-0.5" :class="jig.allocation_pct === 100 ? 'bg-success' : (jig.assigned_slots > 0 ? 'bg-primary' : 'bg-secondary')">
                 {{ jig.allocation_pct }}%
               </span>
             </div>
 
-            <div class="extra-small text-muted mb-1.5">
+            <div class="extra-small text-muted mb-2">
               {{ jig.total_units }} Units &bull; {{ jig.assigned_slots }} / {{ jig.total_slots }} Slots Assigned
             </div>
 
-            <div class="progress" style="height: 4px;">
+            <div class="progress" style="height: 5px;">
               <div 
                 class="progress-bar" 
                 :class="jig.allocation_pct === 100 ? 'bg-success' : 'bg-primary'"
@@ -109,7 +109,7 @@
             </div>
           </div>
         </div>
-        <div v-if="!hierarchyJigs.length" class="col-12 text-center py-4 text-muted">
+        <div v-if="!hierarchyJigs.length" class="col-12 text-center py-5 text-muted">
           <p class="small mb-0">No Jigs configured for this project.</p>
         </div>
       </div>
@@ -120,24 +120,31 @@
     <!-- ========================================================================= -->
     <div v-else-if="selectedJig" class="split-workspace-container">
       <!-- Top Workspace Context Bar -->
-      <div class="card app-card bg-white mb-2.5">
-        <div class="card-body py-2 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
-          <div class="d-flex align-items-center gap-2">
+      <div class="card workspace-header-card bg-white mb-3 shadow-xs">
+        <div class="card-body py-2.5 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <!-- Left Context -->
+          <div class="d-flex align-items-center gap-2 flex-wrap">
             <span class="fw-bold text-dark fs-6 d-flex align-items-center gap-1.5">
               <span>{{ selectedProject?.project_code || selectedProject?.name }}</span>
-              <span class="text-muted">&rsaquo;</span>
-              <span class="text-primary">JIG {{ selectedJig.jig_no }}</span>
+              <span class="text-muted fw-normal">&rsaquo;</span>
+              <span class="text-primary fw-bold">JIG {{ selectedJig.jig_no }}</span>
             </span>
-            <span class="badge extra-small bg-primary-subtle text-primary border">
+
+            <span class="badge bg-light text-dark border extra-small px-2 py-1">
               {{ selectedJig.units?.length || 0 }} Units
             </span>
-            <span class="badge extra-small" :class="selectedJig.allocation_pct === 100 ? 'bg-success' : 'bg-secondary'">
-              {{ selectedJig.allocation_pct }}% Allocated ({{ selectedJig.assigned_slots }}/{{ selectedJig.total_slots }})
+
+            <span 
+              class="badge extra-small px-2 py-1" 
+              :class="selectedJig.allocation_pct === 100 ? 'bg-success text-white' : 'bg-primary-subtle text-primary border border-primary-subtle'"
+            >
+              {{ selectedJig.allocation_pct }}% Allocated ({{ selectedJig.assigned_slots }}/{{ selectedJig.total_slots }} slots)
             </span>
           </div>
 
+          <!-- Right Controls -->
           <div class="d-flex align-items-center gap-2">
-            <button class="btn btn-sm btn-outline-secondary py-1 px-2.5" @click="navigateWithGuard(goToJigs)">
+            <button class="btn btn-sm btn-outline-secondary py-1 px-2.5 shadow-xs" @click="navigateWithGuard(goToJigs)">
               <i class="fas fa-arrow-left me-1"></i> Back to Jigs
             </button>
           </div>
@@ -146,26 +153,28 @@
 
       <!-- Two-Panel Split Layout -->
       <div class="row g-3">
-        <!-- LEFT PANEL: Vertical Selectable Units List (28-30% on desktop) -->
+        <!-- ========================================================================= -->
+        <!-- LEFT PANEL: Vertical Selectable Units List (28-30% on desktop)            -->
+        <!-- ========================================================================= -->
         <div class="col-12 col-lg-4 col-xl-3">
-          <div class="card app-card bg-white h-100 units-panel">
+          <div class="card units-sidebar-card shadow-xs h-100">
             <!-- Left Panel Header: Controls & Multi-Select Counts -->
-            <div class="card-header bg-white py-2 px-2.5 border-bottom">
+            <div class="card-header bg-slate-100 py-2 px-3 border-bottom">
               <div class="d-flex justify-content-between align-items-center mb-1.5">
-                <strong class="text-dark small d-flex align-items-center gap-1">
+                <strong class="text-dark small d-flex align-items-center gap-1.5">
                   <i class="fas fa-layer-group text-primary"></i> Units
                 </strong>
-                <span class="badge bg-primary extra-small fw-semibold">
+                <span class="badge bg-primary extra-small px-2 py-0.5 fw-semibold shadow-xs">
                   {{ selectedUnits.length }} Selected
                 </span>
               </div>
 
               <!-- Multi-Unit Controls Toolbar -->
-              <div class="d-flex justify-content-between align-items-center gap-1">
-                <div class="d-flex align-items-center gap-1">
+              <div class="d-flex justify-content-between align-items-center gap-1.5 pt-1">
+                <div class="btn-group btn-group-sm">
                   <button 
                     type="button" 
-                    class="btn btn-xs btn-outline-primary py-0.5 px-1.5 fw-semibold"
+                    class="btn btn-xs btn-outline-primary py-0.5 px-2 fw-semibold"
                     @click="selectAllUnits"
                     :disabled="!selectedJig.units?.length"
                   >
@@ -173,7 +182,7 @@
                   </button>
                   <button 
                     type="button" 
-                    class="btn btn-xs btn-outline-secondary py-0.5 px-1.5"
+                    class="btn btn-xs btn-outline-secondary py-0.5 px-2"
                     @click="clearUnitSelection"
                     :disabled="!selectedUnits.length"
                   >
@@ -182,195 +191,190 @@
                 </div>
 
                 <!-- Fast Filter Input -->
-                <input 
-                  v-model="unitSearchFilter" 
-                  type="text" 
-                  class="form-control form-control-sm py-0 px-1.5 extra-small" 
-                  style="width: 100px; height: 24px;"
-                  placeholder="Filter unit..." 
-                />
+                <div class="input-group input-group-sm flex-grow-1" style="max-width: 130px;">
+                  <input 
+                    v-model="unitSearchFilter" 
+                    type="text" 
+                    class="form-control form-control-sm py-0 px-2 extra-small" 
+                    placeholder="Filter unit..." 
+                  />
+                </div>
               </div>
             </div>
 
             <!-- Left Panel Body: Scrollable Vertical List of Unit Cards -->
             <div class="card-body p-2 units-scroll-list">
-              <div class="d-flex flex-column gap-1.5">
+              <div class="d-flex flex-column gap-2">
                 <div 
                   v-for="unit in filteredUnitsList" 
                   :key="unit.unit_no"
-                  class="unit-list-item card p-2 cursor-pointer transition-all"
+                  class="unit-card-box p-2 cursor-pointer transition-all"
                   :class="{
-                    'selected-unit-card border-primary bg-primary-subtle bg-opacity-10 shadow-xs': isUnitSelected(unit.unit_no),
-                    'border-success-subtle': unit.is_fully_assigned && !isUnitSelected(unit.unit_no),
-                    'border-default': !isUnitSelected(unit.unit_no) && !unit.is_fully_assigned
+                    'selected-unit': isUnitSelected(unit.unit_no),
+                    'fully-assigned': unit.is_fully_assigned && !isUnitSelected(unit.unit_no),
+                    'unselected-unit': !isUnitSelected(unit.unit_no) && !unit.is_fully_assigned
                   }"
+                  tabindex="0"
                   @click="handleUnitRowClick(unit, $event)"
+                  @keydown.enter="handleUnitRowClick(unit, $event)"
+                  @keydown.space.prevent="handleUnitRowClick(unit, $event)"
                 >
                   <!-- Top Row: Checkbox, Unit Name, Assigned Count Badge -->
-                  <div class="d-flex justify-content-between align-items-center mb-1">
-                    <div class="d-flex align-items-center gap-1.5">
+                  <div class="d-flex justify-content-between align-items-center mb-1.5">
+                    <div class="d-flex align-items-center gap-2">
                       <input 
                         type="checkbox" 
-                        class="form-check-input cursor-pointer m-0"
+                        class="form-check-input cursor-pointer m-0 unit-checkbox"
                         :checked="isUnitSelected(unit.unit_no)"
                         @click.stop="toggleUnitSelection(unit)"
                       />
                       <strong class="text-dark small d-flex align-items-center gap-1">
-                        <i class="fas fa-cube text-primary extra-small"></i> Unit {{ unit.unit_no }}
+                        Unit {{ unit.unit_no }}
                       </strong>
                     </div>
 
                     <span 
-                      class="badge extra-small"
+                      class="badge extra-small px-1.5 py-0.5"
                       :class="unit.is_fully_assigned ? 'bg-success' : (unit.assigned_count > 0 ? 'bg-warning text-dark' : 'bg-secondary')"
                     >
                       {{ unit.assigned_count || 0 }}/3
                     </span>
                   </div>
 
-                  <!-- Compact Inline Category Summary: BASE ✓ | WELDMENT — | CHILD PART ✓ -->
-                  <div class="unit-summary-pill d-flex justify-content-between align-items-center px-1.5 py-0.5 rounded bg-light extra-small">
+                  <!-- Compact Inline Category Summary: BASE ✓ | WELD — | CHILD ✓ -->
+                  <div class="unit-summary-pill d-flex justify-content-between align-items-center px-2 py-1 rounded bg-slate-50 extra-small">
                     <span :class="unit.categories?.BASE ? 'text-success fw-bold' : 'text-muted'">
                       BASE {{ unit.categories?.BASE ? '✓' : '—' }}
                     </span>
-                    <span class="text-muted opacity-50">&bull;</span>
-                    <span :class="unit.categories?.WELDMENT ? 'text-info-emphasis fw-bold' : 'text-muted'">
+                    <span class="text-muted opacity-40">&bull;</span>
+                    <span :class="unit.categories?.WELDMENT ? 'text-primary fw-bold' : 'text-muted'">
                       WELD {{ unit.categories?.WELDMENT ? '✓' : '—' }}
                     </span>
-                    <span class="text-muted opacity-50">&bull;</span>
+                    <span class="text-muted opacity-40">&bull;</span>
                     <span :class="unit.categories?.CHILD_PART ? 'text-warning-emphasis fw-bold' : 'text-muted'">
                       CHILD {{ unit.categories?.CHILD_PART ? '✓' : '—' }}
                     </span>
                   </div>
                 </div>
 
-                <div v-if="!filteredUnitsList.length" class="text-center py-3 text-muted extra-small">
+                <div v-if="!filteredUnitsList.length" class="text-center py-4 text-muted extra-small">
                   No units matching filter.
                 </div>
               </div>
             </div>
 
             <!-- Left Panel Footer: Total count -->
-            <div class="card-footer bg-white py-1.5 px-2.5 border-top d-flex justify-content-between align-items-center extra-small text-muted">
+            <div class="card-footer bg-slate-100 py-2 px-3 border-top d-flex justify-content-between align-items-center extra-small text-muted">
               <span>Total: {{ selectedJig.units?.length || 0 }} Units</span>
-              <span class="fw-semibold text-primary">{{ selectedUnits.length }} selected</span>
+              <span class="fw-bold text-primary">{{ selectedUnits.length }} selected</span>
             </div>
           </div>
         </div>
 
-        <!-- RIGHT PANEL: Selected Unit(s) Supplier Assignment (70-72% on desktop) -->
+        <!-- ========================================================================= -->
+        <!-- RIGHT PANEL: Selected Unit(s) Supplier Assignment (70-72% on desktop)     -->
+        <!-- ========================================================================= -->
         <div class="col-12 col-lg-8 col-xl-9">
           <!-- Empty Selection State -->
-          <div v-if="!selectedUnits.length" class="card app-card bg-white p-5 text-center text-muted h-100 d-flex flex-column justify-content-center align-items-center">
-            <i class="fas fa-hand-pointer fa-3x text-primary opacity-25 mb-3"></i>
-            <h6 class="fw-bold text-dark">No Unit Selected</h6>
-            <p class="small mb-0 text-muted" style="max-width: 380px;">
-              Select a single Unit on the left to edit its supplier allocations, or select multiple Units using checkboxes to apply batch changes.
+          <div v-if="!selectedUnits.length" class="card empty-selection-card bg-white p-5 text-center text-muted h-100 d-flex flex-column justify-content-center align-items-center shadow-xs">
+            <div class="empty-icon-circle bg-primary-subtle text-primary mb-3">
+              <i class="fas fa-hand-pointer fa-2x"></i>
+            </div>
+            <h6 class="fw-bold text-dark mb-1">No Unit Selected</h6>
+            <p class="small text-muted mb-0" style="max-width: 380px;">
+              Click a Unit on the left to edit its supplier allocations, or select multiple Units using checkboxes to perform batch assignments.
             </p>
           </div>
 
           <!-- Active Assignment Workspace -->
-          <div v-else class="d-flex flex-column gap-2.5">
-            <!-- Context Header Banner -->
-            <div class="card app-card bg-white">
+          <div v-else class="d-flex flex-column gap-3">
+            <!-- Sleek Selection Summary Header -->
+            <div class="card selection-summary-bar bg-white shadow-xs">
               <div class="card-body py-2 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
-                <!-- Single Unit Context -->
-                <div v-if="selectedUnits.length === 1" class="d-flex align-items-center gap-2">
-                  <span class="fw-bold text-dark fs-6 d-flex align-items-center gap-1.5">
-                    <i class="fas fa-cube text-primary"></i>
-                    <span>Unit {{ selectedUnits[0].unit_no }}</span>
+                <!-- Left: Selected Count & Tag Chips -->
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <span class="badge bg-primary fs-7 py-1 px-2.5 d-flex align-items-center gap-1 shadow-xs">
+                    <i class="fas fa-check-circle"></i>
+                    <span>{{ selectedUnits.length }} {{ selectedUnits.length === 1 ? 'Unit Selected' : 'Units Selected' }}</span>
                   </span>
-                  <span class="badge extra-small" :class="selectedUnits[0].is_fully_assigned ? 'bg-success' : 'bg-primary-subtle text-primary border'">
-                    {{ selectedUnits[0].assigned_count || 0 }}/3 Assigned
-                  </span>
-                  <span v-if="hasUnsavedChanges" class="badge bg-warning text-dark extra-small">
-                    <i class="fas fa-edit me-0.5"></i> Unsaved Changes
-                  </span>
-                </div>
 
-                <!-- Multi-Unit Context -->
-                <div v-else class="d-flex flex-column gap-1">
-                  <div class="d-flex align-items-center gap-2">
-                    <span class="badge bg-primary fs-7 py-1 px-2.5">
-                      <i class="fas fa-check-double me-1"></i> {{ selectedUnits.length }} Units Selected
-                    </span>
-                    <span class="text-muted extra-small">Batch Supplier Allocation Mode</span>
-                    <span v-if="hasUnsavedChanges" class="badge bg-warning text-dark extra-small">
-                      <i class="fas fa-edit me-0.5"></i> Batch Changes Pending
-                    </span>
-                  </div>
-                  <!-- Selected Units Tags List -->
-                  <div class="d-flex flex-wrap gap-1 mt-1" style="max-height: 48px; overflow-y: auto;">
+                  <!-- Selected Unit Pills (with fast remove) -->
+                  <div class="d-flex flex-wrap gap-1 align-items-center" style="max-height: 38px; overflow-y: auto;">
                     <span 
                       v-for="u in selectedUnits" 
                       :key="u.unit_no" 
-                      class="badge bg-light text-dark border extra-small d-flex align-items-center gap-1"
+                      class="badge bg-slate-100 text-dark border extra-small d-flex align-items-center gap-1 px-2 py-1"
                     >
                       Unit {{ u.unit_no }}
-                      <i class="fas fa-times text-muted cursor-pointer" @click.stop="toggleUnitSelection(u)"></i>
+                      <i 
+                        v-if="selectedUnits.length > 1"
+                        class="fas fa-times text-muted cursor-pointer hover-danger ms-0.5" 
+                        title="Remove unit from selection"
+                        @click.stop="toggleUnitSelection(u)"
+                      ></i>
                     </span>
                   </div>
                 </div>
 
-                <!-- Right Side Hint -->
-                <div class="extra-small text-muted d-none d-md-block">
-                  <span v-if="selectedUnits.length > 1">
-                    <i class="fas fa-info-circle text-primary me-1"></i>Changes apply only to selected {{ selectedUnits.length }} units
+                <!-- Right: Pending Changes Indicator -->
+                <div class="d-flex align-items-center gap-2">
+                  <span v-if="hasUnsavedChanges" class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle extra-small px-2 py-1">
+                    <i class="fas fa-edit me-1"></i> Changes Pending
                   </span>
                 </div>
               </div>
             </div>
 
-            <!-- THREE COMPACT CATEGORY CARDS (BASE, WELDMENT, CHILD PART) -->
-            <div class="row g-2.5">
+            <!-- THREE STRUCTURED CATEGORY CARDS (BASE, WELDMENT, CHILD PART) -->
+            <div class="row g-3">
               <!-- 1. BASE CATEGORY CARD -->
               <div class="col-12 col-md-4">
-                <div class="card category-card h-100 bg-white border-top border-3 border-success">
+                <div class="card category-box h-100 bg-white shadow-xs border-top-emerald">
                   <div class="card-header bg-white py-2 px-3 border-bottom d-flex justify-content-between align-items-center">
                     <span class="fw-bold text-dark small d-flex align-items-center gap-1.5">
-                      <i class="fas fa-square text-success"></i> BASE
+                      <span class="category-dot bg-emerald"></span> BASE
                     </span>
                     <!-- Status Badge -->
-                    <span v-if="selectedUnits.length === 1 && unitDraft.BASE.current" class="badge bg-success extra-small">
+                    <span v-if="selectedUnits.length === 1 && unitDraft.BASE.current" class="badge bg-success-subtle text-success border border-success-subtle extra-small">
                       <i class="fas fa-check me-0.5"></i> Assigned
                     </span>
-                    <span v-else-if="selectedUnits.length > 1 && multiStatus.BASE.isMixed" class="badge bg-warning text-dark extra-small" :title="multiStatus.BASE.tooltip">
-                      <i class="fas fa-random me-0.5"></i> Mixed
+                    <span v-else-if="selectedUnits.length > 1 && multiStatus.BASE.isMixed" class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle extra-small" :title="multiStatus.BASE.tooltip">
+                      <i class="fas fa-random me-0.5"></i> Mixed ({{ multiStatus.BASE.summaryText }})
                     </span>
-                    <span v-else-if="selectedUnits.length > 1 && multiStatus.BASE.commonSupplier" class="badge bg-success extra-small">
+                    <span v-else-if="selectedUnits.length > 1 && multiStatus.BASE.commonSupplier" class="badge bg-success-subtle text-success border border-success-subtle extra-small">
                       <i class="fas fa-check me-0.5"></i> Uniform
                     </span>
-                    <span v-else class="badge bg-secondary-subtle text-secondary border extra-small">
+                    <span v-else class="badge bg-slate-100 text-secondary border extra-small">
                       Unassigned
                     </span>
                   </div>
 
-                  <div class="card-body p-2.5 d-flex flex-column justify-content-between">
+                  <div class="card-body p-3 d-flex flex-column justify-content-between">
                     <div>
-                      <!-- Single Unit: Current Assignment Strip -->
-                      <div v-if="selectedUnits.length === 1 && unitDraft.BASE.current" class="p-1.5 mb-2 bg-success-subtle bg-opacity-25 rounded border border-success-subtle d-flex justify-content-between align-items-center extra-small">
-                        <div class="text-truncate" style="max-width: 170px;">
-                          <strong class="text-success">{{ unitDraft.BASE.current.supplier_name }}</strong>
-                          <span class="text-muted ms-1">({{ formatDisplayDate(unitDraft.BASE.current.assignment_date) }})</span>
+                      <!-- Single Unit: Current Assignment Summary Strip -->
+                      <div v-if="selectedUnits.length === 1 && unitDraft.BASE.current" class="p-2 mb-2.5 bg-success-subtle bg-opacity-30 rounded border border-success-subtle d-flex justify-content-between align-items-center extra-small">
+                        <div class="text-truncate me-1" style="max-width: 175px;">
+                          <strong class="text-success d-block text-truncate">{{ unitDraft.BASE.current.supplier_name }}</strong>
+                          <span class="text-muted">{{ formatDisplayDate(unitDraft.BASE.current.assignment_date) }}</span>
                         </div>
-                        <button v-if="canEdit" class="btn btn-link text-danger p-0 extra-small text-decoration-none" title="Clear Assignment" @click="clearCategory('BASE')">
+                        <button v-if="canEdit" class="btn btn-link text-danger p-0 extra-small text-decoration-none fw-semibold" title="Clear Assignment" @click="clearCategory('BASE')">
                           Clear
                         </button>
                       </div>
 
-                      <!-- Multi Unit: Mixed Breakdown Hint Strip -->
-                      <div v-else-if="selectedUnits.length > 1" class="p-1.5 mb-2 rounded border extra-small" :class="multiStatus.BASE.isMixed ? 'bg-warning-subtle border-warning-subtle text-dark' : 'bg-light text-muted'">
+                      <!-- Multi Unit: Compact Mixed Summary Strip -->
+                      <div v-else-if="selectedUnits.length > 1 && multiStatus.BASE.isMixed" class="p-2 mb-2.5 rounded border border-warning-subtle bg-warning-subtle bg-opacity-30 extra-small text-dark">
                         <div class="d-flex justify-content-between align-items-center">
-                          <span class="fw-semibold">
+                          <span class="fw-semibold text-truncate" :title="multiStatus.BASE.summaryText">
                             {{ multiStatus.BASE.summaryText }}
                           </span>
                         </div>
                       </div>
 
                       <!-- Searchable Supplier Dropdown (BASE) -->
-                      <div class="mb-2 searchable-select-container" v-click-outside="() => closeSupplierDropdown('BASE')">
-                        <label class="form-label extra-small fw-semibold text-dark mb-0.5">
-                          Supplier <span v-if="selectedUnits.length > 1" class="text-muted extra-small">(Set for all)</span>
+                      <div class="mb-2.5 searchable-select-container" v-click-outside="() => closeSupplierDropdown('BASE')">
+                        <label class="form-label extra-small fw-bold text-dark mb-1">
+                          Supplier <span v-if="selectedUnits.length > 1" class="text-muted fw-normal">(Set for all)</span>
                         </label>
                         <div 
                           class="searchable-select-trigger shadow-xs" 
@@ -385,12 +389,12 @@
 
                         <!-- Dropdown Menu -->
                         <div v-if="activeSupplierDropdown === 'BASE'" class="searchable-select-menu shadow-lg">
-                          <div class="p-1.5 border-bottom bg-light">
+                          <div class="p-2 border-bottom bg-slate-50">
                             <input 
                               :ref="el => { if (el) el.focus() }"
                               v-model="supplierSearch.BASE" 
                               type="text" 
-                              class="form-control form-control-sm extra-small" 
+                              class="form-control form-control-sm extra-small shadow-xs" 
                               placeholder="Type to search active suppliers..." 
                               @click.stop
                               @keydown.esc="closeSupplierDropdown('BASE')"
@@ -411,7 +415,7 @@
                               :class="{ selected: unitDraft.BASE.supplier_id == s.id }"
                               @click="selectSupplier('BASE', s.id)"
                             >
-                              <div class="d-flex flex-column text-truncate">
+                              <div class="d-flex flex-column text-truncate me-2">
                                 <span class="fw-bold text-dark text-truncate">{{ s.name }}</span>
                                 <span class="extra-small text-muted">{{ s.code || 'SUP-' + s.id }} &bull; {{ s.city || 'Maharashtra' }}</span>
                               </div>
@@ -427,7 +431,7 @@
                                 {{ s.load_status || 'Low Load' }}
                               </span>
                             </div>
-                            <div v-if="!getFilteredSuppliers('BASE').length" class="p-2 text-center text-muted extra-small">
+                            <div v-if="!getFilteredSuppliers('BASE').length" class="p-3 text-center text-muted extra-small">
                               No matching active suppliers found
                             </div>
                           </div>
@@ -436,14 +440,14 @@
 
                       <!-- Date Picker Input & Calendar Popup (BASE) -->
                       <div class="mb-1 position-relative">
-                        <label class="form-label extra-small fw-semibold text-dark mb-0.5 d-flex justify-content-between">
+                        <label class="form-label extra-small fw-bold text-dark mb-1 d-flex justify-content-between">
                           <span>Assignment Date</span>
-                          <span class="text-muted extra-small">Today &plusmn; 3d</span>
+                          <span class="text-muted extra-small fw-normal">Today &plusmn; 3d</span>
                         </label>
                         <div class="input-group input-group-sm">
                           <input 
                             type="text" 
-                            class="form-control form-control-sm bg-white cursor-pointer"
+                            class="form-control form-control-sm bg-white cursor-pointer shadow-xs"
                             :value="formatDisplayDate(unitDraft.BASE.assignment_date)" 
                             readonly
                             :disabled="!canEdit"
@@ -451,7 +455,7 @@
                             placeholder="Select Date"
                           />
                           <button 
-                            class="btn btn-outline-secondary btn-sm" 
+                            class="btn btn-outline-secondary btn-sm shadow-xs" 
                             type="button" 
                             :disabled="!canEdit"
                             @click="toggleCalendar('BASE')"
@@ -517,52 +521,52 @@
 
               <!-- 2. WELDMENT CATEGORY CARD -->
               <div class="col-12 col-md-4">
-                <div class="card category-card h-100 bg-white border-top border-3 border-info">
+                <div class="card category-box h-100 bg-white shadow-xs border-top-indigo">
                   <div class="card-header bg-white py-2 px-3 border-bottom d-flex justify-content-between align-items-center">
                     <span class="fw-bold text-dark small d-flex align-items-center gap-1.5">
-                      <i class="fas fa-cog text-info"></i> WELDMENT
+                      <span class="category-dot bg-indigo"></span> WELDMENT
                     </span>
                     <!-- Status Badge -->
-                    <span v-if="selectedUnits.length === 1 && unitDraft.WELDMENT.current" class="badge bg-info text-dark extra-small">
+                    <span v-if="selectedUnits.length === 1 && unitDraft.WELDMENT.current" class="badge bg-primary-subtle text-primary border border-primary-subtle extra-small">
                       <i class="fas fa-check me-0.5"></i> Assigned
                     </span>
-                    <span v-else-if="selectedUnits.length > 1 && multiStatus.WELDMENT.isMixed" class="badge bg-warning text-dark extra-small" :title="multiStatus.WELDMENT.tooltip">
-                      <i class="fas fa-random me-0.5"></i> Mixed
+                    <span v-else-if="selectedUnits.length > 1 && multiStatus.WELDMENT.isMixed" class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle extra-small" :title="multiStatus.WELDMENT.tooltip">
+                      <i class="fas fa-random me-0.5"></i> Mixed ({{ multiStatus.WELDMENT.summaryText }})
                     </span>
-                    <span v-else-if="selectedUnits.length > 1 && multiStatus.WELDMENT.commonSupplier" class="badge bg-success extra-small">
+                    <span v-else-if="selectedUnits.length > 1 && multiStatus.WELDMENT.commonSupplier" class="badge bg-success-subtle text-success border border-success-subtle extra-small">
                       <i class="fas fa-check me-0.5"></i> Uniform
                     </span>
-                    <span v-else class="badge bg-secondary-subtle text-secondary border extra-small">
+                    <span v-else class="badge bg-slate-100 text-secondary border extra-small">
                       Unassigned
                     </span>
                   </div>
 
-                  <div class="card-body p-2.5 d-flex flex-column justify-content-between">
+                  <div class="card-body p-3 d-flex flex-column justify-content-between">
                     <div>
-                      <!-- Single Unit: Current Assignment Strip -->
-                      <div v-if="selectedUnits.length === 1 && unitDraft.WELDMENT.current" class="p-1.5 mb-2 bg-info-subtle bg-opacity-25 rounded border border-info-subtle d-flex justify-content-between align-items-center extra-small">
-                        <div class="text-truncate" style="max-width: 170px;">
-                          <strong class="text-info-emphasis">{{ unitDraft.WELDMENT.current.supplier_name }}</strong>
-                          <span class="text-muted ms-1">({{ formatDisplayDate(unitDraft.WELDMENT.current.assignment_date) }})</span>
+                      <!-- Single Unit: Current Assignment Summary Strip -->
+                      <div v-if="selectedUnits.length === 1 && unitDraft.WELDMENT.current" class="p-2 mb-2.5 bg-primary-subtle bg-opacity-30 rounded border border-primary-subtle d-flex justify-content-between align-items-center extra-small">
+                        <div class="text-truncate me-1" style="max-width: 175px;">
+                          <strong class="text-primary d-block text-truncate">{{ unitDraft.WELDMENT.current.supplier_name }}</strong>
+                          <span class="text-muted">{{ formatDisplayDate(unitDraft.WELDMENT.current.assignment_date) }}</span>
                         </div>
-                        <button v-if="canEdit" class="btn btn-link text-danger p-0 extra-small text-decoration-none" title="Clear Assignment" @click="clearCategory('WELDMENT')">
+                        <button v-if="canEdit" class="btn btn-link text-danger p-0 extra-small text-decoration-none fw-semibold" title="Clear Assignment" @click="clearCategory('WELDMENT')">
                           Clear
                         </button>
                       </div>
 
-                      <!-- Multi Unit: Mixed Breakdown Hint Strip -->
-                      <div v-else-if="selectedUnits.length > 1" class="p-1.5 mb-2 rounded border extra-small" :class="multiStatus.WELDMENT.isMixed ? 'bg-warning-subtle border-warning-subtle text-dark' : 'bg-light text-muted'">
+                      <!-- Multi Unit: Compact Mixed Summary Strip -->
+                      <div v-else-if="selectedUnits.length > 1 && multiStatus.WELDMENT.isMixed" class="p-2 mb-2.5 rounded border border-warning-subtle bg-warning-subtle bg-opacity-30 extra-small text-dark">
                         <div class="d-flex justify-content-between align-items-center">
-                          <span class="fw-semibold">
+                          <span class="fw-semibold text-truncate" :title="multiStatus.WELDMENT.summaryText">
                             {{ multiStatus.WELDMENT.summaryText }}
                           </span>
                         </div>
                       </div>
 
                       <!-- Searchable Supplier Dropdown (WELDMENT) -->
-                      <div class="mb-2 searchable-select-container" v-click-outside="() => closeSupplierDropdown('WELDMENT')">
-                        <label class="form-label extra-small fw-semibold text-dark mb-0.5">
-                          Supplier <span v-if="selectedUnits.length > 1" class="text-muted extra-small">(Set for all)</span>
+                      <div class="mb-2.5 searchable-select-container" v-click-outside="() => closeSupplierDropdown('WELDMENT')">
+                        <label class="form-label extra-small fw-bold text-dark mb-1">
+                          Supplier <span v-if="selectedUnits.length > 1" class="text-muted fw-normal">(Set for all)</span>
                         </label>
                         <div 
                           class="searchable-select-trigger shadow-xs" 
@@ -577,12 +581,12 @@
 
                         <!-- Dropdown Menu -->
                         <div v-if="activeSupplierDropdown === 'WELDMENT'" class="searchable-select-menu shadow-lg">
-                          <div class="p-1.5 border-bottom bg-light">
+                          <div class="p-2 border-bottom bg-slate-50">
                             <input 
                               :ref="el => { if (el) el.focus() }"
                               v-model="supplierSearch.WELDMENT" 
                               type="text" 
-                              class="form-control form-control-sm extra-small" 
+                              class="form-control form-control-sm extra-small shadow-xs" 
                               placeholder="Type to search active suppliers..." 
                               @click.stop
                               @keydown.esc="closeSupplierDropdown('WELDMENT')"
@@ -603,7 +607,7 @@
                               :class="{ selected: unitDraft.WELDMENT.supplier_id == s.id }"
                               @click="selectSupplier('WELDMENT', s.id)"
                             >
-                              <div class="d-flex flex-column text-truncate">
+                              <div class="d-flex flex-column text-truncate me-2">
                                 <span class="fw-bold text-dark text-truncate">{{ s.name }}</span>
                                 <span class="extra-small text-muted">{{ s.code || 'SUP-' + s.id }} &bull; {{ s.city || 'Maharashtra' }}</span>
                               </div>
@@ -619,7 +623,7 @@
                                 {{ s.load_status || 'Low Load' }}
                               </span>
                             </div>
-                            <div v-if="!getFilteredSuppliers('WELDMENT').length" class="p-2 text-center text-muted extra-small">
+                            <div v-if="!getFilteredSuppliers('WELDMENT').length" class="p-3 text-center text-muted extra-small">
                               No matching active suppliers found
                             </div>
                           </div>
@@ -628,14 +632,14 @@
 
                       <!-- Date Picker Input & Calendar Popup (WELDMENT) -->
                       <div class="mb-1 position-relative">
-                        <label class="form-label extra-small fw-semibold text-dark mb-0.5 d-flex justify-content-between">
+                        <label class="form-label extra-small fw-bold text-dark mb-1 d-flex justify-content-between">
                           <span>Assignment Date</span>
-                          <span class="text-muted extra-small">Today &plusmn; 3d</span>
+                          <span class="text-muted extra-small fw-normal">Today &plusmn; 3d</span>
                         </label>
                         <div class="input-group input-group-sm">
                           <input 
                             type="text" 
-                            class="form-control form-control-sm bg-white cursor-pointer"
+                            class="form-control form-control-sm bg-white cursor-pointer shadow-xs"
                             :value="formatDisplayDate(unitDraft.WELDMENT.assignment_date)" 
                             readonly
                             :disabled="!canEdit"
@@ -643,7 +647,7 @@
                             placeholder="Select Date"
                           />
                           <button 
-                            class="btn btn-outline-secondary btn-sm" 
+                            class="btn btn-outline-secondary btn-sm shadow-xs" 
                             type="button" 
                             :disabled="!canEdit"
                             @click="toggleCalendar('WELDMENT')"
@@ -709,52 +713,52 @@
 
               <!-- 3. CHILD PART CATEGORY CARD -->
               <div class="col-12 col-md-4">
-                <div class="card category-card h-100 bg-white border-top border-3 border-warning">
+                <div class="card category-box h-100 bg-white shadow-xs border-top-amber">
                   <div class="card-header bg-white py-2 px-3 border-bottom d-flex justify-content-between align-items-center">
                     <span class="fw-bold text-dark small d-flex align-items-center gap-1.5">
-                      <i class="fas fa-puzzle-piece text-warning"></i> CHILD PART
+                      <span class="category-dot bg-amber"></span> CHILD PART
                     </span>
                     <!-- Status Badge -->
-                    <span v-if="selectedUnits.length === 1 && unitDraft.CHILD_PART.current" class="badge bg-warning text-dark extra-small">
+                    <span v-if="selectedUnits.length === 1 && unitDraft.CHILD_PART.current" class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle extra-small">
                       <i class="fas fa-check me-0.5"></i> Assigned
                     </span>
-                    <span v-else-if="selectedUnits.length > 1 && multiStatus.CHILD_PART.isMixed" class="badge bg-warning text-dark extra-small" :title="multiStatus.CHILD_PART.tooltip">
-                      <i class="fas fa-random me-0.5"></i> Mixed
+                    <span v-else-if="selectedUnits.length > 1 && multiStatus.CHILD_PART.isMixed" class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle extra-small" :title="multiStatus.CHILD_PART.tooltip">
+                      <i class="fas fa-random me-0.5"></i> Mixed ({{ multiStatus.CHILD_PART.summaryText }})
                     </span>
-                    <span v-else-if="selectedUnits.length > 1 && multiStatus.CHILD_PART.commonSupplier" class="badge bg-success extra-small">
+                    <span v-else-if="selectedUnits.length > 1 && multiStatus.CHILD_PART.commonSupplier" class="badge bg-success-subtle text-success border border-success-subtle extra-small">
                       <i class="fas fa-check me-0.5"></i> Uniform
                     </span>
-                    <span v-else class="badge bg-secondary-subtle text-secondary border extra-small">
+                    <span v-else class="badge bg-slate-100 text-secondary border extra-small">
                       Unassigned
                     </span>
                   </div>
 
-                  <div class="card-body p-2.5 d-flex flex-column justify-content-between">
+                  <div class="card-body p-3 d-flex flex-column justify-content-between">
                     <div>
-                      <!-- Single Unit: Current Assignment Strip -->
-                      <div v-if="selectedUnits.length === 1 && unitDraft.CHILD_PART.current" class="p-1.5 mb-2 bg-warning-subtle bg-opacity-25 rounded border border-warning-subtle d-flex justify-content-between align-items-center extra-small">
-                        <div class="text-truncate" style="max-width: 170px;">
-                          <strong class="text-warning-emphasis">{{ unitDraft.CHILD_PART.current.supplier_name }}</strong>
-                          <span class="text-muted ms-1">({{ formatDisplayDate(unitDraft.CHILD_PART.current.assignment_date) }})</span>
+                      <!-- Single Unit: Current Assignment Summary Strip -->
+                      <div v-if="selectedUnits.length === 1 && unitDraft.CHILD_PART.current" class="p-2 mb-2.5 bg-warning-subtle bg-opacity-30 rounded border border-warning-subtle d-flex justify-content-between align-items-center extra-small">
+                        <div class="text-truncate me-1" style="max-width: 175px;">
+                          <strong class="text-warning-emphasis d-block text-truncate">{{ unitDraft.CHILD_PART.current.supplier_name }}</strong>
+                          <span class="text-muted">{{ formatDisplayDate(unitDraft.CHILD_PART.current.assignment_date) }}</span>
                         </div>
-                        <button v-if="canEdit" class="btn btn-link text-danger p-0 extra-small text-decoration-none" title="Clear Assignment" @click="clearCategory('CHILD_PART')">
+                        <button v-if="canEdit" class="btn btn-link text-danger p-0 extra-small text-decoration-none fw-semibold" title="Clear Assignment" @click="clearCategory('CHILD_PART')">
                           Clear
                         </button>
                       </div>
 
-                      <!-- Multi Unit: Mixed Breakdown Hint Strip -->
-                      <div v-else-if="selectedUnits.length > 1" class="p-1.5 mb-2 rounded border extra-small" :class="multiStatus.CHILD_PART.isMixed ? 'bg-warning-subtle border-warning-subtle text-dark' : 'bg-light text-muted'">
+                      <!-- Multi Unit: Compact Mixed Summary Strip -->
+                      <div v-else-if="selectedUnits.length > 1 && multiStatus.CHILD_PART.isMixed" class="p-2 mb-2.5 rounded border border-warning-subtle bg-warning-subtle bg-opacity-30 extra-small text-dark">
                         <div class="d-flex justify-content-between align-items-center">
-                          <span class="fw-semibold">
+                          <span class="fw-semibold text-truncate" :title="multiStatus.CHILD_PART.summaryText">
                             {{ multiStatus.CHILD_PART.summaryText }}
                           </span>
                         </div>
                       </div>
 
                       <!-- Searchable Supplier Dropdown (CHILD PART) -->
-                      <div class="mb-2 searchable-select-container" v-click-outside="() => closeSupplierDropdown('CHILD_PART')">
-                        <label class="form-label extra-small fw-semibold text-dark mb-0.5">
-                          Supplier <span v-if="selectedUnits.length > 1" class="text-muted extra-small">(Set for all)</span>
+                      <div class="mb-2.5 searchable-select-container" v-click-outside="() => closeSupplierDropdown('CHILD_PART')">
+                        <label class="form-label extra-small fw-bold text-dark mb-1">
+                          Supplier <span v-if="selectedUnits.length > 1" class="text-muted fw-normal">(Set for all)</span>
                         </label>
                         <div 
                           class="searchable-select-trigger shadow-xs" 
@@ -769,12 +773,12 @@
 
                         <!-- Dropdown Menu -->
                         <div v-if="activeSupplierDropdown === 'CHILD_PART'" class="searchable-select-menu shadow-lg">
-                          <div class="p-1.5 border-bottom bg-light">
+                          <div class="p-2 border-bottom bg-slate-50">
                             <input 
                               :ref="el => { if (el) el.focus() }"
                               v-model="supplierSearch.CHILD_PART" 
                               type="text" 
-                              class="form-control form-control-sm extra-small" 
+                              class="form-control form-control-sm extra-small shadow-xs" 
                               placeholder="Type to search active suppliers..." 
                               @click.stop
                               @keydown.esc="closeSupplierDropdown('CHILD_PART')"
@@ -795,7 +799,7 @@
                               :class="{ selected: unitDraft.CHILD_PART.supplier_id == s.id }"
                               @click="selectSupplier('CHILD_PART', s.id)"
                             >
-                              <div class="d-flex flex-column text-truncate">
+                              <div class="d-flex flex-column text-truncate me-2">
                                 <span class="fw-bold text-dark text-truncate">{{ s.name }}</span>
                                 <span class="extra-small text-muted">{{ s.code || 'SUP-' + s.id }} &bull; {{ s.city || 'Maharashtra' }}</span>
                               </div>
@@ -811,7 +815,7 @@
                                 {{ s.load_status || 'Low Load' }}
                               </span>
                             </div>
-                            <div v-if="!getFilteredSuppliers('CHILD_PART').length" class="p-2 text-center text-muted extra-small">
+                            <div v-if="!getFilteredSuppliers('CHILD_PART').length" class="p-3 text-center text-muted extra-small">
                               No matching active suppliers found
                             </div>
                           </div>
@@ -820,14 +824,14 @@
 
                       <!-- Date Picker Input & Calendar Popup (CHILD PART) -->
                       <div class="mb-1 position-relative">
-                        <label class="form-label extra-small fw-semibold text-dark mb-0.5 d-flex justify-content-between">
+                        <label class="form-label extra-small fw-bold text-dark mb-1 d-flex justify-content-between">
                           <span>Assignment Date</span>
-                          <span class="text-muted extra-small">Today &plusmn; 3d</span>
+                          <span class="text-muted extra-small fw-normal">Today &plusmn; 3d</span>
                         </label>
                         <div class="input-group input-group-sm">
                           <input 
                             type="text" 
-                            class="form-control form-control-sm bg-white cursor-pointer"
+                            class="form-control form-control-sm bg-white cursor-pointer shadow-xs"
                             :value="formatDisplayDate(unitDraft.CHILD_PART.assignment_date)" 
                             readonly
                             :disabled="!canEdit"
@@ -835,7 +839,7 @@
                             placeholder="Select Date"
                           />
                           <button 
-                            class="btn btn-outline-secondary btn-sm" 
+                            class="btn btn-outline-secondary btn-sm shadow-xs" 
                             type="button" 
                             :disabled="!canEdit"
                             @click="toggleCalendar('CHILD_PART')"
@@ -901,15 +905,15 @@
             </div>
 
             <!-- BOTTOM ACTION BAR: APPLY CHANGES -->
-            <div class="card app-card bg-white shadow-xs">
-              <div class="card-body py-2 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div class="card action-footer-bar bg-white shadow-xs">
+              <div class="card-body py-2.5 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
                 <div class="d-flex align-items-center gap-2">
                   <span v-if="hasUnsavedChanges" class="badge bg-warning text-dark py-1.5 px-2.5 fs-7 d-flex align-items-center gap-1 shadow-xs">
                     <i class="fas fa-exclamation-circle"></i>
-                    <span v-if="selectedUnits.length === 1">Unsaved changes pending for Unit {{ selectedUnits[0].unit_no }}</span>
+                    <span v-if="selectedUnits.length === 1">Changes pending for Unit {{ selectedUnits[0].unit_no }}</span>
                     <span v-else>Changes ready to apply to {{ selectedUnits.length }} selected units</span>
                   </span>
-                  <span v-else class="text-muted small d-flex align-items-center gap-1">
+                  <span v-else class="text-muted small d-flex align-items-center gap-1.5">
                     <i class="fas fa-check-circle text-success"></i>
                     <span>All category allocations in sync with server</span>
                   </span>
@@ -919,7 +923,7 @@
                   <button 
                     v-if="hasUnsavedChanges"
                     type="button" 
-                    class="btn btn-sm btn-outline-secondary py-1 px-3"
+                    class="btn btn-sm btn-outline-secondary py-1 px-3 shadow-xs"
                     @click="resetDraftToSaved"
                     :disabled="savingBulk"
                   >
@@ -928,7 +932,7 @@
                   <button 
                     v-if="canEdit"
                     type="button" 
-                    class="btn btn-sm btn-primary fw-semibold py-1 px-3.5 shadow-xs"
+                    class="btn btn-sm btn-primary fw-bold py-1.5 px-4 shadow-xs apply-btn"
                     :disabled="!hasUnsavedChanges || savingBulk"
                     @click="handleApplyChangesClick"
                   >
@@ -992,7 +996,7 @@
             <button type="button" class="btn btn-sm btn-outline-secondary" @click="showMultiConfirmModal = false" :disabled="savingBulk">
               Cancel
             </button>
-            <button type="button" class="btn btn-sm btn-primary fw-bold px-3" @click="executeMultiUnitAssign" :disabled="savingBulk">
+            <button type="button" class="btn btn-sm btn-primary fw-bold px-3 shadow-xs" @click="executeMultiUnitAssign" :disabled="savingBulk">
               <span v-if="savingBulk" class="spinner-border spinner-border-sm me-1.5"></span>
               <i v-else class="fas fa-check me-1"></i> Confirm &amp; Apply Changes
             </button>
@@ -1739,38 +1743,52 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-/* Distinct Card Borders & Separation */
-.app-card {
-  border: 1px solid #cbd5e1 !important;
-  border-radius: 6px;
+/* Backgrounds & Contrast System */
+.bg-slate-50 {
+  background-color: #f8fafc !important;
 }
+.bg-slate-100 {
+  background-color: #f1f5f9 !important;
+}
+.bg-emerald {
+  background-color: #10b981 !important;
+}
+.bg-indigo {
+  background-color: #3b82f6 !important;
+}
+.bg-amber {
+  background-color: #f59e0b !important;
+}
+
+/* Distinct Card Borders & Clean Elevation */
+.app-card,
 .project-card,
-.jig-card,
-.unit-card {
+.jig-card {
   border: 1px solid #cbd5e1 !important;
   border-radius: 6px;
   background-color: #ffffff;
-  padding: 10px 12px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-}
-.category-card {
-  border: 1px solid #cbd5e1 !important;
-  border-radius: 6px;
-  background-color: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .hover-card {
-  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 .hover-card:hover {
   transform: translateY(-1px);
   border-color: #94a3b8 !important;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.03) !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.04) !important;
 }
 
-/* Split Workspace Panel Styling */
-.units-panel {
+/* Header & Context Bar */
+.workspace-header-card {
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 6px;
+}
+
+/* Left Panel: Units Sidebar */
+.units-sidebar-card {
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 6px;
+  background-color: #f8fafc;
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 220px);
@@ -1778,23 +1796,91 @@ onUnmounted(() => {
 .units-scroll-list {
   overflow-y: auto;
   max-height: calc(100vh - 330px);
-}
-.unit-list-item {
-  border: 1px solid #e2e8f0;
-  border-radius: 5px;
-  background-color: #ffffff;
-  transition: all 0.15s ease;
-}
-.unit-list-item:hover {
-  border-color: #94a3b8;
   background-color: #f8fafc;
 }
-.selected-unit-card {
-  border-color: #3b82f6 !important;
+
+/* Unit Cards in List */
+.unit-card-box {
+  border-radius: 6px;
+  background-color: #ffffff;
+  user-select: none;
+}
+.unit-card-box.unselected-unit {
+  border: 1px solid #e2e8f0;
+}
+.unit-card-box.unselected-unit:hover {
+  border-color: #94a3b8;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+.unit-card-box.selected-unit {
+  border: 2px solid #2563eb !important;
   background-color: #eff6ff !important;
+  box-shadow: 0 2px 5px rgba(37, 99, 235, 0.12) !important;
+}
+.unit-card-box.fully-assigned {
+  border-color: #86efac;
+}
+
+.unit-checkbox {
+  width: 16px;
+  height: 16px;
 }
 .unit-summary-pill {
   font-size: 0.68rem;
+  border: 1px solid #e2e8f0;
+}
+
+/* Right Panel: Category Cards */
+.selection-summary-bar {
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 6px;
+}
+
+.empty-selection-card {
+  border: 1px dashed #cbd5e1 !important;
+  border-radius: 6px;
+}
+.empty-icon-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.category-box {
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 6px;
+  position: relative;
+}
+.border-top-emerald {
+  border-top: 3px solid #10b981 !important;
+}
+.border-top-indigo {
+  border-top: 3px solid #3b82f6 !important;
+}
+.border-top-amber {
+  border-top: 3px solid #f59e0b !important;
+}
+
+.category-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.action-footer-bar {
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 6px;
+}
+.apply-btn {
+  font-size: 0.85rem;
+}
+
+.hover-danger:hover {
+  color: #ef4444 !important;
 }
 
 /* Searchable Supplier Dropdown Styling with Portal Z-Index */
@@ -1804,15 +1890,16 @@ onUnmounted(() => {
 .searchable-select-trigger {
   border: 1px solid #cbd5e1;
   border-radius: 5px;
-  padding: 5px 8px;
+  padding: 6px 10px;
   background-color: #ffffff;
   cursor: pointer;
   display: flex;
   justify-content: space-between;
   align-items: center;
   font-size: 0.78rem;
-  min-height: 31px;
+  min-height: 33px;
   user-select: none;
+  transition: border-color 0.15s ease;
 }
 .searchable-select-trigger:hover {
   border-color: #94a3b8;
@@ -1830,9 +1917,9 @@ onUnmounted(() => {
   z-index: 9999;
   background-color: #ffffff;
   border: 1px solid #cbd5e1;
-  border-radius: 5px;
+  border-radius: 6px;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
-  margin-top: 2px;
+  margin-top: 3px;
 }
 .searchable-select-list {
   max-height: 280px;
@@ -1863,9 +1950,10 @@ onUnmounted(() => {
   top: 100%;
   left: 0;
   z-index: 9999;
-  width: 215px;
+  width: 220px;
   background: #ffffff;
   border: 1px solid #cbd5e1;
+  border-radius: 6px;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
   margin-top: 3px;
 }
@@ -1901,6 +1989,9 @@ onUnmounted(() => {
 
 .extra-small {
   font-size: 0.72rem;
+}
+.fs-7 {
+  font-size: 0.8rem;
 }
 .shadow-xs {
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
