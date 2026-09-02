@@ -7,7 +7,7 @@
 **Web Frontend Framework:** Vue 3.4+ (Vite, Bootstrap 5.3, Chart.js, Pinia)  
 **Mobile Application:** React Native 0.74.5 / Expo SDK 51 (Standalone Android APK + EAS OTA Updates)  
 **Infrastructure:** Docker Compose (7 Microservices), Windows 11 Desktop On-Premise LAN Server  
-**Document Revision:** August 31, 2026  
+**Document Revision:** September 02, 2026  
 
 ---
 
@@ -16,10 +16,10 @@
 2. [Strict Architectural Laws & Mathematical Invariants](#2-strict-architectural-laws--mathematical-invariants)
 3. [Manufacturing Workflow & State Machine Rules](#3-manufacturing-workflow--state-machine-rules)
 4. [Strict Multi-Department Lineage Revert Engine](#4-strict-multi-department-lineage-revert-engine)
-5. [Chronological Development Milestones (1 to 12)](#5-chronological-development-milestones-1-to-12)
+5. [Chronological Development Milestones (1 to 15)](#5-chronological-development-milestones-1-to-15)
 6. [Default Roles, Accounts & Credentials](#6-default-roles-accounts--credentials)
 7. [Network Architecture & Port Allocations](#7-network-architecture--port-allocations)
-8. [Complete Server Upload & Deployment SOP](#8-complete-server-upload--deployment-sop)
+8. [Complete Server Upload & Deployment SOP (Windows & Linux)](#8-complete-server-upload--deployment-sop-windows--linux)
 9. [Mobile EAS OTA Update & APK Build Guide](#9-mobile-eas-ota-update--apk-build-guide)
 10. [Database Backup & Disaster Recovery Procedures](#10-database-backup--disaster-recovery-procedures)
 11. [Git Workflow & Verification Standards](#11-git-workflow--verification-standards)
@@ -41,7 +41,7 @@
                         │   STORE BAY RECEIVING     │
                         │ (Physical Delivery Check) │
                         └─────────────┬─────────────┘
-                                      │ Sent to QC
+                                      │ Sent to QC / Pending Check
                                       ▼
                         ┌───────────────────────────┐
                         │    QC BAY INSPECTION      │
@@ -68,7 +68,7 @@
 Every relational query, API payload, web table, and mobile view strictly traverses the 5-level mechanical tree:
 $$\text{Project} \longrightarrow \text{Jig} \longrightarrow \text{Unit} \longrightarrow \text{Part Number} \longrightarrow \text{Side} \ (\text{RH} \mid \text{LH} \mid \text{COMMON})$$
 
-* **Level 1: Project**: Top-level customer assembly contract (e.g. `FA-279 - Main Floor Framing`).
+* **Level 1: Project**: Top-level customer assembly contract (e.g. `FA-273`, `FA-279 - Main Floor Framing`).
 * **Level 2: Jig**: Structural tooling fixture frame (e.g. `169961@`).
 * **Level 3: Unit**: Sub-assembly station within a jig (e.g. `Unit 00` through `Unit 13`).
 * **Level 4: Part Number**: Engineering standard part reference (e.g. `020#R00`, `040#R00`).
@@ -91,12 +91,20 @@ The following laws are non-negotiable across all code contributions:
    $$\text{Received Qty} = \sum \text{receipt\_items.received\_quantity} \quad \text{where status} \in \{\text{'received'}, \text{'returned\_to\_store'}, \text{'sent\_to\_qc'}, \text{'qc\_received'}\}$$
 3. **Pending Store Intake**:
    $$\text{Pending Qty} = \max(0, \text{Required Qty} - \text{Received Qty})$$
-4. **Project / Unit Completion**:
+4. **QC Pending Arrival (Regular & ECN)**:
+   $$\text{QC Pending Arrival} = \sum \text{receipt\_items.received\_quantity} \quad \text{where status} \in \{\text{'received'}, \text{'sent\_to\_qc'}\}$$
+5. **QC Pending Inspection**:
+   $$\text{QC Pending Inspection} = \max\left(0, (\text{QC Arrived} + \text{Rework Completed}) - (\text{QC Approved} + \text{QC Rejected} + \text{QC Rework})\right)$$
+6. **Project / Unit Completion**:
    $$\text{Completed (100\% Green)} \iff \text{All required parts have verified assembly\_records.status} = \text{'assembled'}$$
 
 ### Law 3: Strict RH vs LH vs COMMON Side Isolation
 * Right-Hand (`RH`), Left-Hand (`LH`), and Symmetrical (`COMMON`) components are physically non-interchangeable.
 * Requirements, receipts, inspections, rework jobs, paint records, assembly records, and lineage reverts must **NEVER** combine or cross-transfer quantities between sides.
+
+### Law 4: Production Data Preservation & Test Isolation
+* Production projects `FA-273` and `FA-279` along with all actual imported BOM parts, ECNs, suppliers, and receipts must **NEVER** be deleted, overwritten, or reset during automated tests or debugging.
+* All test suites create isolated test projects (marked `is_test_data = true` or with unique prefixes) and delete only test-created records in teardown.
 
 ---
 
@@ -110,15 +118,15 @@ The following laws are non-negotiable across all code contributions:
 ### 3.2 Store Bay Receiving
 * Physical vendor shipments are checked against active BOM requirements.
 * Partial quantity receipts are supported: receipt items remain active, preserving the remaining pending count without state corruption.
-* Once intake is confirmed, parts transition to `sent_to_qc`.
+* Once intake is confirmed, parts enter status `'received'` or `'sent_to_qc'` and are immediately visible in QC Arrival across website and mobile.
 
 ### 3.3 QC Bay (Arrival Verification & Destination Routing)
-* **Step 1: Physical Arrival Acceptance**: QC officers confirm receipt (`qc_received`), transferring parts from Store custody to QC custody.
+* **Step 1: Physical Arrival Acceptance**: QC officers confirm receipt (`/qc/receive`), transitioning status from `'received'` / `'sent_to_qc'` to `'qc_received'`, transferring parts into QC Inspection custody.
 * **Step 2: Quality Inspection**:
   * **Approved for Paint** $\rightarrow$ Routes into `paint_records` queue.
   * **Approved for Direct Assembly** $\rightarrow$ Bypasses Paint and routes into `assembly_records` queue.
   * **Rework Needed** $\rightarrow$ Routes into `rework_records` with defect notes.
-  * **QC Rejected / Scrap** $\rightarrow$ Marked as `QC Rejected` (routes to Purchase queue).
+  * **QC Rejected / Scrap** $\rightarrow$ Marked as `QC Rejected` (routes to Purchase queue without corrupting pending store intake).
 
 ### 3.4 Rework Shop (Single-Action Completion)
 * Rework operators correct physical defects and execute **COMPLETE REWORK**.
@@ -137,7 +145,7 @@ SpareTrack implements a reverse-lineage state machine (`WorkflowRevertController
 | Department Initiating Revert | Source Entity | Quantity Restored To | Target Department |
 | :--- | :--- | :--- | :--- |
 | **Store** | `receipt_item` | `bom_item.pending` | Supplier Pending Intake |
-| **QC Arrival** | `receipt_item` (`qc_received`) | `sent_to_qc` | Store Bay |
+| **QC Arrival** | `receipt_item` (`qc_received`) | `received` / `sent_to_qc` | Store Bay |
 | **Rework** | `rework_record` | `qc_inspection` pending | QC Inspection |
 | **Paint** | `paint_record` | `qc_inspection` approved | QC Inspection |
 | **Assembly (Direct QC)** | `assembly_record` | `qc_inspection` approved | QC Inspection |
@@ -149,7 +157,7 @@ SpareTrack implements a reverse-lineage state machine (`WorkflowRevertController
 
 ---
 
-## 5. Chronological Development Milestones (1 to 10)
+## 5. Chronological Development Milestones (1 to 15)
 
 ### Milestone 1: Branding & Logo Harmonization
 * Configured official **FAITH AUTOMATION** banner logo and square app launcher icon (`logo_app.png`).
@@ -187,8 +195,7 @@ SpareTrack implements a reverse-lineage state machine (`WorkflowRevertController
 
 ### Milestone 10: Mobile Terminal Network Config, Live Connection Tester & EAS OTA
 * Set primary default host to `192.168.9.200:8080` (Plant Floor LAN).
-* Added quick switcher chips (`Wi-Fi (192.168.100.60)` and `Plant LAN (192.168.9.200)`).
-* Added `⚡ Test Connection` real-time ping tool.
+* Added smart IP normalizer handling shorthand IPs (`100.30`, `9.200`) and auto-port resolution.
 * Configured launch auto-check for OTA updates and in-app header manual update button (`🔄 Update`).
 
 ### Milestone 11: ECN Workflow Hardening, QC Reject Idempotency & Queue Stale State Elimination
@@ -203,7 +210,24 @@ SpareTrack implements a reverse-lineage state machine (`WorkflowRevertController
 * **Scoped `[ECN]` Badge**: Small, high-contrast amber chip (`#f59e0b` background with bold white text and subtle shadow) displayed on Jig, Unit, LH, and RH section headers if and only if active ECN parts exist within that exact scope.
 * **Auto-Vanish on Completion**: When an ECN requirement reaches `ASSEMBLY_COMPLETED`, the `[ECN]` indicator badge automatically vanishes from that LH/RH, Unit, and Jig card on the Main Dashboard.
 * **Git Author Normalization**: Rewrote entire repository Git history (154 commits) with `git-filter-repo` to map all author and committer emails to verified GitHub primary email `Darshan2724 <darshilvant@gmail.com>`.
-* **Complete Regression Suite**: Expanded test suite to **140 passing PHPUnit feature tests (1,371 assertions)** covering all manufacturing, revert, and ECN invariants.
+
+### Milestone 13: Supplier Management, Unit Supplier Allocation & Overview Table
+* **Single & Bulk Supplier Allocation**: Structured assignment across BASE, WELDMENT, and CHILD PART categories with mandatory 7-day future assignment date validation.
+* **Supplier Master CRUD & Excel Import**: Complete vendor register with multi-phone number support (`supplier_phones` table) and Excel bulk import engine (`SupplierImportService.php`).
+* **Standalone Overview Table**: Unified cross-project / cross-jig / cross-unit supplier allocation overview table with fast search and dynamic filters.
+* **Main Dashboard Jig Supplier Visibility**: Masked vendor indicators on Jig cards visible exclusively to ADMIN, MANAGER, and PURCHASE roles.
+* **Purchase Navigation Refinement**: Standardized Purchase tab layout: `[ 📦 Supplier Allocation | 📋 Overview Table | 🏭 Supplier Master | ❌ Rejected Parts Queue ]`.
+
+### Milestone 14: Purchase Desk Rejected Parts Queue Restoration & Data Safeguards
+* Added route aliases `/api/v1/purchase/queue` and `/api/v1/purchase/items` in `routes/api.php`.
+* Fixed paginated data unpacking (`res.data.items.data`) in `PurchaseQueue.vue` and resolved `selectTab()` handler.
+* Implemented strict database preservation safeguards ensuring `FA-273` and `FA-279` cannot be altered or dropped by automated tests.
+
+### Milestone 15: Root-Cause Fix for Mobile 100.30 Network Error & Regular Store-to-QC Arrival Visibility
+* **Network Error Root Cause**: Shorthand `100.30` was missing port `:8080` (Docker Nginx listener). Built smart normalizer `normalizeServerHost()` in `mobile/src/api/client.js` that expands shorthand IPs and auto-appends `:8080`.
+* **Regular Store-to-QC Arrival Fix**: In `HierarchyService.php` line 264, updated `$qcPendingArrival` to query `whereIn('status', ['received', 'sent_to_qc'])`. Regular parts received by Store now appear instantly in Mobile QC Arrival without requiring manual store dispatch.
+* **Clean Mobile UI**: Retained minimal, modern login form without unnecessary visual clutter while preserving background auto-resolution.
+* **100% Passing Test Suite**: Expanded PHPUnit test suite to **158 passed feature tests (2,410 assertions)**.
 
 ---
 
@@ -220,7 +244,7 @@ Default development and staging password for all roles: **`password123`**
 | **REWORK** | Rework Specialist | `rework@sparetrack.internal` | Rework Processing, Return to QC, Revert |
 | **PAINT** | Paint Operator | `paint@sparetrack.internal` | Surface Treatment Completion, Revert |
 | **ASSEMBLY** | Assembly Lead | `assembly@sparetrack.internal` | Unit Mechanical Assembly, Revert |
-| **PURCHASE** | Purchase Executive | `purchase@sparetrack.internal` | Supplier Return Queue Management |
+| **PURCHASE** | Purchase Executive | `purchase@sparetrack.internal` | Supplier Allocation, Supplier Master & Return Queue |
 
 ---
 
@@ -252,17 +276,23 @@ graph TD
 
 ---
 
-## 8. Complete Server Upload & Deployment SOP
+## 8. Complete Server Upload & Deployment SOP (Windows & Linux)
 
-### 8.1 Method A: 1-Click Server Update (Recommended)
-On the target production Windows server machine:
-1. Open PowerShell or Command Prompt inside `C:\SpareTrack`.
-2. Execute:
-   ```bat
-   .\update_server.bat
-   ```
+### 8.1 Method A: 1-Click Server Update (Windows & Linux)
 
-*(On Linux / macOS servers, run `./update_server.sh`)*
+#### On Windows Server (Command Prompt or PowerShell):
+```cmd
+update_server.bat
+```
+*Or in PowerShell:*
+```powershell
+.\update_server.ps1
+```
+
+#### On Linux / macOS Server:
+```bash
+bash update_server.sh
+```
 
 ---
 
@@ -270,7 +300,7 @@ On the target production Windows server machine:
 Copy and paste this single command into PowerShell on the server:
 
 ```powershell
-git stash; git pull origin main; npm run build; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
+git stash; git pull origin main; npm run build; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx; Start-Sleep -Seconds 3; curl.exe -s http://127.0.0.1:8080/api/v1/health
 ```
 
 ---
@@ -281,7 +311,7 @@ git stash; git pull origin main; npm run build; docker exec -t sparetrack-app ph
 # Step 1: Navigate to repository root
 cd C:\SpareTrack
 
-# Step 2: Stash any local temporary files
+# Step 2: Stash local temporary files
 git stash
 
 # Step 3: Pull latest verified code from main branch
@@ -306,7 +336,8 @@ docker exec -t sparetrack-app php artisan queue:restart
 # Step 8: Restart application containers (PostgreSQL database remains untouched)
 docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
 
-# Step 9: Verify feature test suite integrity
+# Step 9: Verify backend health & test suite integrity
+curl.exe -s http://127.0.0.1:8080/api/v1/health
 docker exec -t sparetrack-app php artisan test
 ```
 
@@ -321,16 +352,16 @@ To push live JavaScript / UI / state machine updates directly to department floo
 cd mobile
 
 # Publish to Preview channel (Staging test devices)
-npx eas-cli update --channel preview --message "Store top subtabs, Unit navigation stability, Bulk revert"
+npx eas-cli update --branch preview --message "Mobile network and QC arrival fix"
 
 # Publish to Production channel (Factory floor devices)
-npx eas-cli update --channel production --message "Store top subtabs, Unit navigation stability, Bulk revert"
+npx eas-cli update --branch production --message "Mobile network and QC arrival fix"
 ```
 
-*When the mobile app is opened, it automatically downloads and prompts to restart with the new update.*
+*When the mobile app is opened on floor devices, it automatically downloads and prompts to restart with the new update.*
 
-### 9.2 Generate New Standalone Android APK
-When native dependencies or Android manifest settings change:
+### 9.2 Generate New Standalone Android Preview APK
+When native dependencies, icons, or Android manifest permissions change:
 
 ```powershell
 cd mobile
@@ -362,31 +393,27 @@ To guarantee production stability, all development follows this strict workflow:
 
 1. **Create Isolated Feature Branch**:
    ```bash
-   git checkout -b feat/your-feature-name
+   git checkout -b branch-a
    ```
-2. **Execute Tests & Metro Compilation**:
+2. **Execute Tests & Build Verification**:
    ```bash
-   # 1. Run PHPUnit backend test suite (Must pass 100%)
-   php artisan test
+   # 1. Run PHPUnit backend test suite (Must pass 158/158 tests)
+   docker exec -t sparetrack-app php artisan test
 
-   # 2. Verify Metro React Native bundler
-   cd mobile && npx expo export --output-dir dist --dump-assetmap --platform android
+   # 2. Verify Vite production web build
+   npm run build
    ```
 3. **Commit & Push Feature Branch**:
    ```bash
    git add -A
    git commit -m "feat(module): description of changes"
-   git push -u origin feat/your-feature-name
+   git push origin branch-a
    ```
-4. **Merge to Main & Push to Origin**:
-   ```bash
-   git checkout main
-   git merge feat/your-feature-name
-   git push origin main
-   ```
-5. **Publish EAS OTA Update to Floor Phones**:
+4. **Merge to Main via Pull Request**:
+   * Open PR on GitHub: `https://github.com/Darshan2724/Spare-Part-Tracking_FAA/compare/main...branch-a`
+   * Merge PR to `main` with 0 conflicts.
+5. **Publish EAS OTA Update to Floor Devices**:
    ```bash
    cd mobile
-   npx eas-cli update --channel preview --message "Release notes"
-   npx eas-cli update --channel production --message "Release notes"
+   npx eas-cli update --branch preview --message "Release notes"
    ```
