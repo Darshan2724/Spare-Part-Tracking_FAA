@@ -61,7 +61,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::get('/logs/{id}', [SystemLogController::class, 'show']);
             Route::patch('/logs/{id}/status', [SystemLogController::class, 'updateStatus']);
         });
-
+        
         // Dashboard Summary Metrics & KPI Drill-Down
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
         Route::get('/dashboard/project-hierarchy', [DashboardController::class, 'projectHierarchy']);
@@ -77,6 +77,8 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
 
         // Suppliers CRUD & Dropdown List & Excel Import
         Route::get('/suppliers/active-list', [SupplierController::class, 'activeList']);
+        Route::get('/suppliers/imports', [SupplierController::class, 'listImports']);
+        Route::delete('/suppliers/import/{id}', [SupplierController::class, 'deleteImport']);
         Route::post('/suppliers/import/preview', [SupplierController::class, 'importPreview']);
         Route::post('/suppliers/import/commit', [SupplierController::class, 'commitImport']);
         Route::apiResource('suppliers', SupplierController::class);
@@ -87,6 +89,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::get('/assignments', [SupplierAllocationController::class, 'getAssignments']);
             Route::post('/assign', [SupplierAllocationController::class, 'saveAssignment']);
             Route::post('/bulk-assign', [SupplierAllocationController::class, 'bulkAssign']);
+            Route::post('/multi-unit-assign', [SupplierAllocationController::class, 'multiUnitAssign']);
             Route::delete('/assignments/{id}', [SupplierAllocationController::class, 'removeAssignment']);
             Route::get('/overview', [SupplierAllocationController::class, 'overview']);
         });
@@ -95,6 +98,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
         Route::prefix('supplier-analytics')->group(function () {
             Route::get('/kpis', [SupplierAnalyticsController::class, 'kpis']);
             Route::get('/ranking', [SupplierAnalyticsController::class, 'ranking']);
+            Route::get('/load', [SupplierAnalyticsController::class, 'load']);
             Route::get('/rework', [SupplierAnalyticsController::class, 'rework']);
             Route::get('/allocation', [SupplierAnalyticsController::class, 'allocation']);
             Route::get('/history', [SupplierAnalyticsController::class, 'history']);

@@ -176,26 +176,28 @@
         </div>
       </div>
 
-      <!-- 2. EXCEL IMPORT CARD -->
+      <!-- 2. EXCEL IMPORT CARD & IMPORT HISTORY -->
       <div class="col-12 col-xl-5">
-        <div class="card border shadow-xs bg-white h-100 app-card">
-          <div class="card-header bg-white py-2.5 px-3 border-bottom d-flex justify-content-between align-items-center">
-            <div class="d-flex align-items-center gap-2">
-              <span class="category-icon-box bg-success-subtle text-success">
-                <i class="fas fa-file-excel"></i>
-              </span>
-              <div>
-                <h6 class="fw-bold text-dark mb-0">Import Supplier Excel</h6>
+        <div class="d-flex flex-column gap-3 h-100">
+          <!-- Excel Upload Box -->
+          <div class="card border shadow-xs bg-white app-card">
+            <div class="card-header bg-white py-2.5 px-3 border-bottom d-flex justify-content-between align-items-center">
+              <div class="d-flex align-items-center gap-2">
+                <span class="category-icon-box bg-success-subtle text-success">
+                  <i class="fas fa-file-excel"></i>
+                </span>
+                <div>
+                  <h6 class="fw-bold text-dark mb-0">Import Supplier Excel</h6>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div class="card-body p-3 d-flex flex-column justify-content-between">
-            <div>
+            <div class="card-body p-3">
               <!-- Quick Import Sample File Button -->
               <div class="p-2.5 mb-3 bg-light rounded border d-flex justify-content-between align-items-center">
                 <div>
                   <strong class="text-dark small d-block">BOM/supplier list 1.xlsx</strong>
+                  <span class="extra-small text-muted">Standard master format</span>
                 </div>
                 <button 
                   type="button" 
@@ -204,13 +206,13 @@
                   @click="loadSampleExcelPreview"
                 >
                   <span v-if="previewLoading && useSample" class="spinner-border spinner-border-sm me-1"></span>
-                  <i v-else class="fas fa-file-import me-1"></i> Preview BOM File
+                  <i v-else class="fas fa-file-import me-1"></i> Preview Sample
                 </button>
               </div>
 
               <!-- Upload Custom File -->
-              <div class="mb-2">
-                <label class="form-label extra-small fw-bold text-dark mb-1">Select Supplier Excel File</label>
+              <div class="mb-1">
+                <label class="form-label extra-small fw-bold text-dark mb-1">Upload Supplier Excel File (.xlsx, .csv)</label>
                 <div class="input-group input-group-sm">
                   <input 
                     type="file" 
@@ -230,18 +232,63 @@
               </div>
             </div>
           </div>
+
+          <!-- Import History / Delete Supplier List Card -->
+          <div class="card border shadow-xs bg-white app-card flex-grow-1">
+            <div class="card-header bg-white py-2 px-3 border-bottom d-flex justify-content-between align-items-center">
+              <span class="small fw-bold text-dark d-flex align-items-center gap-1.5">
+                <i class="fas fa-history text-secondary"></i> Imported Excel Lists
+              </span>
+              <button class="btn btn-xs btn-outline-secondary" @click="fetchImportsList" title="Refresh imports">
+                <i class="fas fa-sync-alt" :class="{ 'fa-spin': loadingImports }"></i>
+              </button>
+            </div>
+
+            <div class="card-body p-2" style="max-height: 200px; overflow-y: auto;">
+              <div v-if="loadingImports && !importsList.length" class="text-center py-3 text-muted extra-small">
+                Loading import records...
+              </div>
+
+              <div v-else-if="!importsList.length" class="text-center py-3 text-muted extra-small">
+                No past supplier imports recorded.
+              </div>
+
+              <div v-else class="d-flex flex-column gap-1.5">
+                <div 
+                  v-for="imp in importsList" 
+                  :key="imp.id" 
+                  class="p-2 rounded border bg-light d-flex justify-content-between align-items-center extra-small"
+                >
+                  <div class="text-truncate me-2" style="max-width: 220px;">
+                    <strong class="text-dark d-block text-truncate">{{ imp.filename }}</strong>
+                    <span class="text-muted">
+                      {{ formatDateTime(imp.created_at) }} &bull; {{ imp.suppliers_count || imp.created_count || 0 }} suppliers
+                    </span>
+                  </div>
+
+                  <button 
+                    class="btn btn-xs btn-outline-danger py-0.5 px-2"
+                    title="Delete all suppliers imported via this file"
+                    @click="confirmDeleteImport(imp)"
+                  >
+                    <i class="fas fa-trash-alt me-1"></i> Delete List
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- ========================================================================= -->
-    <!-- EXCEL IMPORT PREVIEW MODAL / CARD (When previewData is ready)             -->
+    <!-- EXCEL IMPORT PREVIEW CARD (When previewData is ready)                     -->
     <!-- ========================================================================= -->
     <div v-if="previewData" class="card border shadow-xs bg-white mb-3 app-card border-primary">
       <div class="card-header bg-primary text-white py-2 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div class="d-flex align-items-center gap-2">
           <i class="fas fa-eye fs-6"></i>
-          <h6 class="fw-bold mb-0">Supplier Excel Import Preview</h6>
+          <h6 class="fw-bold mb-0">Supplier Excel Import Preview ({{ currentPreviewFilename }})</h6>
         </div>
 
         <!-- Metric Badges -->
@@ -319,7 +366,7 @@
     </div>
 
     <!-- ========================================================================= -->
-    <!-- SECTION 3: SUPPLIER LIST (COLLAPSED BY DEFAULT)                           -->
+    <!-- SECTION 3: SUPPLIER LIST (COLLAPSIBLE WITH INDIVIDUAL DELETE ACTIONS)      -->
     <!-- ========================================================================= -->
     <div class="card border shadow-xs bg-white app-card">
       <div 
@@ -339,7 +386,7 @@
           </span>
         </div>
 
-        <!-- Search input & refresh (visible when expanded or inline) -->
+        <!-- Search input & refresh (visible when expanded) -->
         <div v-if="isListExpanded" class="d-flex align-items-center gap-2" @click.stop>
           <input 
             v-model="searchQuery" 
@@ -364,13 +411,14 @@
           <table class="table table-hover align-middle mb-0 extra-small">
             <thead class="table-dark">
               <tr>
-                <th style="width: 120px;">Code / Glcd</th>
+                <th style="width: 110px;">Code / Glcd</th>
                 <th>Supplier Name</th>
                 <th>Contact Person</th>
                 <th style="width: 110px;">City</th>
                 <th style="width: 90px;">PinCode</th>
                 <th>Phone Numbers</th>
-                <th style="width: 90px;" class="text-center">Status</th>
+                <th style="width: 80px;" class="text-center">Status</th>
+                <th style="width: 70px;" class="text-center">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -410,9 +458,18 @@
                     Inactive
                   </span>
                 </td>
+                <td class="text-center">
+                  <button 
+                    class="btn btn-xs btn-outline-danger py-0.5 px-1.5"
+                    title="Delete or Deactivate Supplier"
+                    @click="confirmDeleteSupplier(s)"
+                  >
+                    <i class="fas fa-trash-alt"></i>
+                  </button>
+                </td>
               </tr>
               <tr v-if="!suppliersList.length">
-                <td colspan="7" class="text-center py-4 text-muted">
+                <td colspan="8" class="text-center py-4 text-muted">
                   No suppliers found.
                 </td>
               </tr>
@@ -439,6 +496,95 @@
               @click="fetchSuppliersList(pagination.current_page + 1)"
             >
               Next &rarr;
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL: DELETE EXCEL IMPORT CONFIRMATION                                   -->
+    <!-- ========================================================================= -->
+    <div v-if="importToDelete" class="modal-backdrop fade show"></div>
+    <div v-if="importToDelete" class="modal fade show d-block" tabindex="-1" role="dialog">
+      <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content border-0 shadow-lg">
+          <div class="modal-header bg-danger text-white py-2.5 px-3">
+            <h6 class="modal-title fw-bold">
+              <i class="fas fa-exclamation-triangle me-1.5"></i> Delete Supplier Excel List
+            </h6>
+            <button type="button" class="btn-close btn-close-white" @click="importToDelete = null"></button>
+          </div>
+
+          <div class="modal-body p-3">
+            <p class="small mb-2">
+              Are you sure you want to remove all suppliers created from the import file:
+            </p>
+            <div class="p-2 rounded border bg-light small mb-3">
+              <strong class="text-dark d-block">{{ importToDelete.filename }}</strong>
+              <span class="extra-small text-muted">
+                Imported on {{ formatDateTime(importToDelete.created_at) }} &bull; {{ importToDelete.suppliers_count || importToDelete.created_count || 0 }} created suppliers
+              </span>
+            </div>
+
+            <div class="alert alert-warning py-2 px-2.5 extra-small mb-0">
+              <i class="fas fa-shield-alt me-1 text-warning"></i>
+              <strong>Dependency Protection:</strong>
+              Suppliers with active assignments or historical audit references will be safely marked <em>Inactive</em> to protect production data integrity. Only unused suppliers will be soft-deleted. Pre-existing suppliers are untouched.
+            </div>
+          </div>
+
+          <div class="modal-footer bg-light py-2 px-3 d-flex justify-content-between">
+            <button type="button" class="btn btn-sm btn-outline-secondary" @click="importToDelete = null" :disabled="deletingImport">
+              Cancel
+            </button>
+            <button type="button" class="btn btn-sm btn-danger fw-bold px-3" @click="executeDeleteImport" :disabled="deletingImport">
+              <span v-if="deletingImport" class="spinner-border spinner-border-sm me-1.5"></span>
+              <i v-else class="fas fa-trash-alt me-1"></i> Confirm Delete List
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL: DELETE INDIVIDUAL SUPPLIER CONFIRMATION                            -->
+    <!-- ========================================================================= -->
+    <div v-if="supplierToDelete" class="modal-backdrop fade show"></div>
+    <div v-if="supplierToDelete" class="modal fade show d-block" tabindex="-1" role="dialog">
+      <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content border-0 shadow-lg">
+          <div class="modal-header bg-danger text-white py-2.5 px-3">
+            <h6 class="modal-title fw-bold">
+              <i class="fas fa-user-minus me-1.5"></i> Delete Supplier
+            </h6>
+            <button type="button" class="btn-close btn-close-white" @click="supplierToDelete = null"></button>
+          </div>
+
+          <div class="modal-body p-3">
+            <p class="small mb-2">
+              Are you sure you want to delete supplier:
+            </p>
+            <div class="p-2 rounded border bg-light small mb-3">
+              <strong class="text-dark d-block">{{ supplierToDelete.name }}</strong>
+              <span class="extra-small text-muted">
+                Code: {{ supplierToDelete.code || 'N/A' }} &bull; City: {{ supplierToDelete.city || 'N/A' }}
+              </span>
+            </div>
+
+            <div class="alert alert-info py-2 px-2.5 extra-small mb-0">
+              <i class="fas fa-info-circle me-1"></i>
+              If this supplier has active or historical allocations, it will be deactivated to protect referential integrity and audit records.
+            </div>
+          </div>
+
+          <div class="modal-footer bg-light py-2 px-3 d-flex justify-content-between">
+            <button type="button" class="btn btn-sm btn-outline-secondary" @click="supplierToDelete = null" :disabled="deletingSupplier">
+              Cancel
+            </button>
+            <button type="button" class="btn btn-sm btn-danger fw-bold px-3" @click="executeDeleteSupplier" :disabled="deletingSupplier">
+              <span v-if="deletingSupplier" class="spinner-border spinner-border-sm me-1.5"></span>
+              <i v-else class="fas fa-trash-alt me-1"></i> Confirm Delete
             </button>
           </div>
         </div>
@@ -471,14 +617,25 @@ const selectedFile = ref(null);
 const useSample = ref(false);
 const previewLoading = ref(false);
 const previewData = ref(null);
+const currentPreviewFilename = ref('');
 const committingImport = ref(false);
 
-// Collapsible Supplier List State (Collapsed by default)
+// Import History State
+const importsList = ref([]);
+const loadingImports = ref(false);
+const importToDelete = ref(null);
+const deletingImport = ref(false);
+
+// Collapsible Supplier List State
 const isListExpanded = ref(false);
 const loadingList = ref(false);
 const suppliersList = ref([]);
 const searchQuery = ref('');
 const pagination = ref({ current_page: 1, last_page: 1, total: 0 });
+
+// Individual Supplier Deletion State
+const supplierToDelete = ref(null);
+const deletingSupplier = ref(false);
 
 let searchDebounce = null;
 const debounceSearch = () => {
@@ -509,6 +666,13 @@ const resetManualForm = () => {
     phones: [''],
     remarks: '',
   };
+};
+
+// Format Date / Time helper
+const formatDateTime = (dateStr) => {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
 // Manual Submit Handler
@@ -554,6 +718,7 @@ const loadSampleExcelPreview = async () => {
   try {
     const res = await axios.post('/api/v1/suppliers/import/preview', { use_sample: true });
     previewData.value = res.data;
+    currentPreviewFilename.value = res.data.filename || 'supplier list 1.xlsx';
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to parse sample supplier list 1.xlsx.';
   } finally {
@@ -576,6 +741,7 @@ const uploadAndPreview = async () => {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     previewData.value = res.data;
+    currentPreviewFilename.value = res.data.filename || selectedFile.value.name;
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to parse supplier Excel file.';
   } finally {
@@ -593,15 +759,55 @@ const commitImport = async () => {
   try {
     const res = await axios.post('/api/v1/suppliers/import/commit', {
       rows: previewData.value.rows,
+      filename: currentPreviewFilename.value || 'supplier_list.xlsx',
     });
     successMessage.value = res.data.message || 'Suppliers successfully imported to database.';
     previewData.value = null;
     selectedFile.value = null;
     fetchSuppliersList(1);
+    fetchImportsList();
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to commit supplier import.';
   } finally {
     committingImport.value = false;
+  }
+};
+
+// Fetch Imports List
+const fetchImportsList = async () => {
+  loadingImports.value = true;
+  try {
+    const res = await axios.get('/api/v1/suppliers/imports');
+    importsList.value = res.data.imports || [];
+  } catch (err) {
+    console.error('Failed to load supplier imports history:', err);
+  } finally {
+    loadingImports.value = false;
+  }
+};
+
+// Delete Import Handlers
+const confirmDeleteImport = (imp) => {
+  importToDelete.value = imp;
+};
+
+const executeDeleteImport = async () => {
+  if (!importToDelete.value) return;
+
+  deletingImport.value = true;
+  error.value = '';
+  successMessage.value = '';
+
+  try {
+    const res = await axios.delete(`/api/v1/suppliers/import/${importToDelete.value.id}`);
+    successMessage.value = res.data.message || 'Supplier import list removed.';
+    importToDelete.value = null;
+    fetchImportsList();
+    fetchSuppliersList(1);
+  } catch (err) {
+    error.value = err.response?.data?.message || 'Failed to delete supplier import.';
+  } finally {
+    deletingImport.value = false;
   }
 };
 
@@ -628,8 +834,34 @@ const fetchSuppliersList = async (page = 1) => {
   }
 };
 
+// Individual Supplier Deletion Handlers
+const confirmDeleteSupplier = (supplier) => {
+  supplierToDelete.value = supplier;
+};
+
+const executeDeleteSupplier = async () => {
+  if (!supplierToDelete.value) return;
+
+  deletingSupplier.value = true;
+  error.value = '';
+  successMessage.value = '';
+
+  try {
+    const res = await axios.delete(`/api/v1/suppliers/${supplierToDelete.value.id}`);
+    successMessage.value = res.data.message || 'Supplier removed.';
+    supplierToDelete.value = null;
+    fetchSuppliersList(pagination.value.current_page);
+    fetchImportsList();
+  } catch (err) {
+    error.value = err.response?.data?.message || 'Failed to delete supplier.';
+  } finally {
+    deletingSupplier.value = false;
+  }
+};
+
 onMounted(() => {
   fetchSuppliersList(1);
+  fetchImportsList();
 });
 </script>
 

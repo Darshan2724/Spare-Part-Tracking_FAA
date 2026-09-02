@@ -128,13 +128,24 @@ class SupplierImportService
     /**
      * Commit parsed rows to PostgreSQL in a single atomic transaction.
      */
-    public function commit(array $rows, ?int $userId = null): array
+    public function commit(array $rows, ?int $userId = null, ?string $filename = 'supplier_list.xlsx', ?string $fileHash = null): array
     {
-        return DB::transaction(function () use ($rows, $userId) {
+        return DB::transaction(function () use ($rows, $userId, $filename, $fileHash) {
             $createdCount = 0;
             $updatedCount = 0;
             $skippedCount = 0;
             $createdSuppliers = [];
+
+            // Create SupplierImport record for this batch
+            $supplierImport = \App\Models\SupplierImport::create([
+                'filename' => $filename ?: 'supplier_list.xlsx',
+                'file_hash' => $fileHash,
+                'total_rows' => count($rows),
+                'created_count' => 0,
+                'updated_count' => 0,
+                'skipped_count' => 0,
+                'imported_by' => $userId,
+            ]);
 
             foreach ($rows as $item) {
                 if (($item['status'] ?? '') === 'invalid' || empty($item['name'])) {
@@ -157,7 +168,7 @@ class SupplierImportService
                     ->first();
 
                 if ($supplier) {
-                    // Update existing
+                    // Update existing - DO NOT overwrite original supplier_import_id if already set
                     if ($supplier->trashed()) {
                         $supplier->restore();
                     }
@@ -172,7 +183,7 @@ class SupplierImportService
                     ]);
                     $updatedCount++;
                 } else {
-                    // Create new
+                    // Create new - associate with this import batch
                     $supplier = Supplier::create([
                         'name' => $name,
                         'code' => $code,
@@ -184,6 +195,7 @@ class SupplierImportService
                         'phone' => $primaryPhone,
                         'is_active' => true,
                         'is_test_data' => false,
+                        'supplier_import_id' => $supplierImport->id,
                     ]);
                     $createdCount++;
                 }
@@ -212,12 +224,105 @@ class SupplierImportService
                 $createdSuppliers[] = $supplier;
             }
 
+            // Update import counts
+            $supplierImport->update([
+                'created_count' => $createdCount,
+                'updated_count' => $updatedCount,
+                'skipped_count' => $skippedCount,
+            ]);
+
             return [
                 'success' => true,
+                'import_id' => $supplierImport->id,
                 'created_count' => $createdCount,
                 'updated_count' => $updatedCount,
                 'skipped_count' => $skippedCount,
                 'total_processed' => count($createdSuppliers),
+            ];
+        });
+    }
+
+    /**
+     * Safely delete a Supplier Import batch and its created suppliers.
+     * Enforces strict dependency protection:
+     * - Suppliers with active assignments are marked inactive (not deleted)
+     * - Suppliers with historical assignments are marked inactive (not deleted)
+     * - Unused suppliers created by this import are safely soft-deleted
+     * - Pre-existing suppliers (different or null supplier_import_id) are never touched
+     */
+    public function deleteImport(int $importId, ?int $userId = null): array
+    {
+        return DB::transaction(function () use ($importId) {
+            $import = \App\Models\SupplierImport::findOrFail($importId);
+
+            // Fetch suppliers created specifically by this import
+            $suppliers = Supplier::where('supplier_import_id', $importId)->get();
+
+            $deletedCount = 0;
+            $deactivatedCount = 0;
+            $details = [];
+
+            foreach ($suppliers as $supplier) {
+                // Check if supplier has active assignments
+                $hasActiveAssignments = \App\Models\SupplierAssignment::where('supplier_id', $supplier->id)
+                    ->where('status', 'active')
+                    ->exists();
+
+                // Check if supplier is referenced in history
+                $hasHistoricalAssignments = \App\Models\SupplierAssignmentHistory::where('new_supplier_id', $supplier->id)
+                    ->orWhere('previous_supplier_id', $supplier->id)
+                    ->exists()
+                    || \App\Models\SupplierAssignment::where('supplier_id', $supplier->id)->exists();
+
+                if ($hasActiveAssignments) {
+                    // Mark inactive to avoid breaking current workflow
+                    $supplier->update(['is_active' => false]);
+                    $deactivatedCount++;
+                    $details[] = [
+                        'supplier_id' => $supplier->id,
+                        'name' => $supplier->name,
+                        'action' => 'deactivated',
+                        'reason' => 'Has active assignments',
+                    ];
+                    broadcast(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deactivated'))->toOthers();
+                } elseif ($hasHistoricalAssignments) {
+                    // Mark inactive to preserve audit history
+                    $supplier->update(['is_active' => false]);
+                    $deactivatedCount++;
+                    $details[] = [
+                        'supplier_id' => $supplier->id,
+                        'name' => $supplier->name,
+                        'action' => 'deactivated',
+                        'reason' => 'Has historical assignment records',
+                    ];
+                    broadcast(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deactivated'))->toOthers();
+                } else {
+                    // Truly unused - safely soft-delete
+                    $supplier->phones()->delete();
+                    $supplier->delete();
+                    $deletedCount++;
+                    $details[] = [
+                        'supplier_id' => $supplier->id,
+                        'name' => $supplier->name,
+                        'action' => 'deleted',
+                        'reason' => 'Unused supplier',
+                    ];
+                    broadcast(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deleted'))->toOthers();
+                }
+            }
+
+            // Soft-delete the import record
+            $import->delete();
+
+            return [
+                'success' => true,
+                'import_id' => $importId,
+                'filename' => $import->filename,
+                'deleted_count' => $deletedCount,
+                'deactivated_count' => $deactivatedCount,
+                'total_affected' => $deletedCount + $deactivatedCount,
+                'details' => $details,
+                'message' => "Import '{$import->filename}' removed. Deleted {$deletedCount} unused supplier(s), deactivated {$deactivatedCount} supplier(s) with dependencies.",
             ];
         });
     }

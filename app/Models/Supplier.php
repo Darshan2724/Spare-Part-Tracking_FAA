@@ -24,6 +24,7 @@ class Supplier extends Model
         'is_active',
         'is_test_data',
         'remarks',
+        'supplier_import_id',
     ];
 
     protected $casts = [
@@ -54,5 +55,21 @@ class Supplier extends Model
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    /**
+     * The import batch that created this supplier (null if manually created).
+     */
+    public function import()
+    {
+        return $this->belongsTo(SupplierImport::class, 'supplier_import_id');
+    }
+
+    /**
+     * Historical assignment records referencing this supplier (for dependency checking).
+     */
+    public function assignmentHistory()
+    {
+        return $this->hasMany(SupplierAssignmentHistory::class, 'new_supplier_id');
     }
 }

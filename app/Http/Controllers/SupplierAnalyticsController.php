@@ -95,6 +95,26 @@ class SupplierAnalyticsController extends Controller
         ]);
     }
 
+    public function load(Request $request, \App\Services\SupplierLoadService $loadService)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'PURCHASE', 'STORE', 'QC']) ?: abort(403);
+
+        $filters = $this->extractFilters($request);
+        if ($request->filled('jig_no')) {
+            $filters['jig_no'] = $request->input('jig_no');
+        }
+        if ($request->filled('unit_no')) {
+            $filters['unit_no'] = $request->input('unit_no');
+        }
+
+        $loadData = $loadService->getSupplierLoad($filters);
+
+        return response()->json([
+            'success' => true,
+            'load' => $loadData,
+        ]);
+    }
+
     private function extractFilters(Request $request): array
     {
         return [
