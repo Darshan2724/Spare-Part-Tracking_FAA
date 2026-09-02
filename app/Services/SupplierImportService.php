@@ -263,30 +263,34 @@ class SupplierImportService
             $details = [];
 
             foreach ($suppliers as $supplier) {
-                // Check if supplier has active assignments
+                // Check if supplier has active assignments for existing valid projects
                 $hasActiveAssignments = \App\Models\SupplierAssignment::where('supplier_id', $supplier->id)
                     ->where('status', 'active')
+                    ->whereHas('project')
                     ->exists();
 
-                // Check if supplier is referenced in history
-                $hasHistoricalAssignments = \App\Models\SupplierAssignmentHistory::where('new_supplier_id', $supplier->id)
-                    ->orWhere('previous_supplier_id', $supplier->id)
+                // Check if supplier is referenced in history for existing projects
+                $hasHistoricalAssignments = \App\Models\SupplierAssignmentHistory::where(function ($q) use ($supplier) {
+                        $q->where('new_supplier_id', $supplier->id)
+                          ->orWhere('previous_supplier_id', $supplier->id);
+                    })
+                    ->whereHas('project')
                     ->exists()
-                    || \App\Models\SupplierAssignment::where('supplier_id', $supplier->id)->exists();
+                    || \App\Models\SupplierAssignment::where('supplier_id', $supplier->id)->whereHas('project')->exists();
 
                 if ($hasActiveAssignments) {
-                    // Mark inactive to avoid breaking current workflow
+                    // Mark inactive to avoid breaking current workflow and remove from active dropdowns
                     $supplier->update(['is_active' => false]);
                     $deactivatedCount++;
                     $details[] = [
                         'supplier_id' => $supplier->id,
                         'name' => $supplier->name,
                         'action' => 'deactivated',
-                        'reason' => 'Has active assignments',
+                        'reason' => 'Has active production assignments',
                     ];
-                    broadcast(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deactivated'))->toOthers();
+                    event(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deactivated'));
                 } elseif ($hasHistoricalAssignments) {
-                    // Mark inactive to preserve audit history
+                    // Mark inactive to preserve audit history and remove from active dropdowns
                     $supplier->update(['is_active' => false]);
                     $deactivatedCount++;
                     $details[] = [
@@ -295,9 +299,10 @@ class SupplierImportService
                         'action' => 'deactivated',
                         'reason' => 'Has historical assignment records',
                     ];
-                    broadcast(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deactivated'))->toOthers();
+                    event(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deactivated'));
                 } else {
-                    // Truly unused - safely soft-delete
+                    // Truly unused - mark inactive, delete phone numbers, and safely soft-delete
+                    $supplier->update(['is_active' => false]);
                     $supplier->phones()->delete();
                     $supplier->delete();
                     $deletedCount++;
@@ -307,7 +312,7 @@ class SupplierImportService
                         'action' => 'deleted',
                         'reason' => 'Unused supplier',
                     ];
-                    broadcast(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deleted'))->toOthers();
+                    event(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deleted'));
                 }
             }
 

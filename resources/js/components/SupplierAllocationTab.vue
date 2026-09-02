@@ -124,9 +124,9 @@
         <div class="card-body py-2.5 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
           <!-- Left Context -->
           <div class="d-flex align-items-center gap-2 flex-wrap">
-            <span class="fw-bold text-dark fs-6 d-flex align-items-center gap-1.5">
+            <span class="fw-bold text-dark fs-6 d-flex align-items-center gap-2">
               <span>{{ selectedProject?.project_code || selectedProject?.name }}</span>
-              <span class="text-muted fw-normal">&rsaquo;</span>
+              <span class="text-secondary fw-semibold">›</span>
               <span class="text-primary fw-bold">JIG {{ selectedJig.jig_no }}</span>
             </span>
 
@@ -275,18 +275,18 @@
         <!-- RIGHT PANEL: Selected Unit(s) Supplier Assignment (70-72% on desktop)     -->
         <!-- ========================================================================= -->
         <div class="col-12 col-lg-8 col-xl-9">
-          <!-- Empty Selection State -->
+          <!-- Empty Selection State (Required Initial State when 0 units selected) -->
           <div v-if="!selectedUnits.length" class="card empty-selection-card bg-white p-5 text-center text-muted h-100 d-flex flex-column justify-content-center align-items-center shadow-xs">
             <div class="empty-icon-circle bg-primary-subtle text-primary mb-3">
               <i class="fas fa-hand-pointer fa-2x"></i>
             </div>
-            <h6 class="fw-bold text-dark mb-1">No Unit Selected</h6>
+            <h5 class="fw-bold text-dark mb-1">Select a Unit</h5>
             <p class="small text-muted mb-0" style="max-width: 380px;">
-              Click a Unit on the left to edit its supplier allocations, or select multiple Units using checkboxes to perform batch assignments.
+              Choose a Unit from the left to manage supplier allocation.
             </p>
           </div>
 
-          <!-- Active Assignment Workspace -->
+          <!-- Active Assignment Workspace (Visible only when 1 or more units selected) -->
           <div v-else class="d-flex flex-column gap-3">
             <!-- Sleek Selection Summary Header -->
             <div class="card selection-summary-bar bg-white shadow-xs">
@@ -904,7 +904,7 @@
               </div>
             </div>
 
-            <!-- BOTTOM ACTION BAR: APPLY CHANGES -->
+            <!-- BOTTOM ACTION BAR: APPLY CHANGES (Visible only when units selected) -->
             <div class="card action-footer-bar bg-white shadow-xs">
               <div class="card-body py-2.5 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
                 <div class="d-flex align-items-center gap-2">
@@ -1353,13 +1353,9 @@ const selectProject = (projectId) => {
 
 const selectJig = (jig) => {
   selectedJig.value = jig;
-  // Automatically select the first unit if available
-  if (jig.units && jig.units.length > 0) {
-    selectedUnits.value = [jig.units[0]];
-    initSavedAndDraftState(jig.units[0]);
-  } else {
-    selectedUnits.value = [];
-  }
+  // Strictly initialize with 0 units selected to show empty selection state
+  selectedUnits.value = [];
+  resetDraftToSaved();
 };
 
 // Dropdown & Calendar toggles
@@ -1760,11 +1756,11 @@ onUnmounted(() => {
   background-color: #f59e0b !important;
 }
 
-/* Distinct Card Borders & Clean Elevation */
+/* Visible Dark Borders System for High-Contrast Manufacturing UX */
 .app-card,
 .project-card,
 .jig-card {
-  border: 1px solid #cbd5e1 !important;
+  border: 1px solid #334155 !important;
   border-radius: 6px;
   background-color: #ffffff;
 }
@@ -1774,19 +1770,19 @@ onUnmounted(() => {
 }
 .hover-card:hover {
   transform: translateY(-1px);
-  border-color: #94a3b8 !important;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.04) !important;
+  border-color: #0f172a !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.12), 0 2px 4px -2px rgba(0, 0, 0, 0.06) !important;
 }
 
 /* Header & Context Bar */
 .workspace-header-card {
-  border: 1px solid #cbd5e1 !important;
+  border: 1px solid #334155 !important;
   border-radius: 6px;
 }
 
 /* Left Panel: Units Sidebar */
 .units-sidebar-card {
-  border: 1px solid #cbd5e1 !important;
+  border: 1px solid #334155 !important;
   border-radius: 6px;
   background-color: #f8fafc;
   display: flex;
@@ -1806,19 +1802,19 @@ onUnmounted(() => {
   user-select: none;
 }
 .unit-card-box.unselected-unit {
-  border: 1px solid #e2e8f0;
+  border: 1px solid #64748b !important;
 }
 .unit-card-box.unselected-unit:hover {
-  border-color: #94a3b8;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+  border-color: #1e293b !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
 }
 .unit-card-box.selected-unit {
   border: 2px solid #2563eb !important;
   background-color: #eff6ff !important;
-  box-shadow: 0 2px 5px rgba(37, 99, 235, 0.12) !important;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.18) !important;
 }
 .unit-card-box.fully-assigned {
-  border-color: #86efac;
+  border-color: #059669 !important;
 }
 
 .unit-checkbox {
@@ -1827,17 +1823,17 @@ onUnmounted(() => {
 }
 .unit-summary-pill {
   font-size: 0.68rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #cbd5e1;
 }
 
-/* Right Panel: Category Cards */
+/* Right Panel: Category Cards & Header */
 .selection-summary-bar {
-  border: 1px solid #cbd5e1 !important;
+  border: 1px solid #334155 !important;
   border-radius: 6px;
 }
 
 .empty-selection-card {
-  border: 1px dashed #cbd5e1 !important;
+  border: 1px dashed #475569 !important;
   border-radius: 6px;
 }
 .empty-icon-circle {
@@ -1850,18 +1846,18 @@ onUnmounted(() => {
 }
 
 .category-box {
-  border: 1px solid #cbd5e1 !important;
+  border: 1px solid #475569 !important;
   border-radius: 6px;
   position: relative;
 }
 .border-top-emerald {
-  border-top: 3px solid #10b981 !important;
+  border-top: 4px solid #10b981 !important;
 }
 .border-top-indigo {
-  border-top: 3px solid #3b82f6 !important;
+  border-top: 4px solid #3b82f6 !important;
 }
 .border-top-amber {
-  border-top: 3px solid #f59e0b !important;
+  border-top: 4px solid #f59e0b !important;
 }
 
 .category-dot {
@@ -1872,7 +1868,7 @@ onUnmounted(() => {
 }
 
 .action-footer-bar {
-  border: 1px solid #cbd5e1 !important;
+  border: 1px solid #334155 !important;
   border-radius: 6px;
 }
 .apply-btn {
@@ -1888,7 +1884,7 @@ onUnmounted(() => {
   position: relative;
 }
 .searchable-select-trigger {
-  border: 1px solid #cbd5e1;
+  border: 1px solid #64748b;
   border-radius: 5px;
   padding: 6px 10px;
   background-color: #ffffff;
@@ -1902,7 +1898,7 @@ onUnmounted(() => {
   transition: border-color 0.15s ease;
 }
 .searchable-select-trigger:hover {
-  border-color: #94a3b8;
+  border-color: #1e293b;
 }
 .searchable-select-trigger.disabled-trigger {
   background-color: #f1f5f9;
@@ -1916,9 +1912,9 @@ onUnmounted(() => {
   right: 0;
   z-index: 9999;
   background-color: #ffffff;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #334155;
   border-radius: 6px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.15) !important;
   margin-top: 3px;
 }
 .searchable-select-list {
@@ -1932,7 +1928,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
   transition: background-color 0.1s ease;
 }
 .searchable-select-item:hover {
@@ -1952,9 +1948,9 @@ onUnmounted(() => {
   z-index: 9999;
   width: 220px;
   background: #ffffff;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #334155;
   border-radius: 6px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.15) !important;
   margin-top: 3px;
 }
 .calendar-grid-weekdays {

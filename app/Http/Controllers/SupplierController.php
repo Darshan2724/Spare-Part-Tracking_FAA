@@ -232,15 +232,16 @@ class SupplierController extends Controller
 
         $supplier = Supplier::findOrFail($id);
 
-        // 1. Check if supplier has active assignments
+        // 1. Check if supplier has active assignments on existing projects
         $activeAssignmentsCount = SupplierAssignment::where('supplier_id', $id)
             ->where('status', 'active')
+            ->whereHas('project')
             ->count();
 
         if ($activeAssignmentsCount > 0) {
             // Cannot hard delete active production dependency -> deactivate instead
             $supplier->update(['is_active' => false]);
-            broadcast(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deactivated'))->toOthers();
+            event(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deactivated'));
 
             return response()->json([
                 'success' => true,
@@ -249,16 +250,19 @@ class SupplierController extends Controller
             ]);
         }
 
-        // 2. Check if supplier has historical assignments
-        $hasHistory = \App\Models\SupplierAssignmentHistory::where('new_supplier_id', $id)
-            ->orWhere('previous_supplier_id', $id)
+        // 2. Check if supplier has historical assignments on existing projects
+        $hasHistory = \App\Models\SupplierAssignmentHistory::where(function ($q) use ($id) {
+                $q->where('new_supplier_id', $id)
+                  ->orWhere('previous_supplier_id', $id);
+            })
+            ->whereHas('project')
             ->exists()
-            || SupplierAssignment::where('supplier_id', $id)->exists();
+            || SupplierAssignment::where('supplier_id', $id)->whereHas('project')->exists();
 
         if ($hasHistory) {
             // Has historical reference -> deactivate to preserve audit history integrity
             $supplier->update(['is_active' => false]);
-            broadcast(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deactivated'))->toOthers();
+            event(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deactivated'));
 
             return response()->json([
                 'success' => true,
@@ -267,12 +271,13 @@ class SupplierController extends Controller
             ]);
         }
 
-        // 3. Truly unused supplier -> safe soft delete
+        // 3. Truly unused supplier -> mark inactive and safe soft delete
         $supplierName = $supplier->name;
+        $supplier->update(['is_active' => false]);
         $supplier->phones()->delete();
         $supplier->delete();
 
-        broadcast(new \App\Events\SupplierDeactivated($id, $supplierName, 'deleted'))->toOthers();
+        event(new \App\Events\SupplierDeactivated($id, $supplierName, 'deleted'));
 
         return response()->json([
             'success' => true,

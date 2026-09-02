@@ -249,14 +249,26 @@ class SupplierLoadAndMultiUnitAllocationTest extends TestCase
         $response->assertStatus(200);
         $response->assertJson(['success' => true]);
 
-        // Assert pre-existing supplier is intact and active
-        $this->assertDatabaseHas('suppliers', [
-            'id' => $preExisting->id,
-            'is_active' => true,
-            'deleted_at' => null,
-        ]);
+        // Assert imported suppliers are deleted / marked inactive
+        $this->assertSoftDeleted('suppliers', ['id' => $supp1->id]);
+        $this->assertSoftDeleted('suppliers', ['id' => $supp2->id]);
+        $this->assertDatabaseHas('suppliers', ['id' => $supp1->id, 'is_active' => false]);
+        $this->assertDatabaseHas('suppliers', ['id' => $supp2->id, 'is_active' => false]);
 
-        // Clean up test data
+        // Verify active list API does not return supp1 or supp2
+        $activeListRes = $this->actingAs($this->adminUser, 'sanctum')
+            ->getJson('/api/v1/suppliers/active-list');
+        $activeListRes->assertStatus(200);
+        $activeIds = collect($activeListRes->json('suppliers'))->pluck('id')->toArray();
+
+        $this->assertNotContains($supp1->id, $activeIds);
+        $this->assertNotContains($supp2->id, $activeIds);
+        $this->assertContains($preExisting->id, $activeIds);
+
+        // Clean up test records
+        $supp1->forceDelete();
+        $supp2->forceDelete();
         $preExisting->forceDelete();
+        $import->forceDelete();
     }
 }
