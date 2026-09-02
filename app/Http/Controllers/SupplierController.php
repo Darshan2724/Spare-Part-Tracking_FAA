@@ -48,7 +48,18 @@ class SupplierController extends Controller
         $perPage = (int) $request->input('per_page', 20);
         $suppliers = $query->orderBy('name')->paginate($perPage);
 
-        return response()->json($suppliers);
+        $activeCount = Supplier::where('is_active', true)->count();
+        $inactiveCount = Supplier::where('is_active', false)->count();
+
+        return response()->json([
+            'data' => $suppliers->items(),
+            'current_page' => $suppliers->currentPage(),
+            'last_page' => $suppliers->lastPage(),
+            'per_page' => $suppliers->perPage(),
+            'total' => $suppliers->total(),
+            'active_count' => $activeCount,
+            'inactive_count' => $inactiveCount,
+        ]);
     }
 
     /**

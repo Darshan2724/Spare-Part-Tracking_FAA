@@ -76,6 +76,26 @@ class SupplierLoadAndMultiUnitAllocationTest extends TestCase
         );
     }
 
+    protected function tearDown(): void
+    {
+        // Clean up test supplier assignments and history
+        SupplierAssignmentHistory::where('project_id', $this->project->id)->delete();
+        SupplierAssignment::where('project_id', $this->project->id)->delete();
+
+        // Clean up fixture suppliers
+        Supplier::whereIn('code', [
+            'SUP-ALPHA-TEST',
+            'SUP-BETA-TEST',
+            'SUP-GAMMA-TEST',
+            'SUP-ACT-DEP-TEST',
+        ])->forceDelete();
+
+        // Clean up test projects
+        $this->project->forceDelete();
+
+        parent::tearDown();
+    }
+
     public function test_multi_unit_atomic_assignment()
     {
         $today = Carbon::today()->format('Y-m-d');

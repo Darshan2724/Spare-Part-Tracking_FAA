@@ -148,28 +148,30 @@
                   </div>
                 </div>
 
-                <!-- Remarks / Notes -->
+                <!-- Remarks -->
                 <div class="col-12">
-                  <label class="form-label extra-small fw-bold text-dark mb-1">Remarks</label>
-                  <input 
+                  <label class="form-label extra-small fw-bold text-dark mb-1">
+                    Remarks
+                  </label>
+                  <textarea 
                     v-model="manualForm.remarks" 
-                    type="text" 
                     class="form-control form-control-sm shadow-xs" 
-                    placeholder="Optional remarks" 
-                  />
+                    rows="2" 
+                    placeholder="Optional remarks"
+                  ></textarea>
                 </div>
-              </div>
 
-              <!-- Submit Button -->
-              <div class="mt-3 pt-2 border-top d-flex justify-content-end">
-                <button 
-                  type="submit" 
-                  class="btn btn-sm btn-primary fw-semibold px-3 py-1.5 shadow-xs"
-                  :disabled="submittingManual || !manualForm.name"
-                >
-                  <span v-if="submittingManual" class="spinner-border spinner-border-sm me-1.5"></span>
-                  <i v-else class="fas fa-save me-1.5"></i> Save Supplier
-                </button>
+                <!-- Submit Button -->
+                <div class="col-12 text-end mt-2">
+                  <button 
+                    type="submit" 
+                    class="btn btn-sm btn-primary fw-semibold px-4 shadow-xs" 
+                    :disabled="submittingManual"
+                  >
+                    <span v-if="submittingManual" class="spinner-border spinner-border-sm me-1"></span>
+                    <i v-else class="fas fa-save me-1"></i> Save Supplier
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -179,24 +181,22 @@
       <!-- 2. EXCEL IMPORT CARD & IMPORT HISTORY -->
       <div class="col-12 col-xl-5">
         <div class="d-flex flex-column gap-3 h-100">
-          <!-- Excel Upload Box -->
+          <!-- Excel Import Box -->
           <div class="card border shadow-xs bg-white app-card">
-            <div class="card-header bg-white py-2.5 px-3 border-bottom d-flex justify-content-between align-items-center">
-              <div class="d-flex align-items-center gap-2">
-                <span class="category-icon-box bg-success-subtle text-success">
-                  <i class="fas fa-file-excel"></i>
-                </span>
-                <div>
-                  <h6 class="fw-bold text-dark mb-0">Import Supplier Excel</h6>
-                </div>
+            <div class="card-header bg-white py-2.5 px-3 border-bottom d-flex align-items-center gap-2">
+              <span class="category-icon-box bg-success-subtle text-success">
+                <i class="fas fa-file-excel"></i>
+              </span>
+              <div>
+                <h6 class="fw-bold text-dark mb-0">Import Supplier Excel</h6>
               </div>
             </div>
 
             <div class="card-body p-3">
-              <!-- Quick Import Sample File Button -->
-              <div class="p-2.5 mb-3 bg-light rounded border d-flex justify-content-between align-items-center">
+              <!-- Preset Sample Format Option -->
+              <div class="p-2.5 rounded border bg-light mb-3 d-flex justify-content-between align-items-center">
                 <div>
-                  <strong class="text-dark small d-block">BOM/supplier list 1.xlsx</strong>
+                  <strong class="text-dark small d-block">BOM/Supplier list 1.xlsx</strong>
                   <span class="extra-small text-muted">Standard master format</span>
                 </div>
                 <button 
@@ -348,14 +348,18 @@
 
         <!-- Preview Actions Bar -->
         <div class="p-2.5 bg-light border-top d-flex justify-content-between align-items-center">
-          <button type="button" class="btn btn-sm btn-outline-secondary" @click="previewData = null">
-            <i class="fas fa-times me-1"></i> Cancel Preview
-          </button>
-
           <button 
             type="button" 
-            class="btn btn-sm btn-success fw-bold px-3 shadow-xs" 
-            :disabled="committingImport" 
+            class="btn btn-sm btn-outline-secondary" 
+            @click="previewData = null" 
+            :disabled="committingImport"
+          >
+            Cancel Preview
+          </button>
+          <button 
+            type="button" 
+            class="btn btn-sm btn-success fw-bold px-4 shadow-xs" 
+            :disabled="committingImport || !previewData.new_count && !previewData.duplicate_count" 
             @click="commitImport"
           >
             <span v-if="committingImport" class="spinner-border spinner-border-sm me-1.5"></span>
@@ -366,28 +370,53 @@
     </div>
 
     <!-- ========================================================================= -->
-    <!-- SECTION 3: SUPPLIER LIST (COLLAPSIBLE WITH INDIVIDUAL DELETE ACTIONS)      -->
+    <!-- SECTION 3: SUPPLIER DIRECTORY LIST (WITH STATUS PARTITIONING TABS)         -->
     <!-- ========================================================================= -->
     <div class="card border shadow-xs bg-white app-card">
       <div 
-        class="card-header bg-white py-2.5 px-3 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2 cursor-pointer select-none"
-        @click="isListExpanded = !isListExpanded"
+        class="card-header bg-white py-2.5 px-3 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2 select-none"
       >
-        <div class="d-flex align-items-center gap-2">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
           <i 
-            class="fas text-primary fs-7 transition-all"
+            class="fas text-primary fs-7 cursor-pointer transition-all"
             :class="isListExpanded ? 'fa-chevron-down' : 'fa-chevron-right'"
+            @click="isListExpanded = !isListExpanded"
           ></i>
-          <strong class="text-dark small">
-            Supplier List
+          <strong class="text-dark small cursor-pointer" @click="isListExpanded = !isListExpanded">
+            Supplier Directory
           </strong>
-          <span class="badge bg-light text-dark border extra-small">
-            {{ pagination.total }} Registered
-          </span>
+
+          <!-- Status Partitioning Tabs (Active vs Inactive / Historical) -->
+          <div class="btn-group btn-group-sm ms-2">
+            <button 
+              type="button" 
+              class="btn btn-xs fw-semibold px-2.5 py-1"
+              :class="statusFilter === 'active' ? 'btn-primary' : 'btn-outline-secondary'"
+              @click="setStatusFilter('active')"
+            >
+              Active Suppliers <span class="badge ms-1" :class="statusFilter === 'active' ? 'bg-white text-primary' : 'bg-secondary'">{{ statusCounts.active }}</span>
+            </button>
+            <button 
+              type="button" 
+              class="btn btn-xs fw-semibold px-2.5 py-1"
+              :class="statusFilter === 'inactive' ? 'btn-secondary' : 'btn-outline-secondary'"
+              @click="setStatusFilter('inactive')"
+            >
+              Inactive / Historical <span class="badge ms-1" :class="statusFilter === 'inactive' ? 'bg-white text-dark' : 'bg-secondary'">{{ statusCounts.inactive }}</span>
+            </button>
+            <button 
+              type="button" 
+              class="btn btn-xs fw-semibold px-2.5 py-1"
+              :class="statusFilter === 'all' ? 'btn-dark' : 'btn-outline-secondary'"
+              @click="setStatusFilter('all')"
+            >
+              All
+            </button>
+          </div>
         </div>
 
-        <!-- Search input & refresh (visible when expanded) -->
-        <div v-if="isListExpanded" class="d-flex align-items-center gap-2" @click.stop>
+        <!-- Search input & refresh -->
+        <div class="d-flex align-items-center gap-2">
           <input 
             v-model="searchQuery" 
             @input="debounceSearch" 
@@ -417,7 +446,7 @@
                 <th style="width: 110px;">City</th>
                 <th style="width: 90px;">PinCode</th>
                 <th>Phone Numbers</th>
-                <th style="width: 80px;" class="text-center">Status</th>
+                <th style="width: 130px;" class="text-center">Status</th>
                 <th style="width: 70px;" class="text-center">Action</th>
               </tr>
             </thead>
@@ -452,10 +481,10 @@
                 </td>
                 <td class="text-center">
                   <span v-if="s.is_active" class="badge bg-success-subtle text-success border border-success-subtle">
-                    Active
+                    <i class="fas fa-check-circle me-1"></i> Active
                   </span>
-                  <span v-else class="badge bg-secondary">
-                    Inactive
+                  <span v-else class="badge bg-secondary" title="Retained for audit history / allocation references">
+                    <i class="fas fa-archive me-1"></i> Inactive / Historical
                   </span>
                 </td>
                 <td class="text-center">
@@ -470,7 +499,7 @@
               </tr>
               <tr v-if="!suppliersList.length">
                 <td colspan="8" class="text-center py-4 text-muted">
-                  No suppliers found.
+                  No {{ statusFilter === 'active' ? 'active' : (statusFilter === 'inactive' ? 'inactive/historical' : '') }} suppliers found.
                 </td>
               </tr>
             </tbody>
@@ -480,7 +509,7 @@
         <!-- Pagination -->
         <div v-if="pagination.last_page > 1" class="card-footer bg-white border-top py-2 px-3 d-flex justify-content-between align-items-center">
           <span class="extra-small text-muted">
-            Page {{ pagination.current_page }} of {{ pagination.last_page }}
+            Page {{ pagination.current_page }} of {{ pagination.last_page }} ({{ pagination.total }} {{ statusFilter === 'active' ? 'active' : '' }} suppliers)
           </span>
           <div class="btn-group btn-group-sm">
             <button 
@@ -594,7 +623,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import axios from 'axios';
 
 const error = ref('');
@@ -626,8 +655,12 @@ const loadingImports = ref(false);
 const importToDelete = ref(null);
 const deletingImport = ref(false);
 
+// Status Partitioning Filter State
+const statusFilter = ref('active'); // 'active' | 'inactive' | 'all'
+const statusCounts = ref({ active: 0, inactive: 0 });
+
 // Collapsible Supplier List State
-const isListExpanded = ref(false);
+const isListExpanded = ref(true);
 const loadingList = ref(false);
 const suppliersList = ref([]);
 const searchQuery = ref('');
@@ -643,6 +676,11 @@ const debounceSearch = () => {
   searchDebounce = setTimeout(() => {
     fetchSuppliersList(1);
   }, 300);
+};
+
+const setStatusFilter = (filter) => {
+  statusFilter.value = filter;
+  fetchSuppliersList(1);
 };
 
 // Phone Repeater
@@ -818,7 +856,12 @@ const fetchSuppliersList = async (page = 1) => {
     const params = new URLSearchParams();
     params.append('page', page);
     params.append('per_page', 15);
-    if (searchQuery.value) params.append('search', searchQuery.value);
+    if (statusFilter.value && statusFilter.value !== 'all') {
+      params.append('status', statusFilter.value);
+    }
+    if (searchQuery.value) {
+      params.append('search', searchQuery.value);
+    }
 
     const res = await axios.get(`/api/v1/suppliers?${params.toString()}`);
     suppliersList.value = res.data.data || [];
@@ -827,6 +870,12 @@ const fetchSuppliersList = async (page = 1) => {
       last_page: res.data.last_page || 1,
       total: res.data.total || 0,
     };
+    if (res.data.active_count !== undefined) {
+      statusCounts.value.active = res.data.active_count;
+    }
+    if (res.data.inactive_count !== undefined) {
+      statusCounts.value.inactive = res.data.inactive_count;
+    }
   } catch (err) {
     console.error('Failed to load supplier directory:', err);
   } finally {
@@ -859,9 +908,30 @@ const executeDeleteSupplier = async () => {
   }
 };
 
+// Echo Realtime Listeners
+const setupEchoListener = () => {
+  if (window.Echo) {
+    window.Echo.channel('workflow')
+      .listen('.supplier.deactivated', () => {
+        fetchSuppliersList(pagination.value.current_page);
+        fetchImportsList();
+      })
+      .listen('.supplier.assignment.updated', () => {
+        fetchSuppliersList(pagination.value.current_page);
+      });
+  }
+};
+
 onMounted(() => {
   fetchSuppliersList(1);
   fetchImportsList();
+  setupEchoListener();
+});
+
+onUnmounted(() => {
+  if (window.Echo) {
+    window.Echo.leaveChannel('workflow');
+  }
 });
 </script>
 
@@ -870,7 +940,7 @@ onMounted(() => {
   font-family: inherit;
 }
 .app-card {
-  border: 1px solid #cbd5e1 !important;
+  border: 1px solid #334155 !important;
   border-radius: 6px;
 }
 .category-icon-box {
