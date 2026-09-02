@@ -193,26 +193,11 @@
             </div>
 
             <div class="card-body p-3">
-              <!-- Preset Sample Format Option -->
-              <div class="p-2.5 rounded border bg-light mb-3 d-flex justify-content-between align-items-center">
-                <div>
-                  <strong class="text-dark small d-block">BOM/Supplier list 1.xlsx</strong>
-                  <span class="extra-small text-muted">Standard master format</span>
-                </div>
-                <button 
-                  type="button" 
-                  class="btn btn-xs btn-outline-success fw-semibold shadow-xs" 
-                  :disabled="previewLoading" 
-                  @click="loadSampleExcelPreview"
-                >
-                  <span v-if="previewLoading && useSample" class="spinner-border spinner-border-sm me-1"></span>
-                  <i v-else class="fas fa-file-import me-1"></i> Preview Sample
-                </button>
-              </div>
-
-              <!-- Upload Custom File -->
+              <!-- Upload Supplier Excel File -->
               <div class="mb-1">
-                <label class="form-label extra-small fw-bold text-dark mb-1">Upload Supplier Excel File (.xlsx, .csv)</label>
+                <label class="form-label extra-small fw-bold text-dark mb-1.5">
+                  <i class="fas fa-file-upload text-primary me-1"></i> Upload Supplier Excel File (.xlsx, .csv)
+                </label>
                 <div class="input-group input-group-sm">
                   <input 
                     type="file" 
@@ -225,9 +210,12 @@
                     :disabled="!selectedFile || previewLoading" 
                     @click="uploadAndPreview"
                   >
-                    <span v-if="previewLoading && !useSample" class="spinner-border spinner-border-sm me-1"></span>
+                    <span v-if="previewLoading" class="spinner-border spinner-border-sm me-1"></span>
                     <i v-else class="fas fa-search me-1"></i> Preview
                   </button>
+                </div>
+                <div class="extra-small text-muted mt-1.5">
+                  Select your engineering / procurement supplier master spreadsheet to preview and import.
                 </div>
               </div>
             </div>
@@ -643,7 +631,6 @@ const manualForm = ref({
 
 // Excel Import State
 const selectedFile = ref(null);
-const useSample = ref(false);
 const previewLoading = ref(false);
 const previewData = ref(null);
 const currentPreviewFilename = ref('');
@@ -749,26 +736,10 @@ const handleFileUpload = (event) => {
   selectedFile.value = event.target.files[0] || null;
 };
 
-const loadSampleExcelPreview = async () => {
-  previewLoading.value = true;
-  useSample.value = true;
-  error.value = '';
-  try {
-    const res = await axios.post('/api/v1/suppliers/import/preview', { use_sample: true });
-    previewData.value = res.data;
-    currentPreviewFilename.value = res.data.filename || 'supplier list 1.xlsx';
-  } catch (err) {
-    error.value = err.response?.data?.message || 'Failed to parse sample supplier list 1.xlsx.';
-  } finally {
-    previewLoading.value = false;
-  }
-};
-
 const uploadAndPreview = async () => {
   if (!selectedFile.value) return;
 
   previewLoading.value = true;
-  useSample.value = false;
   error.value = '';
 
   const formData = new FormData();
