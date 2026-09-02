@@ -363,6 +363,9 @@ class BomImportController extends Controller
                             }
                         })->delete();
 
+                    $deletedCounts['supplier_assignment_histories'] = \App\Models\SupplierAssignmentHistory::where('project_id', $projectId)->delete();
+                    $deletedCounts['supplier_assignments'] = \App\Models\SupplierAssignment::where('project_id', $projectId)->delete();
+
                     $deletedCounts['bom_items'] = BomItem::where('project_id', $projectId)->forceDelete();
 
                     if ($project) {

@@ -4,70 +4,87 @@ namespace Tests;
 
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use App\Models\Project;
+use App\Models\Supplier;
 
 abstract class TestCase extends BaseTestCase
 {
     /**
-     * Clean up test projects created during feature tests to ensure zero test artifacts remain in database.
+     * Clean up all test projects and test suppliers created during feature tests to ensure zero test artifacts remain in database.
      */
     protected function tearDown(): void
     {
         try {
+            // 1. Clean test projects (Preserve ONLY FA-273 and FA-279)
             $protectedCodes = ['FA-273', 'FA-279'];
-            $testProjects = Project::whereNotIn('project_code', $protectedCodes)
-                ->where(function ($q) {
-                    $q->where('project_code', 'LIKE', 'TEST-%')
-                      ->orWhere('project_code', 'LIKE', 'SP-1-%')
-                      ->orWhere('project_code', 'LIKE', 'AP-1-%')
-                      ->orWhere('project_code', 'LIKE', 'CP-2-%')
-                      ->orWhere('project_code', 'LIKE', 'FA-NAV-%')
-                      ->orWhere('name', 'LIKE', '%Test%')
-                      ->orWhere('is_test_data', true);
-                })
-                ->get();
-            $testProjIds = $testProjects->pluck('id')->toArray();
+            $protectedIds = [391, 392];
+
+            $testProjIds = DB::table('projects')
+                ->whereNotIn('id', $protectedIds)
+                ->whereNotIn('project_code', $protectedCodes)
+                ->pluck('id')
+                ->toArray();
 
             if (!empty($testProjIds)) {
-                $bomItemIds = DB::table('bom_items')->whereIn('project_id', $testProjIds)->pluck('id')->toArray();
-                $ecnReqIds = DB::table('ecn_requirements')->whereIn('project_id', $testProjIds)->pluck('id')->toArray();
+                $tablesWithProjectId = [
+                    'supplier_assignment_history',
+                    'supplier_assignments',
+                    'assembly_records',
+                    'paint_records',
+                    'rework_records',
+                    'qc_inspections',
+                    'receipt_items',
+                    'receipts',
+                    'bom_requirements',
+                    'purchase_queue_items',
+                    'workflow_events',
+                    'ecn_workflow_records',
+                    'ecn_receipt_items',
+                    'ecn_requirements',
+                    'ecn_workflow_events',
+                    'ecn_assignments',
+                    'ecn_records',
+                    'bom_items',
+                ];
 
-                if (!empty($bomItemIds)) {
-                    DB::table('assembly_records')->whereIn('bom_item_id', $bomItemIds)->delete();
-                    DB::table('paint_records')->whereIn('bom_item_id', $bomItemIds)->delete();
-                    DB::table('rework_records')->whereIn('bom_item_id', $bomItemIds)->delete();
-                    DB::table('qc_inspections')->whereIn('bom_item_id', $bomItemIds)->delete();
-                    DB::table('receipt_items')->whereIn('bom_item_id', $bomItemIds)->delete();
-                    DB::table('bom_requirements')->whereIn('bom_item_id', $bomItemIds)->delete();
-                    DB::table('bom_items')->whereIn('id', $bomItemIds)->delete();
-                }
-
-                DB::table('purchase_queue_items')->whereIn('project_id', $testProjIds)->delete();
-                DB::table('workflow_events')->whereIn('project_id', $testProjIds)->delete();
-                DB::table('ecn_workflow_events')->whereIn('project_id', $testProjIds)->delete();
-                DB::table('receipts')->whereIn('project_id', $testProjIds)->delete();
-
-                if (!empty($ecnReqIds)) {
-                    DB::table('ecn_workflow_records')->whereIn('ecn_requirement_id', $ecnReqIds)->delete();
-                    DB::table('ecn_receipt_items')->whereIn('ecn_requirement_id', $ecnReqIds)->delete();
-                    DB::table('ecn_requirements')->whereIn('id', $ecnReqIds)->delete();
+                foreach ($tablesWithProjectId as $tbl) {
+                    if (Schema::hasTable($tbl) && Schema::hasColumn($tbl, 'project_id')) {
+                        DB::table($tbl)->whereIn('project_id', $testProjIds)->delete();
+                    }
                 }
 
                 DB::table('projects')->whereIn('id', $testProjIds)->delete();
             }
 
-            DB::table('suppliers')
-                ->where('code', 'LIKE', 'TEST_%')
-                ->orWhere('code', 'LIKE', 'SUPP-T-%')
-                ->orWhere('code', 'LIKE', 'TSC-%')
-                ->orWhere('code', 'LIKE', 'TSF-%')
-                ->orWhere('code', 'LIKE', 'TSQ-%')
-                ->orWhere('code', 'LIKE', 'TSP-%')
-                ->orWhere('code', 'LIKE', 'TSC2-%')
-                ->orWhere('is_test_data', true)
-                ->delete();
+            // 2. Clean test suppliers (Preserve genuine FA registered suppliers IDs 22 to 82)
+            $testSuppliers = DB::table('suppliers')
+                ->where(function ($q) {
+                    $q->where('id', '<', 22)
+                      ->orWhere('id', '>', 82)
+                      ->orWhere('is_test_data', true)
+                      ->orWhere('code', 'LIKE', 'TEST_%')
+                      ->orWhere('code', 'LIKE', 'SUPP-T-%')
+                      ->orWhere('code', 'LIKE', 'SUP-%')
+                      ->orWhere('name', 'LIKE', 'Apex Precision Works%')
+                      ->orWhere('name', 'LIKE', 'Test Supplier%');
+                })
+                ->whereNull('supplier_import_id')
+                ->get();
+
+            $testSuppIds = $testSuppliers->pluck('id')->toArray();
+            if (!empty($testSuppIds)) {
+                DB::table('supplier_phones')->whereIn('supplier_id', $testSuppIds)->delete();
+                DB::table('supplier_assignment_history')
+                    ->whereIn('new_supplier_id', $testSuppIds)
+                    ->orWhereIn('previous_supplier_id', $testSuppIds)
+                    ->delete();
+                DB::table('supplier_assignments')->whereIn('supplier_id', $testSuppIds)->delete();
+                DB::table('suppliers')->whereIn('id', $testSuppIds)->delete();
+            }
         } catch (\Throwable $e) {
-            // Ignore DB errors during teardown
+            // Log teardown error if any during test debugging
+            error_log('Test teardown notice: ' . $e->getMessage());
         }
 
         parent::tearDown();

@@ -65,6 +65,15 @@
             <li class="nav-item">
               <button 
                 class="nav-link px-3.5 py-2 fw-bold" 
+                :class="{ 'active border-warning border-bottom border-2 text-dark': activeTab === 'load', 'text-secondary': activeTab !== 'load' }"
+                @click="activeTab = 'load'; fetchSupplierLoad();"
+              >
+                <i class="fas fa-balance-scale me-1.5 text-warning"></i>Supplier Load KPI
+              </button>
+            </li>
+            <li class="nav-item">
+              <button 
+                class="nav-link px-3.5 py-2 fw-bold" 
                 :class="{ 'active border-dark border-bottom border-2 text-dark': activeTab === 'master', 'text-secondary': activeTab !== 'master' }"
                 @click="activeTab = 'master'; fetchMasterSuppliers();"
               >
@@ -555,6 +564,210 @@
           </div>
 
           <!-- ========================================================================= -->
+          <!-- TAB: SUPPLIER LOAD KPI & WORKLOAD BALANCING ENGINE                         -->
+          <!-- ========================================================================= -->
+          <div v-else-if="activeTab === 'load'">
+            <!-- Top Load KPI Cards Grid -->
+            <div class="row g-3 mb-4">
+              <!-- 1. Highest Load Supplier -->
+              <div class="col-12 col-sm-6 col-xl-3">
+                <div class="card border-0 shadow-xs bg-white p-3 h-100 border-start border-4 border-danger">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <div class="text-truncate me-2">
+                      <span class="extra-small text-uppercase fw-bold text-muted d-block">Highest Workload</span>
+                      <h5 class="fw-bold mb-0 text-danger text-truncate" :title="loadData.highest_load?.supplier_name || 'None'">
+                        {{ loadData.highest_load ? loadData.highest_load.supplier_name : 'None' }}
+                      </h5>
+                      <small class="text-muted extra-small">
+                        {{ loadData.highest_load ? `${loadData.highest_load.total_assignments} slots (${loadData.highest_load.load_pct}%)` : 'No assignments' }}
+                      </small>
+                    </div>
+                    <span class="badge bg-danger-subtle text-danger p-2 rounded-circle">
+                      <i class="fas fa-fire fa-lg"></i>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 2. Lowest Load Supplier -->
+              <div class="col-12 col-sm-6 col-xl-3">
+                <div class="card border-0 shadow-xs bg-white p-3 h-100 border-start border-4 border-success">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <div class="text-truncate me-2">
+                      <span class="extra-small text-uppercase fw-bold text-muted d-block">Lowest Workload</span>
+                      <h5 class="fw-bold mb-0 text-success text-truncate" :title="loadData.lowest_load?.supplier_name || 'None'">
+                        {{ loadData.lowest_load ? loadData.lowest_load.supplier_name : 'None' }}
+                      </h5>
+                      <small class="text-muted extra-small">
+                        {{ loadData.lowest_load ? `${loadData.lowest_load.total_assignments} slots (${loadData.lowest_load.load_pct}%)` : 'No assignments' }}
+                      </small>
+                    </div>
+                    <span class="badge bg-success-subtle text-success p-2 rounded-circle">
+                      <i class="fas fa-leaf fa-lg"></i>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 3. Total Assigned Workload Slots -->
+              <div class="col-12 col-sm-6 col-xl-3">
+                <div class="card border-0 shadow-xs bg-white p-3 h-100 border-start border-4 border-primary">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                      <span class="extra-small text-uppercase fw-bold text-muted d-block">Total Active Slots</span>
+                      <h3 class="fw-bold mb-0 text-primary">{{ loadData.total_assignments || 0 }}</h3>
+                      <small class="text-muted extra-small">Across {{ loadData.supplier_count || 0 }} suppliers</small>
+                    </div>
+                    <span class="badge bg-primary-subtle text-primary p-2 rounded-circle">
+                      <i class="fas fa-tasks fa-lg"></i>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 4. Average Load per Supplier -->
+              <div class="col-12 col-sm-6 col-xl-3">
+                <div class="card border-0 shadow-xs bg-white p-3 h-100 border-start border-4 border-info">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                      <span class="extra-small text-uppercase fw-bold text-muted d-block">Average Workload</span>
+                      <h3 class="fw-bold mb-0 text-info">{{ loadData.average_load || 0 }}</h3>
+                      <small class="text-muted extra-small">Slots per assigned supplier</small>
+                    </div>
+                    <span class="badge bg-info-subtle text-info p-2 rounded-circle">
+                      <i class="fas fa-chart-line fa-lg"></i>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Supplier Workload Ranking Table Card -->
+            <div class="card border-0 shadow-sm">
+              <div class="card-header bg-white py-3 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div class="d-flex align-items-center gap-2">
+                  <h6 class="fw-bold mb-0 text-dark">
+                    <i class="fas fa-balance-scale me-2 text-warning"></i>Supplier Workload Distribution &amp; Balance Ranking
+                  </h6>
+                  <span class="badge bg-light text-dark border">{{ rankedLoadSuppliers.length }} Active Suppliers</span>
+                </div>
+
+                <!-- Sort & Filter Toggles -->
+                <div class="d-flex gap-2 align-items-center">
+                  <div class="btn-group btn-group-sm">
+                    <button 
+                      class="btn btn-xs fw-semibold"
+                      :class="loadSortBy === 'highest' ? 'btn-primary' : 'btn-outline-secondary'"
+                      @click="loadSortBy = 'highest'"
+                    >
+                      <i class="fas fa-sort-amount-down me-1"></i> Highest Load
+                    </button>
+                    <button 
+                      class="btn btn-xs fw-semibold"
+                      :class="loadSortBy === 'lowest' ? 'btn-primary' : 'btn-outline-secondary'"
+                      @click="loadSortBy = 'lowest'"
+                    >
+                      <i class="fas fa-sort-amount-up me-1"></i> Lowest Load
+                    </button>
+                    <button 
+                      class="btn btn-xs fw-semibold"
+                      :class="loadSortBy === 'high_only' ? 'btn-danger' : 'btn-outline-secondary'"
+                      @click="loadSortBy = 'high_only'"
+                    >
+                      <i class="fas fa-exclamation-triangle me-1"></i> High Load Alerts
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card-body p-0">
+                <div class="table-responsive">
+                  <table class="table table-hover align-middle mb-0">
+                    <thead class="table-dark">
+                      <tr>
+                        <th style="width: 60px;" class="text-center">Rank</th>
+                        <th>Supplier</th>
+                        <th>Status</th>
+                        <th>Units Assigned</th>
+                        <th>BASE Slots</th>
+                        <th>WELDMENT Slots</th>
+                        <th>CHILD PART Slots</th>
+                        <th>Total Slots</th>
+                        <th style="width: 200px;">Workload Share</th>
+                        <th style="width: 130px;" class="text-center">Load Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="s in rankedLoadSuppliers" :key="s.supplier_id">
+                        <td class="text-center fw-bold">#{{ s.rank }}</td>
+                        <td>
+                          <strong class="text-dark fs-6">{{ s.supplier_name }}</strong>
+                          <span v-if="s.supplier_code" class="badge bg-light text-secondary border ms-1 extra-small">{{ s.supplier_code }}</span>
+                        </td>
+                        <td>
+                          <span class="badge" :class="s.supplier_is_active ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-secondary'">
+                            {{ s.supplier_is_active ? 'Active' : 'Inactive' }}
+                          </span>
+                        </td>
+                        <td>
+                          <span class="badge bg-primary-subtle text-primary border fw-bold">{{ s.units_assigned }} Units</span>
+                        </td>
+                        <td><span class="badge bg-success-subtle text-success">{{ s.base_count }}</span></td>
+                        <td><span class="badge bg-info-subtle text-info-emphasis">{{ s.weldment_count }}</span></td>
+                        <td><span class="badge bg-warning-subtle text-warning-emphasis">{{ s.child_part_count }}</span></td>
+                        <td>
+                          <strong class="text-dark fs-6">{{ s.total_assignments }}</strong>
+                        </td>
+                        <td>
+                          <div class="d-flex align-items-center gap-2">
+                            <div class="progress flex-grow-1" style="height: 6px;">
+                              <div 
+                                class="progress-bar"
+                                :class="{
+                                  'bg-danger': s.relative_status === 'High Load',
+                                  'bg-warning': s.relative_status === 'Medium Load',
+                                  'bg-success': s.relative_status === 'Low Load'
+                                }"
+                                :style="{ width: `${Math.min(100, s.load_pct * 2)}%` }"
+                              ></div>
+                            </div>
+                            <span class="extra-small fw-bold text-muted" style="min-width: 45px;">{{ s.load_pct }}%</span>
+                          </div>
+                        </td>
+                        <td class="text-center">
+                          <span 
+                            class="badge px-2.5 py-1"
+                            :class="{
+                              'bg-danger text-white': s.relative_status === 'High Load',
+                              'bg-warning text-dark': s.relative_status === 'Medium Load',
+                              'bg-success text-white': s.relative_status === 'Low Load'
+                            }"
+                          >
+                            <i 
+                              class="fas me-1"
+                              :class="{
+                                'fa-exclamation-circle': s.relative_status === 'High Load',
+                                'fa-dot-circle': s.relative_status === 'Medium Load',
+                                'fa-check-circle': s.relative_status === 'Low Load'
+                              }"
+                            ></i>
+                            {{ s.relative_status }}
+                          </span>
+                        </td>
+                      </tr>
+                      <tr v-if="!rankedLoadSuppliers.length">
+                        <td colspan="10" class="text-center py-5 text-muted">
+                          No active supplier load data found matching filters.
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ========================================================================= -->
           <!-- TAB 5: SUPPLIER MASTER CRUD DIRECTORY                                     -->
           <!-- ========================================================================= -->
           <div v-else-if="activeTab === 'master'">
@@ -731,7 +944,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, computed } from 'vue';
+import { onMounted, onUnmounted, ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import axios from 'axios';
 
@@ -739,7 +952,7 @@ const authStore = useAuthStore();
 const canManageSuppliers = computed(() => ['ADMIN', 'MANAGER', 'PURCHASE'].includes(authStore.userRole));
 
 // Active subtab
-const activeTab = ref('overview'); // 'overview' | 'rankings' | 'rework' | 'history' | 'master'
+const activeTab = ref('overview'); // 'overview' | 'rankings' | 'rework' | 'history' | 'load' | 'master'
 const loading = ref(false);
 const error = ref('');
 const successMessage = ref('');
@@ -771,6 +984,35 @@ const recentReworkEvents = ref([]);
 const historyItems = ref([]);
 const historyPagination = ref({ current_page: 1, last_page: 1, total: 0 });
 
+// Tab: Supplier Load KPI
+const loadData = ref({
+  suppliers: [],
+  total_assignments: 0,
+  supplier_count: 0,
+  highest_load: null,
+  lowest_load: null,
+  average_load: 0,
+  average_load_pct: 0,
+});
+const loadSortBy = ref('highest'); // 'highest' | 'lowest' | 'high_only'
+
+// Computed: Filtered / Sorted Supplier Load list
+const rankedLoadSuppliers = computed(() => {
+  const list = [...(loadData.value.suppliers || [])];
+
+  if (loadSortBy.value === 'lowest') {
+    list.sort((a, b) => a.total_assignments - b.total_assignments);
+  } else if (loadSortBy.value === 'high_only') {
+    return list.filter(s => s.relative_status === 'High Load');
+  } else {
+    // default 'highest'
+    list.sort((a, b) => b.total_assignments - a.total_assignments);
+  }
+
+  // Update ranks
+  return list.map((item, idx) => ({ ...item, rank: idx + 1 }));
+});
+
 // Tab 5: Supplier Master
 const masterSuppliers = ref([]);
 const masterSearch = ref('');
@@ -801,6 +1043,7 @@ const onFilterChange = () => {
   else if (activeTab.value === 'rankings') fetchRankings();
   else if (activeTab.value === 'rework') fetchReworkAnalysis();
   else if (activeTab.value === 'history') fetchHistory();
+  else if (activeTab.value === 'load') fetchSupplierLoad();
 };
 
 const resetFilters = () => {
@@ -885,6 +1128,26 @@ const fetchHistory = async (page = 1) => {
     };
   } catch (err) {
     error.value = 'Failed to load audit history.';
+  } finally {
+    loading.value = false;
+  }
+};
+
+const fetchSupplierLoad = async () => {
+  loading.value = true;
+  try {
+    const params = buildFilterParams();
+    const res = await axios.get(`/api/v1/supplier-analytics/load?${params.toString()}`);
+    loadData.value = res.data.load || {
+      suppliers: [],
+      total_assignments: 0,
+      supplier_count: 0,
+      highest_load: null,
+      lowest_load: null,
+      average_load: 0,
+    };
+  } catch (err) {
+    error.value = 'Failed to load Supplier Load KPI data.';
   } finally {
     loading.value = false;
   }
@@ -996,10 +1259,10 @@ const saveSupplier = async () => {
 };
 
 const deleteSupplier = async (s) => {
-  if (!confirm(`Delete supplier ${s.name}?`)) return;
+  if (!confirm(`Delete or deactivate supplier ${s.name}?`)) return;
   try {
-    await axios.delete(`/api/v1/suppliers/${s.id}`);
-    successMessage.value = 'Supplier deleted successfully.';
+    const res = await axios.delete(`/api/v1/suppliers/${s.id}`);
+    successMessage.value = res.data.message || 'Supplier deleted successfully.';
     refreshAllData();
   } catch (err) {
     error.value = err.response?.data?.message || 'Failed to delete supplier.';
@@ -1024,9 +1287,33 @@ const formatDate = (val) => {
   return new Date(val).toLocaleDateString() + ' ' + new Date(val).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
+// Echo Realtime Listeners
+const setupEchoListener = () => {
+  if (window.Echo) {
+    window.Echo.channel('workflow')
+      .listen('.supplier.assignment.updated', () => {
+        if (activeTab.value === 'overview') fetchOverviewKpis();
+        else if (activeTab.value === 'load') fetchSupplierLoad();
+        else if (activeTab.value === 'history') fetchHistory();
+      })
+      .listen('.supplier.deactivated', () => {
+        fetchFilterOptions();
+        if (activeTab.value === 'master') fetchMasterSuppliers();
+        if (activeTab.value === 'load') fetchSupplierLoad();
+      });
+  }
+};
+
 onMounted(() => {
   fetchFilterOptions();
   fetchOverviewKpis();
+  setupEchoListener();
+});
+
+onUnmounted(() => {
+  if (window.Echo) {
+    window.Echo.leaveChannel('workflow');
+  }
 });
 </script>
 

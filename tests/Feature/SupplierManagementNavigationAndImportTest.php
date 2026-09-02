@@ -253,4 +253,22 @@ class SupplierManagementNavigationAndImportTest extends TestCase
         $response2->assertStatus(200)
             ->assertJsonStructure(['items', 'projects']);
     }
+
+    protected function tearDown(): void
+    {
+        // Clean up test suppliers created with TEST_ codes
+        $testSupps = Supplier::withTrashed()
+            ->where('code', 'LIKE', 'TEST_%')
+            ->orWhere('code', 'LIKE', '153OMNI_%')
+            ->get();
+
+        foreach ($testSupps as $s) {
+            $s->phones()->delete();
+            $s->forceDelete();
+        }
+
+        \App\Models\SupplierImport::where('filename', 'supplier_list.xlsx')->forceDelete();
+
+        parent::tearDown();
+    }
 }

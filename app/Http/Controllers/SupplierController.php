@@ -48,24 +48,54 @@ class SupplierController extends Controller
         $perPage = (int) $request->input('per_page', 20);
         $suppliers = $query->orderBy('name')->paginate($perPage);
 
-        return response()->json($suppliers);
+        $activeCount = Supplier::where('is_active', true)->count();
+        $inactiveCount = Supplier::where('is_active', false)->count();
+
+        return response()->json([
+            'data' => $suppliers->items(),
+            'current_page' => $suppliers->currentPage(),
+            'last_page' => $suppliers->lastPage(),
+            'per_page' => $suppliers->perPage(),
+            'total' => $suppliers->total(),
+            'active_count' => $activeCount,
+            'inactive_count' => $inactiveCount,
+        ]);
     }
 
     /**
      * Compact list of active suppliers for dropdown selectors.
+     * Accessible, searchable, and enriched with compact load KPI status.
      */
-    public function activeList(Request $request)
+    public function activeList(Request $request, \App\Services\SupplierLoadService $loadService)
     {
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'PURCHASE', 'QC']) ?: abort(403);
 
-        $suppliers = Supplier::where('is_active', true)
-            ->with('phones')
-            ->orderBy('name')
-            ->get(['id', 'name', 'code', 'is_test_data', 'city', 'state', 'pincode']);
+        $query = Supplier::where('is_active', true)->with('phones')->orderBy('name');
+
+        if ($request->filled('search')) {
+            $search = trim($request->input('search'));
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'ILIKE', "%{$search}%")
+                  ->orWhere('code', 'ILIKE', "%{$search}%");
+            });
+        }
+
+        $suppliers = $query->get(['id', 'name', 'code', 'is_test_data', 'city', 'state', 'pincode']);
+
+        // Attach compact load summary
+        $loadSummary = $loadService->getSupplierLoadSummary();
+        $enriched = $suppliers->map(function ($s) use ($loadSummary) {
+            $data = $s->toArray();
+            $load = $loadSummary[$s->id] ?? null;
+            $data['load_status'] = $load ? $load['load_status'] : 'Low Load';
+            $data['total_assignments'] = $load ? $load['total_assignments'] : 0;
+            $data['load_pct'] = $load ? $load['load_pct'] : 0;
+            return $data;
+        });
 
         return response()->json([
             'success' => true,
-            'suppliers' => $suppliers,
+            'suppliers' => $enriched,
         ]);
     }
 
@@ -209,28 +239,99 @@ class SupplierController extends Controller
 
     public function destroy(Request $request, int $id)
     {
-        $request->user()?->hasAnyRole(['ADMIN']) ?: abort(403);
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'PURCHASE']) ?: abort(403);
 
         $supplier = Supplier::findOrFail($id);
 
-        // Check if has active assignments
+        // 1. Check if supplier has active assignments on existing projects
         $activeAssignmentsCount = SupplierAssignment::where('supplier_id', $id)
             ->where('status', 'active')
+            ->whereHas('project')
             ->count();
 
         if ($activeAssignmentsCount > 0) {
+            // Cannot hard delete active production dependency -> deactivate instead
+            $supplier->update(['is_active' => false]);
+            event(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deactivated'));
+
             return response()->json([
-                'success' => false,
-                'message' => "Cannot delete supplier with {$activeAssignmentsCount} active assignment(s). Deactivate or reassign first.",
-            ], 422);
+                'success' => true,
+                'action' => 'deactivated',
+                'message' => "Supplier '{$supplier->name}' has {$activeAssignmentsCount} active assignment(s). Marked as Inactive to protect current production workflow.",
+            ]);
         }
 
+        // 2. Check if supplier has historical assignments on existing projects
+        $hasHistory = \App\Models\SupplierAssignmentHistory::where(function ($q) use ($id) {
+                $q->where('new_supplier_id', $id)
+                  ->orWhere('previous_supplier_id', $id);
+            })
+            ->whereHas('project')
+            ->exists()
+            || SupplierAssignment::where('supplier_id', $id)->whereHas('project')->exists();
+
+        if ($hasHistory) {
+            // Has historical reference -> deactivate to preserve audit history integrity
+            $supplier->update(['is_active' => false]);
+            event(new \App\Events\SupplierDeactivated($supplier->id, $supplier->name, 'deactivated'));
+
+            return response()->json([
+                'success' => true,
+                'action' => 'deactivated',
+                'message' => "Supplier '{$supplier->name}' has historical allocation records. Marked as Inactive to preserve audit history.",
+            ]);
+        }
+
+        // 3. Truly unused supplier -> mark inactive and safe soft delete
+        $supplierName = $supplier->name;
+        $supplier->update(['is_active' => false]);
+        $supplier->phones()->delete();
         $supplier->delete();
+
+        event(new \App\Events\SupplierDeactivated($id, $supplierName, 'deleted'));
 
         return response()->json([
             'success' => true,
-            'message' => 'Supplier deleted successfully.',
+            'action' => 'deleted',
+            'message' => "Supplier '{$supplierName}' deleted successfully.",
         ]);
+    }
+
+    /**
+     * List all Supplier Excel import batches.
+     */
+    public function listImports(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'PURCHASE']) ?: abort(403);
+
+        $imports = \App\Models\SupplierImport::with(['importedBy:id,name,email'])
+            ->withCount('suppliers')
+            ->orderByDesc('id')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'imports' => $imports,
+        ]);
+    }
+
+    /**
+     * Delete an Excel import batch and safely handle created suppliers.
+     */
+    public function deleteImport(Request $request, int $id, SupplierImportService $importService)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'PURCHASE']) ?: abort(403);
+
+        try {
+            $result = $importService->deleteImport($id, $request->user()?->id);
+
+            return response()->json($result);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete supplier import: ' . $e->getMessage(),
+            ], 422);
+        }
     }
 
     /**
@@ -246,6 +347,7 @@ class SupplierController extends Controller
                 return response()->json(['success' => false, 'message' => 'Sample supplier list 1.xlsx file not found in BOM folder.'], 404);
             }
             $preview = $importService->preview($samplePath);
+            $preview['filename'] = 'supplier list 1.xlsx';
             return response()->json($preview);
         }
 
@@ -256,6 +358,7 @@ class SupplierController extends Controller
         try {
             $file = $request->file('file');
             $preview = $importService->preview($file);
+            $preview['filename'] = $file->getClientOriginalName();
 
             return response()->json($preview);
         } catch (\Exception $e) {
@@ -276,10 +379,20 @@ class SupplierController extends Controller
         $request->validate([
             'rows' => ['required', 'array', 'min:1'],
             'rows.*.name' => ['required', 'string'],
+            'filename' => ['nullable', 'string'],
+            'file_hash' => ['nullable', 'string'],
         ]);
 
         try {
-            $result = $importService->commit($request->input('rows'), $request->user()?->id);
+            $filename = $request->input('filename', 'supplier_list.xlsx');
+            $fileHash = $request->input('file_hash');
+
+            $result = $importService->commit(
+                $request->input('rows'),
+                $request->user()?->id,
+                $filename,
+                $fileHash
+            );
 
             return response()->json([
                 'success' => true,

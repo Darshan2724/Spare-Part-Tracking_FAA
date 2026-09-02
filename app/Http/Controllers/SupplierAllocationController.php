@@ -338,6 +338,141 @@ class SupplierAllocationController extends Controller
     }
 
     /**
+     * Multi-Unit Assignment: Assign suppliers/dates to multiple units in a single atomic transaction.
+     */
+    public function multiUnitAssign(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'PURCHASE']) ?: abort(403, 'Unauthorized. Purchase operational permission required.');
+
+        $request->validate([
+            'project_id' => ['required', 'exists:projects,id'],
+            'jig_no' => ['required', 'string', 'max:255'],
+            'units' => ['required', 'array', 'min:1'],
+            'units.*.unit_no' => ['required', 'string', 'max:255'],
+            'units.*.categories' => ['required', 'array', 'min:1'],
+            'units.*.categories.*.category' => ['required', 'in:BASE,WELDMENT,CHILD_PART'],
+            'units.*.categories.*.supplier_id' => ['required', 'exists:suppliers,id'],
+            'units.*.categories.*.assignment_date' => ['required', 'date'],
+        ]);
+
+        $today = Carbon::today();
+        $minDate = $today->copy()->subDays(3)->format('Y-m-d');
+        $maxDate = $today->copy()->addDays(3)->format('Y-m-d');
+
+        // Check date window and collect supplier IDs for active validation
+        $supplierIds = [];
+        foreach ($request->input('units') as $unitItem) {
+            foreach ($unitItem['categories'] as $cat) {
+                $catDate = Carbon::parse($cat['assignment_date'])->format('Y-m-d');
+                if ($catDate < $minDate || $catDate > $maxDate) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Assignment date must be within 3 days before or after today ({$minDate} to {$maxDate}).",
+                    ], 422);
+                }
+                $supplierIds[] = (int) $cat['supplier_id'];
+            }
+        }
+
+        // Validate all suppliers are active
+        $inactiveSuppliers = Supplier::whereIn('id', array_unique($supplierIds))
+            ->where('is_active', false)
+            ->pluck('name')
+            ->toArray();
+
+        if (count($inactiveSuppliers) > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot assign inactive supplier(s): ' . implode(', ', $inactiveSuppliers),
+            ], 422);
+        }
+
+        $projectId = (int) $request->input('project_id');
+        $jigNo = trim($request->input('jig_no'));
+        $userId = $request->user()?->id;
+
+        $results = DB::transaction(function () use ($projectId, $jigNo, $request, $userId) {
+            $saved = [];
+
+            foreach ($request->input('units') as $unitItem) {
+                $unitNo = trim($unitItem['unit_no']);
+
+                foreach ($unitItem['categories'] as $cat) {
+                    $category = strtoupper(trim($cat['category']));
+                    $supplierId = (int) $cat['supplier_id'];
+                    $assignmentDate = $cat['assignment_date'];
+
+                    $existing = SupplierAssignment::where('project_id', $projectId)
+                        ->where('jig_no', $jigNo)
+                        ->where('unit_no', $unitNo)
+                        ->where('category', $category)
+                        ->where('status', 'active')
+                        ->first();
+
+                    $prevSupplierId = null;
+                    $prevDate = null;
+                    $action = 'created';
+
+                    if ($existing) {
+                        $prevSupplierId = $existing->supplier_id;
+                        $prevDate = $existing->assignment_date?->format('Y-m-d');
+                        $action = 'updated';
+
+                        $existing->update([
+                            'status' => 'superseded',
+                            'updated_by' => $userId,
+                        ]);
+                    }
+
+                    $assignment = SupplierAssignment::create([
+                        'project_id' => $projectId,
+                        'jig_no' => $jigNo,
+                        'unit_no' => $unitNo,
+                        'category' => $category,
+                        'supplier_id' => $supplierId,
+                        'assignment_date' => $assignmentDate,
+                        'status' => 'active',
+                        'created_by' => $userId,
+                        'updated_by' => $userId,
+                    ]);
+
+                    SupplierAssignmentHistory::create([
+                        'supplier_assignment_id' => $assignment->id,
+                        'project_id' => $projectId,
+                        'jig_no' => $jigNo,
+                        'unit_no' => $unitNo,
+                        'category' => $category,
+                        'previous_supplier_id' => $prevSupplierId,
+                        'new_supplier_id' => $supplierId,
+                        'previous_date' => $prevDate,
+                        'new_date' => $assignmentDate,
+                        'action' => $action,
+                        'changed_by' => $userId,
+                        'created_at' => now(),
+                    ]);
+
+                    $assignment->load('supplier');
+                    $saved[] = $assignment;
+
+                    broadcast(new SupplierAssignmentUpdated($assignment, $action))->toOthers();
+                }
+            }
+
+            return $saved;
+        });
+
+        $unitCount = count($request->input('units'));
+
+        return response()->json([
+            'success' => true,
+            'message' => "Successfully updated supplier allocations for {$unitCount} unit(s).",
+            'unit_count' => $unitCount,
+            'assignments_count' => count($results),
+            'assignments' => $results,
+        ]);
+    }
+
+    /**
      * Remove an existing active assignment.
      */
     public function removeAssignment(Request $request, int $id)

@@ -117,7 +117,13 @@ class SupplierManagementAndAllocationTest extends TestCase
         // Clean up test assignments and history created specifically in tests
         SupplierAssignmentHistory::where('project_id', $this->testProject->id)->delete();
         SupplierAssignment::where('project_id', $this->testProject->id)->delete();
-        Supplier::withTrashed()->where('code', 'SUPP-T-GAMMA')->forceDelete();
+        BomRequirement::whereHas('bomItem', function ($q) {
+            $q->where('project_id', $this->testProject->id);
+        })->delete();
+        BomItem::where('project_id', $this->testProject->id)->forceDelete();
+
+        Supplier::withTrashed()->whereIn('code', ['SUPP-T-ALPHA', 'SUPP-T-BETA', 'SUPP-T-GAMMA'])->forceDelete();
+        $this->testProject->forceDelete();
 
         parent::tearDown();
     }
