@@ -463,4 +463,126 @@ class DashboardTypeFilteringAndHierarchyTest extends TestCase
         $this->assertArrayHasKey('std_section', $dataStd);
         $this->assertCount(0, $dataStd['std_section']['jigs']);
     }
+
+    public function test_cross_project_and_type_switching_isolation_and_part_visibility()
+    {
+        $admin = $this->getAdminUser();
+
+        // Project A: Contains all 3 types (MFG, BOP, STD)
+        $projectA = Project::create([
+            'name' => 'Project A Multi-Type',
+            'project_code' => 'TEST-PROJ-A-' . uniqid(),
+            'status' => 'active',
+        ]);
+
+        $mfgA = BomItem::create([
+            'project_id' => $projectA->id,
+            'jig_no' => 'JIG-A-MFG',
+            'unit_no' => 'Unit 1',
+            'item_no' => 'ITM-A-M1',
+            'part_name' => 'MFG Part A',
+            'standard_part_no' => 'PART-A-MFG-01',
+            'part_type' => 'MFG',
+        ]);
+        BomRequirement::create(['bom_item_id' => $mfgA->id, 'side' => 'LH', 'required_quantity' => 12]);
+
+        $bopA = BomItem::create([
+            'project_id' => $projectA->id,
+            'jig_no' => 'JIG-A-BOP',
+            'unit_no' => 'Unit 2',
+            'item_no' => 'ITM-A-B1',
+            'part_name' => 'BOP Part A',
+            'standard_part_no' => 'PART-A-BOP-01',
+            'part_type' => 'BOP',
+        ]);
+        BomRequirement::create(['bom_item_id' => $bopA->id, 'side' => 'COMMON', 'required_quantity' => 8]);
+
+        $stdA = BomItem::create([
+            'project_id' => $projectA->id,
+            'jig_no' => 'JIG-A-STD',
+            'unit_no' => 'Unit 3',
+            'item_no' => 'ITM-A-S1',
+            'part_name' => 'STD Part A',
+            'standard_part_no' => 'PART-A-STD-01',
+            'part_type' => 'STD',
+        ]);
+        BomRequirement::create(['bom_item_id' => $stdA->id, 'side' => 'COMMON', 'required_quantity' => 20]);
+
+        // Project B: Single-Type ONLY (MFG only, 0 BOP, 0 STD)
+        $projectB = Project::create([
+            'name' => 'Project B Single-Type MFG',
+            'project_code' => 'TEST-PROJ-B-' . uniqid(),
+            'status' => 'active',
+        ]);
+        $mfgB = BomItem::create([
+            'project_id' => $projectB->id,
+            'jig_no' => 'JIG-B-MFG',
+            'unit_no' => 'Unit 1',
+            'item_no' => 'ITM-B-M1',
+            'part_name' => 'MFG Part B',
+            'standard_part_no' => 'PART-B-MFG-01',
+            'part_type' => 'MFG',
+        ]);
+        BomRequirement::create(['bom_item_id' => $mfgB->id, 'side' => 'RH', 'required_quantity' => 14]);
+
+        // 1. Verify Project A in ALL mode contains parts for all 3 types
+        $resA_All = $this->actingAs($admin, 'sanctum')->getJson('/api/v1/dashboard/project-hierarchy?project_id=' . $projectA->id);
+        $resA_All->assertStatus(200);
+        $dataA_All = $resA_All->json();
+        $this->assertNotEmpty($dataA_All['mfg_section']['jigs'][0]['units'][0]['sides']['LH']['parts']);
+        $this->assertNotEmpty($dataA_All['bop_section']['jigs'][0]['units'][0]['sides']['COMMON']['parts']);
+        $this->assertNotEmpty($dataA_All['std_section']['jigs'][0]['units'][0]['sides']['COMMON']['parts']);
+
+        // 2. Verify Project A in MFG mode preserves exact source part PART-A-MFG-01 with zero BOP/STD cross-contamination
+        $resA_Mfg = $this->actingAs($admin, 'sanctum')->getJson('/api/v1/dashboard/project-hierarchy?project_id=' . $projectA->id . '&part_type=MFG');
+        $resA_Mfg->assertStatus(200);
+        $dataA_Mfg = $resA_Mfg->json();
+        $this->assertCount(1, $dataA_Mfg['mfg_section']['jigs']);
+        $this->assertCount(0, $dataA_Mfg['bop_section']['jigs']);
+        $this->assertCount(0, $dataA_Mfg['std_section']['jigs']);
+        $partMfg = $dataA_Mfg['mfg_section']['jigs'][0]['units'][0]['sides']['LH']['parts'][0];
+        $this->assertEquals('PART-A-MFG-01', $partMfg['standard_part_no']);
+        $this->assertEquals('MFG', $partMfg['part_type']);
+        $this->assertEquals(12, $partMfg['required_qty']);
+
+        // 3. Verify Project A in BOP mode preserves exact source part PART-A-BOP-01 with zero MFG/STD cross-contamination
+        $resA_Bop = $this->actingAs($admin, 'sanctum')->getJson('/api/v1/dashboard/project-hierarchy?project_id=' . $projectA->id . '&part_type=BOP');
+        $resA_Bop->assertStatus(200);
+        $dataA_Bop = $resA_Bop->json();
+        $this->assertCount(0, $dataA_Bop['mfg_section']['jigs']);
+        $this->assertCount(1, $dataA_Bop['bop_section']['jigs']);
+        $this->assertCount(0, $dataA_Bop['std_section']['jigs']);
+        $partBop = $dataA_Bop['bop_section']['jigs'][0]['units'][0]['sides']['COMMON']['parts'][0];
+        $this->assertEquals('PART-A-BOP-01', $partBop['standard_part_no']);
+        $this->assertEquals('BOP', $partBop['part_type']);
+        $this->assertEquals(8, $partBop['required_qty']);
+
+        // 4. Verify Project A in STD mode preserves exact source part PART-A-STD-01 with zero MFG/BOP cross-contamination
+        $resA_Std = $this->actingAs($admin, 'sanctum')->getJson('/api/v1/dashboard/project-hierarchy?project_id=' . $projectA->id . '&part_type=STD');
+        $resA_Std->assertStatus(200);
+        $dataA_Std = $resA_Std->json();
+        $this->assertCount(0, $dataA_Std['mfg_section']['jigs']);
+        $this->assertCount(0, $dataA_Std['bop_section']['jigs']);
+        $this->assertCount(1, $dataA_Std['std_section']['jigs']);
+        $partStd = $dataA_Std['std_section']['jigs'][0]['units'][0]['sides']['COMMON']['parts'][0];
+        $this->assertEquals('PART-A-STD-01', $partStd['standard_part_no']);
+        $this->assertEquals('STD', $partStd['part_type']);
+        $this->assertEquals(20, $partStd['required_qty']);
+
+        // 5. Switching to Project B with part_type=BOP produces safe 0 jigs without 500 error
+        $resB_Bop = $this->actingAs($admin, 'sanctum')->getJson('/api/v1/dashboard/project-hierarchy?project_id=' . $projectB->id . '&part_type=BOP');
+        $resB_Bop->assertStatus(200);
+        $dataB_Bop = $resB_Bop->json();
+        $this->assertCount(0, $dataB_Bop['jigs']);
+        $this->assertCount(0, $dataB_Bop['bop_section']['jigs']);
+
+        // 6. Switching to Project B with part_type=MFG correctly renders Project B parts
+        $resB_Mfg = $this->actingAs($admin, 'sanctum')->getJson('/api/v1/dashboard/project-hierarchy?project_id=' . $projectB->id . '&part_type=MFG');
+        $resB_Mfg->assertStatus(200);
+        $dataB_Mfg = $resB_Mfg->json();
+        $this->assertCount(1, $dataB_Mfg['mfg_section']['jigs']);
+        $partB_Mfg = $dataB_Mfg['mfg_section']['jigs'][0]['units'][0]['sides']['RH']['parts'][0];
+        $this->assertEquals('PART-B-MFG-01', $partB_Mfg['standard_part_no']);
+        $this->assertEquals(14, $partB_Mfg['required_qty']);
+    }
 }
