@@ -898,8 +898,9 @@
             class="hierarchy-panel-column border rounded-3 overflow-hidden shadow-sm bg-white"
             :class="{ 'single-type-panel': activeHierarchyBomType !== 'ALL' }"
           >
-            <!-- STICKY SECTION HEADER -->
+            <!-- STICKY SECTION HEADER (Rendered ONLY in ALL mode for side-by-side column identification) -->
             <div 
+              v-if="activeHierarchyBomType === 'ALL'"
               class="hierarchy-panel-header-sticky d-flex justify-content-between align-items-center px-3 py-2 border-bottom cursor-pointer select-none"
               :style="{ backgroundColor: section.headerBg, borderLeft: `4px solid ${section.accentColor}` }"
               @click="toggleSectionCollapse(section.key)"
@@ -931,9 +932,9 @@
               </div>
             </div>
 
-            <!-- SECTION SCROLLABLE BODY (Independent scrolling per panel) -->
+            <!-- SECTION SCROLLABLE BODY (Independent scrolling per panel in ALL mode; clean natural flow in single-type mode) -->
             <div 
-              v-show="!collapsedSections[section.key]" 
+              v-show="activeHierarchyBomType !== 'ALL' || !collapsedSections[section.key]" 
               class="hierarchy-panel-scrollable-body p-2.5 bg-light bg-opacity-50"
             >
               <!-- Empty state inside section -->
@@ -2149,6 +2150,11 @@ const setBomViewType = (type) => {
   if (type !== 'ALL') {
     collapsedSections.value[type] = false;
   }
+  expandedJigs.value = {};
+  expandedUnits.value = {};
+  unitSideTab.value = {};
+  unitPartSearch.value = {};
+  unitPartPage.value = {};
   fetchData(true);
 };
 
@@ -2178,6 +2184,8 @@ const setHierarchyBomType = (type) => {
   if (type !== 'ALL') {
     collapsedSections.value[type] = false;
   }
+  expandedJigs.value = {};
+  expandedUnits.value = {};
   fetchProjectHierarchy(true);
 };
 
@@ -2199,20 +2207,6 @@ const fetchProjectHierarchy = async (forceFresh = false) => {
     hierarchyData.value = data || {};
     if (data.active_projects?.length) activeProjectsList.value = data.active_projects;
     if (data.completed_projects?.length) completedProjectsList.value = data.completed_projects;
-
-    // In single-type mode (MFG, BOP, STD), auto-expand jigs and units so parts are immediately visible
-    if (activeHierarchyBomType.value !== 'ALL') {
-      nextTick(() => {
-        displayedHierarchySections.value.forEach(sec => {
-          (sec.jigs || []).forEach(j => {
-            expandedJigs.value[`${sec.key}_${j.jig_name}`] = true;
-            (j.units || []).forEach(u => {
-              expandedUnits.value[`${sec.key}_${j.jig_name}_${u.unit_no}`] = true;
-            });
-          });
-        });
-      });
-    }
   };
 
   const cached = cacheStore.get(cacheKey);
@@ -2704,11 +2698,16 @@ onUnmounted(() => {
   width: 100%;
   min-width: 100%;
   flex: 0 0 auto;
+  background: transparent;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 .hierarchy-panel-column.single-type-panel .hierarchy-panel-scrollable-body {
   max-height: none;
   overflow-y: visible;
+  padding: 0 !important;
+  background: transparent !important;
 }
 
 .hierarchy-panel-header-sticky {

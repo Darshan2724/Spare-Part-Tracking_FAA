@@ -585,4 +585,35 @@ class DashboardTypeFilteringAndHierarchyTest extends TestCase
         $this->assertEquals('PART-B-MFG-01', $partB_Mfg['standard_part_no']);
         $this->assertEquals(14, $partB_Mfg['required_qty']);
     }
+
+    public function test_individual_type_view_ui_contract_and_expansion_invariants()
+    {
+        $dashboardVuePath = resource_path('js/views/Dashboard.vue');
+        $this->assertFileExists($dashboardVuePath);
+
+        $vueContent = file_get_contents($dashboardVuePath);
+
+        // Invariant 1: Sticky section header must only render in ALL mode, never in individual MFG/BOP/STD views
+        $this->assertStringContainsString('v-if="activeHierarchyBomType === \'ALL\'"', $vueContent);
+        $this->assertStringContainsString('hierarchy-panel-header-sticky', $vueContent);
+
+        // Invariant 2: Switching BOM type via setBomViewType resets expanded jigs & units
+        $this->assertMatchesRegularExpression('/setBomViewType\s*=\s*\(type\)\s*=>\s*\{.*?expandedJigs\.value\s*=\s*\{\};.*?expandedUnits\.value\s*=\s*\{\};.*?fetchData/s', $vueContent);
+
+        // Invariant 3: Switching BOM type via setHierarchyBomType resets expanded jigs & units
+        $this->assertMatchesRegularExpression('/setHierarchyBomType\s*=\s*\(type\)\s*=>\s*\{.*?expandedJigs\.value\s*=\s*\{\};.*?expandedUnits\.value\s*=\s*\{\};.*?fetchProjectHierarchy/s', $vueContent);
+
+        // Invariant 4: applyHierarchy must NOT auto-expand jigs or units
+        preg_match('/applyHierarchy\s*=\s*\(data\)\s*=>\s*\{(.*?)\};/s', $vueContent, $matches);
+        $applyHierarchyBody = $matches[1] ?? '';
+        $this->assertNotEmpty($applyHierarchyBody);
+        $this->assertStringNotContainsString('expandedJigs.value', $applyHierarchyBody);
+        $this->assertStringNotContainsString('expandedUnits.value', $applyHierarchyBody);
+
+        // Invariant 5: Expand All & Collapse All handlers exist and handle both jigs & units
+        $this->assertStringContainsString('expandedJigs.value[`${sec.key}_${j.jig_name}`] = true;', $vueContent);
+        $this->assertStringContainsString('expandedUnits.value[`${sec.key}_${j.jig_name}_${u.unit_no}`] = true;', $vueContent);
+        $this->assertMatchesRegularExpression('/collapseAllJigs\s*=\s*\(\)\s*=>\s*\{.*?expandedJigs\.value\s*=\s*\{\};.*?expandedUnits\.value\s*=\s*\{\};/s', $vueContent);
+    }
 }
+
