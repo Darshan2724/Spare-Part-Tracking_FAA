@@ -33,12 +33,17 @@ class EcnRequirement extends Model
     protected static function booted()
     {
         static::saving(function ($model) {
-            if (empty($model->side_family)) {
-                $s = strtoupper(trim($model->side_display ?: $model->side ?: 'RIGHT'));
-                $model->side_family = in_array($s, ['LH', 'LA', 'AL', 'L', 'LEFT']) ? 'LEFT' : 'RIGHT';
-            }
-            if (empty($model->side_display)) {
-                $model->side_display = $model->side ?: ($model->side_family === 'LEFT' ? 'LH' : 'RH');
+            $sideStr = strtoupper(trim((string)($model->side_display ?: $model->side ?: '')));
+            if (in_array($sideStr, ['C', 'COM', 'COMMON', 'BOTH', 'NULL', 'BLANK', 'NONE', ''], true)) {
+                $model->side_family = 'COMMON';
+                $model->side_display = 'COMMON';
+            } else {
+                if (empty($model->side_family)) {
+                    $model->side_family = in_array($sideStr, ['LH', 'LA', 'AL', 'L', 'LEFT']) ? 'LEFT' : 'RIGHT';
+                }
+                if (empty($model->side_display)) {
+                    $model->side_display = $model->side ?: ($model->side_family === 'LEFT' ? 'LH' : 'RH');
+                }
             }
         });
     }

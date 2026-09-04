@@ -372,7 +372,13 @@ class EcnQuantityCalculationService
 
             // Side (key: jig|unit|side)
             $sideDisp = strtoupper(trim($r->side_display ?: $r->side));
-            $sideNorm = in_array($sideDisp, ['LH', 'LA', 'AL', 'L', 'LEFT']) ? 'LH' : 'RH';
+            if (in_array($sideDisp, ['LH', 'LA', 'AL', 'L', 'LEFT'])) {
+                $sideNorm = 'LH';
+            } elseif (in_array($sideDisp, ['COMMON', 'COM', 'C', 'BOTH', 'NONE', 'BLANK', 'NULL', ''])) {
+                $sideNorm = 'COMMON';
+            } else {
+                $sideNorm = 'RH';
+            }
 
             foreach ($unitAliases as $uKey) {
                 $map['sides'][$uKey . '|' . $r->side_display] = ($map['sides'][$uKey . '|' . $r->side_display] ?? 0) + $qty;
@@ -540,7 +546,13 @@ class EcnQuantityCalculationService
 
             // Side (key: jig|unit|side)
             $sideDisp = strtoupper(trim($r->side_display ?: $r->side));
-            $sideNorm = in_array($sideDisp, ['LH', 'LA', 'AL', 'L', 'LEFT']) ? 'LH' : 'RH';
+            if (in_array($sideDisp, ['LH', 'LA', 'AL', 'L', 'LEFT'])) {
+                $sideNorm = 'LH';
+            } elseif (in_array($sideDisp, ['COMMON', 'COM', 'C', 'BOTH', 'NONE', 'BLANK', 'NULL', ''])) {
+                $sideNorm = 'COMMON';
+            } else {
+                $sideNorm = 'RH';
+            }
 
             foreach ($unitAliases as $uKey) {
                 $map['sides'][$uKey . '|' . $r->side_display] = ($map['sides'][$uKey . '|' . $r->side_display] ?? 0) + $qty;

@@ -441,7 +441,7 @@ class HierarchyService
                 ];
 
                 // Accumulate into item metrics
-                if (empty($filters['side']) || $filters['side'] === $side || $side === 'COMMON') {
+                if (empty($filters['side']) || $filters['side'] === 'ALL' || $filters['side'] === $side) {
                     $itemMetrics['total_required'] += $reqQty;
                     $itemMetrics['total_received'] += $recQty;
                     $itemMetrics['total_pending'] += $pendingQty;
@@ -466,7 +466,7 @@ class HierarchyService
             }
 
             // If side filter is active and this item has no requirements for that side, skip
-            if (!empty($filters['side']) && !isset($sideStats[$filters['side']]) && !isset($sideStats['COMMON'])) {
+            if (!empty($filters['side']) && $filters['side'] !== 'ALL' && !isset($sideStats[$filters['side']])) {
                 continue;
             }
 
@@ -482,7 +482,9 @@ class HierarchyService
             // Group into JIG and Unit structure
             if (!isset($jigsTree[$jigName])) {
                 $jigsTree[$jigName] = [
+                    'jig_id' => $jigName,
                     'jig_name' => $jigName,
+                    'jig_type' => 'COMMON', // Default until LH/RH side is found
                     'total_required' => 0,
                     'total_received' => 0,
                     'total_pending' => 0,
@@ -494,6 +496,12 @@ class HierarchyService
                     'metrics' => $this->initZeroMetrics(),
                     'units' => [],
                 ];
+            }
+
+            foreach ($item->requirements as $req) {
+                if ($req->side === 'LH' || $req->side === 'RH') {
+                    $jigsTree[$jigName]['jig_type'] = 'SIDE_SPECIFIC';
+                }
             }
 
             if (!isset($jigsTree[$jigName]['units'][$unitNo])) {
@@ -535,7 +543,9 @@ class HierarchyService
 
             if (!isset($jigsTree[$jKey])) {
                 $jigsTree[$jKey] = [
+                    'jig_id' => $jKey,
                     'jig_name' => $jKey,
+                    'jig_type' => 'COMMON',
                     'total_required' => 0,
                     'total_received' => 0,
                     'total_pending' => 0,
@@ -547,6 +557,10 @@ class HierarchyService
                     'metrics' => $this->initZeroMetrics(),
                     'units' => [],
                 ];
+            }
+
+            if ($er->side_display === 'LH' || $er->side_display === 'RH' || $er->side === 'LH' || $er->side === 'RH') {
+                $jigsTree[$jKey]['jig_type'] = 'SIDE_SPECIFIC';
             }
 
             // Check if any variant of this unit already exists in $jigsTree[$jKey]['units']
@@ -581,13 +595,367 @@ class HierarchyService
         foreach ($jigsTree as $jigName => $jigData) {
             $formattedUnits = [];
             $completeUnitsCount = 0;
+            $jigType = $jigData['jig_type'] ?? 'SIDE_SPECIFIC';
 
             foreach ($jigData['units'] as $unitNo => $unitData) {
                 $req = $unitData['total_required'];
                 $rec = $unitData['total_received'];
                 $unitData['pending_quantity'] = max(0, $req - $rec);
+                $unitData['unit_id'] = $jigName . '_' . $unitNo;
 
-                // Compute dedicated LH and RH side breakdowns (COMMON parts included in both)
+                $rawU = trim(str_ireplace('unit', '', $unitNo));
+                $paddedU = is_numeric($rawU) ? sprintf('%02d', (int)$rawU) : $rawU;
+                $unitEcnReqs = $ecnReqsByUnit[$jigName . '|' . $unitNo] ?? ($ecnReqsByUnit[$jigName . '|' . $rawU] ?? []);
+
+                // Check whether this unit has LH/RH parts
+                $unitHasLhRh = false;
+                foreach ($unitData['parts'] as $part) {
+                    if (isset($part->side_stats['LH']) || isset($part->side_stats['RH'])) {
+                        $unitHasLhRh = true;
+                        break;
+                    }
+                }
+                if (!$unitHasLhRh) {
+                    foreach ($unitEcnReqs as $er) {
+                        if ($er->side_display === 'LH' || $er->side_display === 'RH' || $er->side === 'LH' || $er->side === 'RH') {
+                            $unitHasLhRh = true;
+                            break;
+                        }
+                    }
+                }
+
+                $isCommonUnit = ($jigType === 'COMMON' || !$unitHasLhRh);
+
+                // --- COMMON UNIT BRANCH ---
+                if ($isCommonUnit) {
+                    $commonParts = [];
+                    $commonMetrics = $this->initZeroMetrics();
+                    $commonRequired = 0; $commonReceived = 0; $commonPending = 0; $commonAsmComp = 0;
+
+                    foreach ($unitData['parts'] as $part) {
+                        $st = $part->side_stats['COMMON'] ?? reset($part->side_stats);
+                        $commonParts[] = [
+                            'id' => $part->id,
+                            'standard_part_no' => $part->standard_part_no,
+                            'item_no' => $part->item_no ?? '—',
+                            'supplier' => $part->supplier?->name ?? ($part->supplier_name_raw ?? '—'),
+                            'side' => 'COMMON',
+                            'required_qty' => $st['required'] ?? 0,
+                            'received_qty' => $st['received'] ?? 0,
+                            'pending_qty' => $st['pending'] ?? 0,
+                            'status_badge' => $st['status_badge'] ?? 'Pending',
+                            'status_color' => $st['status_color'] ?? 'secondary',
+                            'is_done' => $st['is_done'] ?? false,
+                            'is_ecn' => false,
+                            'classification' => 'REGULAR',
+                            'side_stats' => $part->side_stats,
+                        ];
+                        $commonRequired += $st['required'] ?? 0;
+                        $commonReceived += $st['received'] ?? 0;
+                        $commonPending += $st['pending'] ?? 0;
+                        $commonAsmComp += $st['assembly_completed'] ?? 0;
+                        $this->accumulateMetrics($commonMetrics, $st);
+                    }
+
+                    $allUnitParts = $unitData['parts'];
+
+                    foreach ($unitEcnReqs as $er) {
+                        $deptKey = strtolower($ecnDeptContext ?? $department ?? 'manager');
+                        if ($deptKey === 'manager') {
+                            continue;
+                        }
+                        $erReceipts = $ecnReceiptsGrouped->get($er->id, collect());
+                        $erWorkflow = $ecnWorkflowGrouped->get($er->id, collect());
+
+                        $qcPendingArrCalc = (int) $erReceipts->whereIn('status', ['received', 'store_received', 'sent_to_qc'])->sum('received_quantity');
+                        $qcPendingInspCalc = (int) $erReceipts->where('status', 'qc_received')->sum('received_quantity');
+
+                        if ($deptKey === 'store' && $er->current_state !== 'PENDING') {
+                            continue;
+                        }
+                        if (($deptKey === 'store_resident' || $deptKey === 'qc_arrival') && (!in_array($er->current_state, ['STORE', 'SENT_TO_QC']) || ($erReceipts->isNotEmpty() && $qcPendingArrCalc === 0))) {
+                            continue;
+                        }
+                        if ($deptKey === 'qc_inspection' && ($er->current_state !== 'QC' || ($erReceipts->isNotEmpty() && $qcPendingInspCalc === 0))) {
+                            continue;
+                        }
+                        if ($deptKey === 'qc' && (!in_array($er->current_state, ['STORE', 'SENT_TO_QC', 'QC']) || ($erReceipts->isNotEmpty() && $qcPendingArrCalc === 0 && $qcPendingInspCalc === 0))) {
+                            continue;
+                        }
+                        if ($deptKey === 'rework' && $er->current_state !== 'REWORK') {
+                            continue;
+                        }
+                        if ($deptKey === 'paint' && $er->current_state !== 'PAINT') {
+                            continue;
+                        }
+                        if ($deptKey === 'assembly' && !in_array($er->current_state, ['ASSEMBLY', 'ASSEMBLY_COMPLETED'])) {
+                            continue;
+                        }
+
+                        $sideDisp = 'COMMON';
+                        $reqQ = (int)$er->required_qty;
+                        $recQ = (int)$er->received_qty;
+                        $penQ = max(0, $reqQ - $recQ);
+
+                        $qcPendingArrival = $qcPendingArrCalc;
+                        $qcPendingInspection = $qcPendingInspCalc;
+                        if ($qcPendingArrival === 0 && $qcPendingInspection === 0 && $erReceipts->isEmpty()) {
+                            if ($er->current_state === 'SENT_TO_QC') {
+                                $qcPendingArrival = $recQ;
+                            } elseif ($er->current_state === 'QC') {
+                                $qcPendingInspection = $recQ;
+                            } elseif ($er->current_state === 'STORE' && $recQ > 0) {
+                                $qcPendingArrival = $recQ;
+                            }
+                        }
+                        $qcResident = $qcPendingArrival + $qcPendingInspection;
+
+                        $ecnStatusBadge = match ($er->current_state) {
+                            'ASSEMBLY_COMPLETED' => 'Assembled',
+                            'ASSEMBLY' => 'Assembly',
+                            'PAINT' => 'Paint',
+                            'REWORK' => 'Rework',
+                            'QC', 'SENT_TO_QC' => 'QC',
+                            'STORE' => ($qcResident > 0 ? 'QC' : 'Store'),
+                            default => 'Pending',
+                        };
+                        $ecnStatusColor = match ($er->current_state) {
+                            'ASSEMBLY_COMPLETED' => 'success',
+                            'ASSEMBLY' => 'pink',
+                            'PAINT' => 'purple',
+                            'REWORK' => 'warning',
+                            'QC', 'SENT_TO_QC' => 'info',
+                            'STORE' => ($qcResident > 0 ? 'info' : 'warning'),
+                            default => 'secondary',
+                        };
+
+                        $ecnRevertOptions = [];
+                        $deptKey = strtolower($department ?? '');
+                        if ($deptKey === 'store') {
+                            $storeItems = $erReceipts->where('status', 'received');
+                            foreach ($storeItems as $si) {
+                                $ecnRevertOptions[] = [
+                                    'source_type' => 'ecn_receipt_item',
+                                    'source_id' => $si->id,
+                                    'available_quantity' => (int)$si->received_quantity,
+                                    'from_department' => 'STORE',
+                                    'to_department' => 'PENDING_ARRIVAL',
+                                    'target_label' => 'Pending Supplier Arrival',
+                                    'description' => "ECN Receipt #{$si->id} ({$si->received_quantity} pcs)",
+                                    'is_ecn' => true,
+                                ];
+                            }
+                        } elseif ($deptKey === 'qc') {
+                            $qcItems = $erReceipts->where('status', 'qc_received');
+                            foreach ($qcItems as $qi) {
+                                $ecnRevertOptions[] = [
+                                    'source_type' => 'ecn_receipt_item',
+                                    'source_id' => $qi->id,
+                                    'available_quantity' => (int)$qi->received_quantity,
+                                    'from_department' => 'QC',
+                                    'to_department' => 'STORE',
+                                    'target_label' => 'Store Bay',
+                                    'description' => "ECN QC Received ({$qi->received_quantity} pcs)",
+                                    'is_ecn' => true,
+                                ];
+                            }
+                        } elseif ($deptKey === 'rework') {
+                            $rewRecs = $erWorkflow->where('department', 'REWORK')->where('status', 'in_progress');
+                            foreach ($rewRecs as $rr) {
+                                $ecnRevertOptions[] = [
+                                    'source_type' => 'ecn_workflow_record',
+                                    'source_id' => $rr->id,
+                                    'available_quantity' => (int)$rr->quantity,
+                                    'from_department' => 'REWORK',
+                                    'to_department' => 'QC',
+                                    'target_label' => 'Quality Control Bay',
+                                    'description' => "ECN Rework Record #{$rr->id} ({$rr->quantity} pcs)",
+                                    'is_ecn' => true,
+                                ];
+                            }
+                        } elseif ($deptKey === 'paint') {
+                            $paintRecs = $erWorkflow->where('department', 'PAINT')->where('status', 'in_progress');
+                            foreach ($paintRecs as $pr) {
+                                $ecnRevertOptions[] = [
+                                    'source_type' => 'ecn_workflow_record',
+                                    'source_id' => $pr->id,
+                                    'available_quantity' => (int)$pr->quantity,
+                                    'from_department' => 'PAINT',
+                                    'to_department' => 'QC',
+                                    'target_label' => 'Quality Control Bay',
+                                    'description' => "ECN Paint Record #{$pr->id} ({$pr->quantity} pcs)",
+                                    'is_ecn' => true,
+                                ];
+                            }
+                        } elseif ($deptKey === 'assembly') {
+                            $asmRecs = $erWorkflow->where('department', 'ASSEMBLY')->where('status', 'in_progress');
+                            foreach ($asmRecs as $ar) {
+                                $ecnRevertOptions[] = [
+                                    'source_type' => 'ecn_workflow_record',
+                                    'source_id' => $ar->id,
+                                    'available_quantity' => (int)$ar->quantity,
+                                    'from_department' => 'ASSEMBLY',
+                                    'to_department' => 'QC',
+                                    'target_label' => 'Quality Control Bay',
+                                    'description' => "ECN Assembly Record #{$ar->id} ({$ar->quantity} pcs)",
+                                    'is_ecn' => true,
+                                ];
+                            }
+                        }
+
+                        $ecnSideStat = [
+                            'required' => $reqQ,
+                            'received' => $recQ,
+                            'pending' => $penQ,
+                            'parts_in_store' => ($er->current_state === 'STORE' ? $recQ : 0),
+                            'parts_in_qc' => $qcResident,
+                            'qc_pending_arrival' => $qcPendingArrival,
+                            'qc_pending_inspection' => $qcPendingInspection,
+                            'qc_approved' => (in_array($er->current_state, ['PAINT', 'ASSEMBLY', 'ASSEMBLY_COMPLETED']) ? $recQ : 0),
+                            'qc_rejected' => 0,
+                            'qc_rework' => ($er->current_state === 'REWORK' ? $recQ : 0),
+                            'parts_in_rework' => ($er->current_state === 'REWORK' ? $recQ : 0),
+                            'rework_pending' => ($er->current_state === 'REWORK' ? $recQ : 0),
+                            'rework_in_progress' => 0,
+                            'rework_completed' => 0,
+                            'parts_in_paint' => ($er->current_state === 'PAINT' ? $recQ : 0),
+                            'paint_ready' => ($er->current_state === 'PAINT' ? $recQ : 0),
+                            'paint_completed' => (in_array($er->current_state, ['ASSEMBLY', 'ASSEMBLY_COMPLETED']) ? $recQ : 0),
+                            'parts_in_assembly' => ($er->current_state === 'ASSEMBLY' ? $recQ : 0),
+                            'assembly_ready' => ($er->current_state === 'ASSEMBLY' ? $recQ : 0),
+                            'assembly_completed' => ($er->current_state === 'ASSEMBLY_COMPLETED' ? $recQ : 0),
+                            'status_badge' => $ecnStatusBadge,
+                            'status_color' => $ecnStatusColor,
+                            'is_done' => ($er->current_state === 'ASSEMBLY_COMPLETED'),
+                            'revert_options' => $ecnRevertOptions,
+                            'total_revertible' => array_sum(array_column($ecnRevertOptions, 'available_quantity')),
+                            'receipt_items' => $erReceipts->values(),
+                            'workflow_records' => $erWorkflow->values(),
+                        ];
+
+                        $ecnPartData = [
+                            'id' => 'ecn_' . $er->id,
+                            'standard_part_no' => $er->part_no,
+                            'item_no' => $er->part_no,
+                            'supplier' => '—',
+                            'side' => $sideDisp,
+                            'original_side' => $er->side,
+                            'side_display' => $sideDisp,
+                            'required_qty' => $reqQ,
+                            'received_qty' => $recQ,
+                            'pending_qty' => $penQ,
+                            'status_badge' => $ecnStatusBadge,
+                            'status_color' => $ecnStatusColor,
+                            'is_done' => ($er->current_state === 'ASSEMBLY_COMPLETED'),
+                            'is_ecn' => true,
+                            'classification' => 'ECN',
+                            'ecn_number' => $er->ecn_number,
+                            'ecn_requirement_id' => $er->id,
+                            'side_stats' => [
+                                $sideDisp => $ecnSideStat,
+                            ],
+                        ];
+
+                        $allUnitParts[] = (object) $ecnPartData;
+                        $commonParts[] = $ecnPartData;
+                        $commonRequired += $reqQ;
+                        $commonReceived += $recQ;
+                        $commonPending += $penQ;
+                        $commonAsmComp += $ecnSideStat['assembly_completed'];
+                        $this->accumulateMetrics($commonMetrics, $ecnSideStat);
+                    }
+
+                    $unitData['parts'] = $allUnitParts;
+                    if (empty($unitData['parts'])) {
+                        continue;
+                    }
+
+                    $commonCompletionPct = match ($department) {
+                        'store' => ($commonRequired > 0 ? min(100, round(($commonReceived / $commonRequired) * 100, 1)) : 100),
+                        'qc' => ($commonRequired > 0 ? min(100, round(($commonMetrics['qc_approved'] / $commonRequired) * 100, 1)) : 100),
+                        'rework' => ($commonMetrics['qc_rework'] > 0 ? min(100, round(($commonMetrics['rework_completed'] / $commonMetrics['qc_rework']) * 100, 1)) : 100),
+                        'paint' => ($commonRequired > 0 ? min(100, round(($commonMetrics['paint_completed'] / $commonRequired) * 100, 1)) : 100),
+                        default => ($commonRequired > 0 ? min(100, round(($commonAsmComp / $commonRequired) * 100, 1)) : 100),
+                    };
+                    $commonIsComplete = ($commonRequired > 0 && $commonAsmComp >= $commonRequired);
+
+                    $uEcnCount = $ecnMap['units'][$jigName . '|' . $rawU] 
+                        ?? ($ecnMap['units'][$jigName . '|' . $unitNo] 
+                        ?? ($ecnMap['units'][$jigName . '|Unit ' . $rawU] 
+                        ?? ($ecnMap['units'][$jigName . '|Unit ' . $paddedU] 
+                        ?? ($ecnMap['units'][strtoupper($jigName) . '|' . $rawU] 
+                        ?? ($ecnMap['units'][strtoupper($jigName) . '|Unit ' . $rawU] 
+                        ?? ($ecnMap['units'][strtoupper($jigName) . '|Unit ' . $paddedU] ?? 0))))));
+
+                    $uEcnNums = $ecnMap['unit_ecn_numbers'][$jigName . '|' . $rawU] 
+                        ?? ($ecnMap['unit_ecn_numbers'][$jigName . '|' . $unitNo] 
+                        ?? ($ecnMap['unit_ecn_numbers'][$jigName . '|Unit ' . $rawU] 
+                        ?? ($ecnMap['unit_ecn_numbers'][$jigName . '|Unit ' . $paddedU] ?? [])));
+
+                    $uEcnSum = $ecnMap['unit_ecn_summary'][$jigName . '|' . $rawU] 
+                        ?? ($ecnMap['unit_ecn_summary'][$jigName . '|' . $unitNo] 
+                        ?? ($ecnMap['unit_ecn_summary'][$jigName . '|Unit ' . $rawU] 
+                        ?? ($ecnMap['unit_ecn_summary'][$jigName . '|Unit ' . $paddedU] ?? [])));
+
+                    $uEcnDisp = $ecnMap['unit_ecn_display'][$jigName . '|' . $rawU] 
+                        ?? ($ecnMap['unit_ecn_display'][$jigName . '|' . $unitNo] 
+                        ?? ($ecnMap['unit_ecn_display'][$jigName . '|Unit ' . $rawU] 
+                        ?? ($ecnMap['unit_ecn_display'][$jigName . '|Unit ' . $paddedU] ?? null)));
+
+                    $commonEcnCount = $ecnMap['sides'][$jigName . '|' . $rawU . '|COMMON'] 
+                        ?? ($ecnMap['sides'][$jigName . '|' . $unitNo . '|COMMON'] 
+                        ?? ($ecnMap['sides'][$jigName . '|Unit ' . $rawU . '|COMMON'] 
+                        ?? ($ecnMap['sides'][$jigName . '|Unit ' . $paddedU . '|COMMON'] 
+                        ?? ($ecnMap['sides'][strtoupper($jigName) . '|' . $rawU . '|COMMON'] 
+                        ?? ($ecnMap['sides'][strtoupper($jigName) . '|' . $unitNo . '|COMMON'] 
+                        ?? ($ecnMap['sides'][strtoupper($jigName) . '|Unit ' . $rawU . '|COMMON'] 
+                        ?? ($ecnMap['sides'][strtoupper($jigName) . '|Unit ' . $paddedU . '|COMMON'] ?? $uEcnCount)))))));
+
+                    if ($uEcnCount > 0 && empty($uEcnDisp)) {
+                        $uWord = $uEcnCount === 1 ? 'part' : 'parts';
+                        $uEcnDisp = "ECN ({$uEcnCount} {$uWord})";
+                    }
+
+                    $unitData['has_lh'] = false;
+                    $unitData['has_rh'] = false;
+                    $unitData['has_common'] = true;
+                    $unitData['ecn_count'] = $uEcnCount;
+                    $unitData['ecn_parts'] = $uEcnCount;
+                    $unitData['ecn_part_count'] = $uEcnCount;
+                    $unitData['is_ecn_present'] = ($uEcnCount > 0);
+                    $unitData['ecn_present'] = ($uEcnCount > 0);
+                    $unitData['ecn_numbers'] = $uEcnNums;
+                    $unitData['ecn_summary'] = $uEcnSum;
+                    $unitData['ecn_number_display'] = $uEcnDisp;
+                    $unitData['sides'] = [
+                        'COMMON' => [
+                            'side' => 'COMMON',
+                            'total_parts' => count($commonParts),
+                            'ecn_count' => $commonEcnCount,
+                            'ecn_present' => ($commonEcnCount > 0),
+                            'is_ecn_present' => ($commonEcnCount > 0),
+                            'total_required' => $commonRequired,
+                            'total_received' => $commonReceived,
+                            'pending_quantity' => $commonPending,
+                            'assembly_completed' => $commonAsmComp,
+                            'completion_pct' => $commonCompletionPct,
+                            'is_complete' => $commonIsComplete,
+                            'parts' => $commonParts,
+                            'metrics' => $commonMetrics,
+                        ],
+                    ];
+                    $unitData['completion_pct'] = $commonCompletionPct;
+                    $unitData['is_complete'] = $commonIsComplete;
+
+                    if ($unitData['is_complete']) {
+                        $completeUnitsCount++;
+                    }
+
+                    $formattedUnits[] = $unitData;
+                    continue;
+                }
+
+                // --- SIDE SPECIFIC UNIT (LH / RH) ---
                 $lhParts = [];
                 $rhParts = [];
                 $lhMetrics = $this->initZeroMetrics();
@@ -597,17 +965,17 @@ class HierarchyService
 
                 // Process regular parts
                 foreach ($unitData['parts'] as $part) {
-                    $hasLh = isset($part->side_stats['LH']) || isset($part->side_stats['COMMON']);
-                    $hasRh = isset($part->side_stats['RH']) || isset($part->side_stats['COMMON']);
+                    $hasLh = isset($part->side_stats['LH']);
+                    $hasRh = isset($part->side_stats['RH']);
 
                     if ($hasLh) {
-                        $st = $part->side_stats['LH'] ?? $part->side_stats['COMMON'];
+                        $st = $part->side_stats['LH'];
                         $lhParts[] = [
                             'id' => $part->id,
                             'standard_part_no' => $part->standard_part_no,
                             'item_no' => $part->item_no ?? '—',
                             'supplier' => $part->supplier?->name ?? ($part->supplier_name_raw ?? '—'),
-                            'side' => isset($part->side_stats['LH']) ? 'LH' : 'COMMON',
+                            'side' => 'LH',
                             'required_qty' => $st['required'] ?? 0,
                             'received_qty' => $st['received'] ?? 0,
                             'pending_qty' => $st['pending'] ?? 0,
@@ -625,13 +993,13 @@ class HierarchyService
                         $this->accumulateMetrics($lhMetrics, $st);
                     }
                     if ($hasRh) {
-                        $st = $part->side_stats['RH'] ?? $part->side_stats['COMMON'];
+                        $st = $part->side_stats['RH'];
                         $rhParts[] = [
                             'id' => $part->id,
                             'standard_part_no' => $part->standard_part_no,
                             'item_no' => $part->item_no ?? '—',
                             'supplier' => $part->supplier?->name ?? ($part->supplier_name_raw ?? '—'),
-                            'side' => isset($part->side_stats['RH']) ? 'RH' : 'COMMON',
+                            'side' => 'RH',
                             'required_qty' => $st['required'] ?? 0,
                             'received_qty' => $st['received'] ?? 0,
                             'pending_qty' => $st['pending'] ?? 0,
@@ -650,8 +1018,6 @@ class HierarchyService
                     }
                 }
 
-                $rawU = trim(str_ireplace('unit', '', $unitNo));
-                $unitEcnReqs = $ecnReqsByUnit[$jigName . '|' . $unitNo] ?? ($ecnReqsByUnit[$jigName . '|' . $rawU] ?? []);
                 $allUnitParts = $unitData['parts']; // starts with regular parts
 
                 foreach ($unitEcnReqs as $er) {
@@ -909,9 +1275,6 @@ class HierarchyService
                     $unitIsComplete = $rhIsComplete;
                 }
 
-                $rawU = trim(str_ireplace('unit', '', $unitNo));
-                $paddedU = is_numeric($rawU) ? sprintf('%02d', (int)$rawU) : $rawU;
-
                 $uEcnCount = $ecnMap['units'][$jigName . '|' . $rawU] 
                     ?? ($ecnMap['units'][$jigName . '|' . $unitNo] 
                     ?? ($ecnMap['units'][$jigName . '|Unit ' . $rawU] 
@@ -967,6 +1330,9 @@ class HierarchyService
                     }
                 }
 
+                $unitData['has_lh'] = count($lhParts) > 0;
+                $unitData['has_rh'] = count($rhParts) > 0;
+                $unitData['has_common'] = false;
                 $unitData['ecn_count'] = $uEcnCount;
                 $unitData['ecn_parts'] = $uEcnCount;
                 $unitData['ecn_part_count'] = $uEcnCount;

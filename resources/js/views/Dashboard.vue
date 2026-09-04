@@ -541,7 +541,7 @@
                         ECN
                       </span>
                       <span v-if="unit.is_complete" class="badge bg-success px-2 py-1 fs-7">
-                        <i class="fas fa-check-double me-1"></i> Unit Complete (LH &amp; RH)
+                        <i class="fas fa-check-double me-1"></i> Unit Complete {{ (unit.has_common || unit.sides?.COMMON) ? '(Common)' : '(LH & RH)' }}
                       </span>
                       <span v-else class="badge bg-secondary-subtle text-secondary border px-2 py-1 fs-7">
                         Incomplete
@@ -573,9 +573,71 @@
                     </div>
                   </div>
 
-                  <!-- UNIT BODY: SIDE-BY-SIDE LH & RH (Level 4) -->
+                  <!-- UNIT BODY: LEVEL 4 -->
                   <div class="card-body p-3">
-                    <div class="row g-3">
+                    <!-- COMMON JIG / UNIT SINGLE CARD -->
+                    <div v-if="unit.has_common || unit.sides?.COMMON" class="row g-3">
+                      <div class="col-12">
+                        <div 
+                          class="p-3 rounded border h-100 position-relative"
+                          :class="unit.sides?.COMMON?.is_complete ? 'border-success bg-success-subtle bg-opacity-10' : 'border-light bg-light'"
+                        >
+                          <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold text-uppercase small d-flex align-items-center gap-1.5">
+                              <i class="fas fa-circle-notch text-primary"></i> Common (Symmetrical / Single Fixture)
+                              <span v-if="unit.sides?.COMMON?.ecn_present || unit.sides?.COMMON?.is_ecn_present || (unit.sides?.COMMON?.ecn_count > 0)" class="badge shadow-xs" style="font-size: 0.64rem; font-weight: 700; background-color: #f59e0b; color: #ffffff; padding: 1px 5px; border-radius: 4px; letter-spacing: 0.4px; line-height: 1.2;" title="Contains ECN parts">
+                                ECN
+                              </span>
+                            </span>
+                            <span v-if="unit.sides?.COMMON?.is_complete" class="badge bg-success">
+                              <i class="fas fa-check me-1"></i> Common Complete
+                            </span>
+                            <span v-else class="badge bg-warning text-dark">
+                              Common In Progress ({{ unit.sides?.COMMON?.completion_pct || 0 }}%)
+                            </span>
+                          </div>
+
+                          <div class="row g-2 text-center my-2">
+                            <div class="col-3">
+                              <div class="bg-white p-2 rounded border">
+                                <small class="text-muted extra-small d-block text-uppercase">Required</small>
+                                <span class="fw-bold fs-6 text-dark">{{ unit.sides?.COMMON?.total_required || 0 }}</span>
+                              </div>
+                            </div>
+                            <div class="col-3">
+                              <div class="bg-white p-2 rounded border">
+                                <small class="text-muted extra-small d-block text-uppercase">Received</small>
+                                <span class="fw-bold fs-6 text-success">{{ unit.sides?.COMMON?.total_received || 0 }}</span>
+                              </div>
+                            </div>
+                            <div class="col-3">
+                              <div class="bg-white p-2 rounded border">
+                                <small class="text-muted extra-small d-block text-uppercase">Pending</small>
+                                <span class="fw-bold fs-6 text-danger">{{ unit.sides?.COMMON?.pending_quantity || 0 }}</span>
+                              </div>
+                            </div>
+                            <div class="col-3">
+                              <div class="bg-white p-2 rounded border">
+                                <small class="text-muted extra-small d-block text-uppercase">Assembled</small>
+                                <span class="fw-bold fs-6 text-purple">{{ unit.sides?.COMMON?.assembly_completed || 0 }}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div class="mt-2">
+                            <div class="progress" style="height: 6px;">
+                              <div 
+                                class="progress-bar bg-success" 
+                                :style="{ width: `${unit.sides?.COMMON?.completion_pct || 0}%` }"
+                              ></div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- SIDE-BY-SIDE LH & RH (Level 4) -->
+                    <div v-else class="row g-3">
                       <!-- LEFT HAND (LH) SIDE CARD -->
                       <div class="col-12 col-md-6">
                         <div 
@@ -699,7 +761,17 @@
                     <div v-if="expandedUnits[`${jig.jig_name}_${unit.unit_no}`]" class="mt-3 pt-3 border-top">
                       <!-- Table Filter Tabs & Search -->
                       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                        <div class="btn-group btn-group-sm" role="group">
+                        <!-- Common Unit Tab -->
+                        <div v-if="unit.has_common || unit.sides?.COMMON" class="btn-group btn-group-sm" role="group">
+                          <button 
+                            type="button" 
+                            class="btn btn-primary"
+                          >
+                            Common Parts ({{ unit.sides?.COMMON?.parts?.length || 0 }})
+                          </button>
+                        </div>
+                        <!-- Side Specific Tabs -->
+                        <div v-else class="btn-group btn-group-sm" role="group">
                           <button 
                             type="button" 
                             class="btn" 
@@ -1521,7 +1593,9 @@ const getFilteredUnitParts = (unit, unitKey) => {
   const q = (unitPartSearch.value[unitKey] || '').toLowerCase().trim();
 
   let parts = [];
-  if (tab === 'LH') {
+  if (unit.has_common || unit.sides?.COMMON) {
+    parts = unit.sides?.COMMON?.parts || [];
+  } else if (tab === 'LH') {
     parts = unit.sides?.LH?.parts || [];
   } else if (tab === 'RH') {
     parts = unit.sides?.RH?.parts || [];

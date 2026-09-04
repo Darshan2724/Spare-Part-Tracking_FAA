@@ -270,9 +270,33 @@
                       </span>
                     </div>
 
-                    <!-- Row 2: Side Row (LH and RH side-by-side) -->
+                    <!-- Row 2: Side Row (LH and RH side-by-side OR Single Common Panel) -->
                     <div class="card-body p-2 bg-white">
-                      <div class="side-panel-grid">
+                      <!-- COMMON UNIT: Single Full-Width Panel -->
+                      <div v-if="unit.has_common || unit.sides?.COMMON">
+                        <div
+                          class="side-panel p-2 transition-card side-panel-common"
+                          @click="openUnitSide(unit, 'COMMON')"
+                          :title="`Open ${unit.unit_no} Common Parts`"
+                          style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer;"
+                        >
+                          <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="side-badge bg-secondary text-white px-1.5 py-0.5 rounded extra-small fw-bold">COMMON</span>
+                            <span class="side-pct-pill badge bg-success-subtle text-success border border-success-subtle">
+                              {{ (unit.sides?.COMMON?.completion_pct || 0) + '%' }}
+                            </span>
+                          </div>
+                          <div class="d-flex align-items-center justify-content-between">
+                            <span class="extra-small side-part-count text-dark-slate">
+                              {{ unit.sides?.COMMON?.total_parts || unit.sides?.COMMON?.parts?.length || 0 }} Parts
+                            </span>
+                            <i class="fas fa-chevron-right extra-small text-secondary"></i>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- SIDE-SPECIFIC UNIT: LH and RH side-by-side -->
+                      <div v-else class="side-panel-grid">
                         <!-- LH Clickable Panel (Soft Blue) -->
                         <div
                           class="side-panel p-2 transition-card"
@@ -325,14 +349,14 @@
                   <div>
                     <h6 class="fw-bold mb-0 text-dark d-flex align-items-center flex-wrap gap-2">
                       <span><i class="fas fa-list me-1.5 text-danger"></i>JIG {{ selectedJig.jig_name }} — {{ selectedUnit.unit_no }}</span>
-                      <span class="badge px-2 py-1" :class="selectedUnitSide === 'LH' ? 'bg-info text-dark' : 'bg-primary text-white'">
+                      <span class="badge px-2 py-1" :class="selectedUnitSide === 'COMMON' ? 'bg-secondary text-white' : (selectedUnitSide === 'LH' ? 'bg-info text-dark' : 'bg-primary text-white')">
                         Viewing {{ selectedUnitSide }} Side
                       </span>
                     </h6>
                   </div>
                   <div class="d-flex align-items-center gap-2">
-                    <span class="badge side-badge px-2.5 py-1.5 extra-small" :class="selectedUnitSide === 'LH' ? 'side-badge-lh' : 'side-badge-rh'">
-                      {{ selectedUnitSide === 'LH' ? '🔵 LH Parts' : '🔷 RH Parts' }} ({{ selectedUnitSide === 'LH' ? selectedUnitLhParts.length : selectedUnitRhParts.length }})
+                    <span class="badge side-badge px-2.5 py-1.5 extra-small" :class="selectedUnitSide === 'COMMON' ? 'bg-secondary text-white' : (selectedUnitSide === 'LH' ? 'side-badge-lh' : 'side-badge-rh')">
+                      {{ selectedUnitSide === 'COMMON' ? '⚪ Common Parts' : (selectedUnitSide === 'LH' ? '🔵 LH Parts' : '🔷 RH Parts') }} ({{ activeUnitSideParts.length }})
                     </span>
                     <button class="btn btn-xs btn-outline-secondary" @click="selectedUnit = null">
                       <i class="fas fa-arrow-left me-1"></i> Back to Units
@@ -343,15 +367,15 @@
                 <!-- Side Parts Table -->
                 <div class="card border shadow-xs">
                   <div class="card-header py-2 px-3 border-bottom d-flex justify-content-between align-items-center"
-                    :class="selectedUnitSide === 'LH' ? 'bg-info-subtle' : 'bg-primary-subtle'">
+                    :class="selectedUnitSide === 'COMMON' ? 'bg-light' : (selectedUnitSide === 'LH' ? 'bg-info-subtle' : 'bg-primary-subtle')">
                     <div class="d-flex align-items-center gap-2">
-                      <span class="badge px-2 py-1 fw-bold" :class="selectedUnitSide === 'LH' ? 'bg-info text-dark' : 'bg-primary text-white'">
+                      <span class="badge px-2 py-1 fw-bold" :class="selectedUnitSide === 'COMMON' ? 'bg-secondary text-white' : (selectedUnitSide === 'LH' ? 'bg-info text-dark' : 'bg-primary text-white')">
                         {{ selectedUnitSide }}
                       </span>
-                      <h6 class="fw-bold mb-0 text-dark">{{ selectedUnit.unit_no }} — {{ selectedUnitSide === 'LH' ? 'Left Hand' : 'Right Hand' }} Rework Bay</h6>
+                      <h6 class="fw-bold mb-0 text-dark">{{ selectedUnit.unit_no }} — {{ selectedUnitSide === 'COMMON' ? 'Common' : (selectedUnitSide === 'LH' ? 'Left Hand' : 'Right Hand') }} Rework Bay</h6>
                     </div>
                     <span class="badge bg-white text-dark border">
-                      {{ (selectedUnitSide === 'LH' ? selectedUnitLhParts : selectedUnitRhParts).length }} Parts
+                      {{ activeUnitSideParts.length }} Parts
                     </span>
                   </div>
                   <div class="card-body p-0">
@@ -367,7 +391,7 @@
                           </tr>
                         </thead>
                         <tbody>
-                          <tr v-for="part in (selectedUnitSide === 'LH' ? selectedUnitLhParts : selectedUnitRhParts)" :key="selectedUnitSide + '_' + part.id">
+                          <tr v-for="part in activeUnitSideParts" :key="selectedUnitSide + '_' + part.id">
                             <td>
                               <div class="fw-bold text-primary d-flex align-items-center gap-1.5 flex-wrap">
                                 <span>{{ part.standard_part_no }}</span>
@@ -534,15 +558,29 @@ const openUnitSide = (unit, side) => {
 const selectedUnitLhParts = computed(() => {
   if (!selectedUnit.value?.parts) return [];
   return selectedUnit.value.parts.filter(item => {
-    return !!(item.side_stats?.LH || item.side_stats?.COMMON);
+    return !!item.side_stats?.LH;
   });
 });
 
 const selectedUnitRhParts = computed(() => {
   if (!selectedUnit.value?.parts) return [];
   return selectedUnit.value.parts.filter(item => {
-    return !!(item.side_stats?.RH || item.side_stats?.COMMON);
+    return !!item.side_stats?.RH;
   });
+});
+
+const selectedUnitCommonParts = computed(() => {
+  if (!selectedUnit.value?.parts) return [];
+  return selectedUnit.value.parts.filter(item => {
+    return !!item.side_stats?.COMMON;
+  });
+});
+
+const activeUnitSideParts = computed(() => {
+  if (selectedUnitSide.value === 'COMMON') {
+    return selectedUnitCommonParts.value;
+  }
+  return selectedUnitSide.value === 'LH' ? selectedUnitLhParts.value : selectedUnitRhParts.value;
 });
 
 const activeReworkRecord = ref(null);

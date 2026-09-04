@@ -232,7 +232,7 @@ class QuantityCalculationService
                     $side = $req->side;
 
                     // Side isolation filter
-                    if (!empty($sideFilter) && $sideFilter !== $side && $side !== 'COMMON') {
+                    if (!empty($sideFilter) && $sideFilter !== $side) {
                         continue;
                     }
 

@@ -13,27 +13,33 @@ use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 
 class EcnImportService
 {
-    public const VALID_ECN_SIDES = ['LA', 'RA', 'AL', 'AR', 'L', 'R'];
+    public const VALID_ECN_SIDES = ['LA', 'RA', 'AL', 'AR', 'L', 'R', 'COMMON', ''];
 
     public function __construct(
         protected ProjectIdentityResolver $projectResolver = new ProjectIdentityResolver()
     ) {}
 
     /**
-     * Map original ECN side to standard UI display label (LH/RH).
+     * Map original ECN side to standard UI display label (LH/RH/COMMON).
      */
     public static function mapSideDisplay(string $side): string
     {
         $upper = strtoupper(trim($side));
+        if (in_array($upper, ['C', 'COM', 'COMMON', 'BOTH', 'NULL', 'BLANK', 'NONE', ''], true)) {
+            return 'COMMON';
+        }
         return in_array($upper, ['LA', 'AL', 'L']) ? 'LH' : 'RH';
     }
 
     /**
-     * Map original ECN side to normalization family (LEFT/RIGHT).
+     * Map original ECN side to normalization family (LEFT/RIGHT/COMMON).
      */
     public static function mapSideFamily(string $side): string
     {
         $upper = strtoupper(trim($side));
+        if (in_array($upper, ['C', 'COM', 'COMMON', 'BOTH', 'NULL', 'BLANK', 'NONE', ''], true)) {
+            return 'COMMON';
+        }
         return in_array($upper, ['LA', 'AL', 'L']) ? 'LEFT' : 'RIGHT';
     }
 
@@ -234,9 +240,9 @@ class EcnImportService
                 $rowErrors[] = "Row {$r}: Part No. is missing.";
             }
 
-            $sideUpper = strtoupper($sideRaw);
-            if (empty($sideRaw) || !in_array($sideUpper, self::VALID_ECN_SIDES)) {
-                $rowErrors[] = "Row {$r}: Invalid Side '{$sideRaw}'. Allowed ECN sides are: " . implode(', ', self::VALID_ECN_SIDES) . '.';
+            $sideUpper = strtoupper(trim($sideRaw));
+            if (!empty($sideRaw) && !in_array($sideUpper, self::VALID_ECN_SIDES) && !in_array($sideUpper, ['C', 'COM', 'COMMON', 'BOTH', 'NULL', 'BLANK', 'NONE'])) {
+                $rowErrors[] = "Row {$r}: Invalid Side '{$sideRaw}'. Allowed ECN sides are: " . implode(', ', array_filter(self::VALID_ECN_SIDES)) . '.';
             }
 
             $qty = is_numeric($qtyRaw) ? (int)$qtyRaw : null;
@@ -250,6 +256,7 @@ class EcnImportService
             }
 
             // Pad unit/part numbers if numeric strings (preserve standard formatting)
+            $sideClean = empty($sideUpper) || in_array($sideUpper, ['C', 'COM', 'COMMON', 'BOTH', 'NULL', 'BLANK', 'NONE'], true) ? 'COMMON' : $sideUpper;
             $rows[] = [
                 'row_number' => $r,
                 'project_code' => $projCode,
@@ -258,7 +265,7 @@ class EcnImportService
                 'jig_no' => $jigNo,
                 'unit_no' => $unitNo,
                 'part_no' => $partNo,
-                'side' => $sideUpper,
+                'side' => $sideClean,
                 'side_display' => self::mapSideDisplay($sideUpper),
                 'side_family' => self::mapSideFamily($sideUpper),
                 'qty' => $qty,
