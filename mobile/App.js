@@ -450,6 +450,7 @@ function App() {
   const [reworkSubTab, setReworkSubTab] = useState('queue'); // 'queue' | 'revert'
   const [paintSubTab, setPaintSubTab] = useState('queue'); // 'queue' | 'revert'
   const [assemblySubTab, setAssemblySubTab] = useState('queue'); // 'queue' | 'completed' | 'revert'
+  const [purchaseSubTab, setPurchaseSubTab] = useState('queue'); // 'queue' | 'revert'
   const [summary, setSummary] = useState(null);
   const [items, setItems] = useState([]);
   const [projects, setProjects] = useState([]);
@@ -471,6 +472,8 @@ function App() {
     assembly_queue: '',
     assembly_completed: '',
     assembly_revert: '',
+    purchase_queue: '',
+    purchase_revert: '',
     purchase: '',
   });
 
@@ -493,7 +496,8 @@ function App() {
     qcSub = qcSubTab,
     reworkSub = reworkSubTab,
     paintSub = paintSubTab,
-    assemblySub = assemblySubTab
+    assemblySub = assemblySubTab,
+    purchaseSub = purchaseSubTab
   ) => {
     if (tab === 'store') return storeSub === 'revert' ? 'store_revert' : 'store_pending';
     if (tab === 'qc') {
@@ -508,6 +512,9 @@ function App() {
       if (assemblySub === 'revert') return 'assembly_revert';
       return 'assembly_queue';
     }
+    if (tab === 'purchase') {
+      return purchaseSub === 'revert' ? 'purchase_revert' : 'purchase_queue';
+    }
     return tab;
   };
 
@@ -517,6 +524,7 @@ function App() {
     if (dept === 'rework') return reworkSubTab;
     if (dept === 'paint') return paintSubTab;
     if (dept === 'assembly') return assemblySubTab;
+    if (dept === 'purchase') return purchaseSubTab;
     return 'main';
   };
 
@@ -615,13 +623,21 @@ function App() {
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [unitSideTab, setUnitSideTab] = useState('LH'); // 'LH' | 'RH'
 
-  // Department-Namespaced Global / Upper Revert State (Isolates Store, QC, Rework, Paint, Assembly)
+  // Navigation tracking refs to eliminate race conditions, out-of-order responses, and stale closures
+  const activeJigNameRef = useRef(null);
+  const activeUnitNoRef = useRef(null);
+  const activeSideTabRef = useRef('LH');
+  const selectionGenerationRef = useRef(0);
+  const lastNavTapTimeRef = useRef(0);
+
+  // Department-Namespaced Global / Upper Revert State (Isolates Store, QC, Rework, Paint, Assembly, Purchase)
   const [deptGlobalRevertItems, setDeptGlobalRevertItems] = useState({
     store: [],
     qc: [],
     rework: [],
     paint: [],
     assembly: [],
+    purchase: [],
   });
 
   // Derived strictly department-isolated revert items for the active department
@@ -695,7 +711,7 @@ function App() {
     if (activeTab === 'paint') return paintSubTab === 'revert' ? '🔍 Search revertible parts in Paint...' : '🔍 Search Paint queue...';
     if (activeTab === 'assembly') return assemblySubTab === 'revert' ? '🔍 Search revertible parts in Assembly...' : '🔍 Search Assembly queue...';
     if (activeTab === 'rework') return reworkSubTab === 'revert' ? '🔍 Search revertible parts in Rework...' : '🔍 Search Rework items...';
-    if (activeTab === 'purchase') return '🔍 Search Purchase queue...';
+    if (activeTab === 'purchase') return purchaseSubTab === 'revert' ? '🔍 Search revertible parts in Purchase...' : '🔍 Search Purchase queue...';
     return '🔍 Search items...';
   };
 
@@ -707,7 +723,7 @@ function App() {
   }, [serverHost]);
 
   // Reactive Context Transition Watcher: Reset scroll to top and clear selection when navigating screens
-  const screenContextKey = `${activeTab}_${storeSubTab}_${qcSubTab}_${paintStatusFilter}_${selectedProject || ''}_${selectedJig?.id || selectedJig?.jig_name || ''}_${selectedUnit?.unit_no || ''}_${unitSideTab}`;
+  const screenContextKey = `${activeTab}_${storeSubTab}_${qcSubTab}_${paintStatusFilter}_${purchaseSubTab}_${selectedProject || ''}_${selectedJig?.id || selectedJig?.jig_name || ''}_${selectedUnit?.unit_no || ''}_${unitSideTab}`;
 
   useEffect(() => {
     scrollToTop(false);
@@ -721,14 +737,15 @@ function App() {
       loadData(activeTab, false);
     }, 30000);
     return () => clearInterval(interval);
-  }, [token, activeTab, storeSubTab, tabSearches, selectedSide, selectedProject]);
+  }, [token, activeTab, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab, purchaseSubTab, tabSearches, selectedSide, selectedProject]);
 
   const isTopLevelRevertTab = !selectedUnit && (
     (activeTab === 'store' && storeSubTab === 'revert') ||
     (activeTab === 'qc' && qcSubTab === 'revert') ||
     (activeTab === 'rework' && reworkSubTab === 'revert') ||
     (activeTab === 'paint' && paintSubTab === 'revert') ||
-    (activeTab === 'assembly' && assemblySubTab === 'revert')
+    (activeTab === 'assembly' && assemblySubTab === 'revert') ||
+    (activeTab === 'purchase' && purchaseSubTab === 'revert')
   );
 
   const loadGlobalRevertItems = useCallback(async (dept = activeTab, showSpinner = true) => {
@@ -736,7 +753,7 @@ function App() {
     const thisGlobalReqId = ++currentGlobalRevertReqIdRef.current;
     if (showSpinner) setIsLoadingGlobalRevert(true);
     try {
-      const activeSearch = tabSearches[getCurrentSearchKey(dept, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab)] || '';
+      const activeSearch = tabSearches[getCurrentSearchKey(dept, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab, purchaseSubTab)] || '';
       const params = {
         department: dept,
         per_page: 200,
@@ -761,13 +778,13 @@ function App() {
         if (showSpinner) setIsLoadingGlobalRevert(false);
       }
     }
-  }, [token, activeTab, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab, tabSearches, selectedProject, selectedSide]);
+  }, [token, activeTab, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab, purchaseSubTab, tabSearches, selectedProject, selectedSide]);
 
   useEffect(() => {
     if (isTopLevelRevertTab && token) {
       loadGlobalRevertItems(activeTab, true);
     }
-  }, [isTopLevelRevertTab, activeTab, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab, selectedProject, selectedSide, tabSearches, loadGlobalRevertItems]);
+  }, [isTopLevelRevertTab, activeTab, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab, purchaseSubTab, selectedProject, selectedSide, tabSearches, loadGlobalRevertItems]);
 
   const [otaChecking, setOtaChecking] = useState(false);
 
@@ -915,6 +932,9 @@ function App() {
           setHierarchyProject(null);
           setSelectedJig(null);
           setSelectedUnit(null);
+          activeJigNameRef.current = null;
+          activeUnitNoRef.current = null;
+          selectionGenerationRef.current++;
           setSelectedProject('');
           setSelectedSide('');
           setDeptGlobalRevertItems({
@@ -923,6 +943,7 @@ function App() {
             rework: [],
             paint: [],
             assembly: [],
+            purchase: [],
           });
           setSelectedGlobalRevertIds(new Set());
           setIsGlobalRevertSelectionMode(false);
@@ -940,6 +961,8 @@ function App() {
             assembly_queue: '',
             assembly_completed: '',
             assembly_revert: '',
+            purchase_queue: '',
+            purchase_revert: '',
             purchase: '',
           });
         }
@@ -961,10 +984,11 @@ function App() {
 
   const loadData = async (tab = activeTab, showSpinner = true, customSearch = null, forceFresh = false) => {
     const subTab = getCurrentSubTabForDept(tab);
-    const activeSearch = customSearch !== null ? customSearch : (tabSearches[getCurrentSearchKey(tab, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab)] || '');
+    const activeSearch = customSearch !== null ? customSearch : (tabSearches[getCurrentSearchKey(tab, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab, purchaseSubTab)] || '');
     const cacheKey = `${user?.id || 'anon'}_${userRole}_${tab}_${subTab}_${selectedProject || ''}_${selectedSide || ''}_${activeSearch}`;
 
     const thisRequestId = ++currentRequestIdRef.current;
+    const requestGen = selectionGenerationRef.current;
 
     // 1. Check in-memory cache for instant zero-delay render
     const cachedEntry = mobileCacheRef.current.get(cacheKey);
@@ -1028,18 +1052,34 @@ function App() {
             setHierarchyJigs(updatedJigs);
             setHierarchyProject(res.data.project || null);
 
-            // Sync selectedJig and selectedUnit references with newly fetched data
-            if (selectedJig) {
-              const newJig = updatedJigs.find(j => j.jig_name === selectedJig.jig_name);
+            // Sync selectedJig and selectedUnit references with newly fetched data using live refs (never stale closure)
+            const currentActiveJigName = activeJigNameRef.current;
+            const currentActiveUnitNo = activeUnitNoRef.current;
+
+            if (currentActiveJigName) {
+              const newJig = updatedJigs.find(j => (j.jig_name || j.id) === currentActiveJigName);
               if (newJig) {
                 setSelectedJig(newJig);
-                if (selectedUnit) {
-                  const newUnit = newJig.units?.find(u => u.unit_no === selectedUnit.unit_no);
+                if (currentActiveUnitNo) {
+                  const newUnit = newJig.units?.find(u => u.unit_no === currentActiveUnitNo);
                   if (newUnit) {
                     setSelectedUnit(newUnit);
+                  } else {
+                    setSelectedUnit(null);
+                    activeUnitNoRef.current = null;
                   }
+                } else {
+                  setSelectedUnit(null);
                 }
+              } else {
+                setSelectedJig(null);
+                setSelectedUnit(null);
+                activeJigNameRef.current = null;
+                activeUnitNoRef.current = null;
               }
+            } else {
+              setSelectedJig(null);
+              setSelectedUnit(null);
             }
           } else if (!selectedProject) {
             setHierarchyJigs([]);
@@ -1075,6 +1115,9 @@ function App() {
   const onRefresh = () => {
     setRefreshing(true);
     loadData(activeTab);
+    if (isTopLevelRevertTab) {
+      loadGlobalRevertItems(activeTab, false);
+    }
   };
 
   const handleTabChange = (tab) => {
@@ -1086,6 +1129,11 @@ function App() {
     setSelectedProject(projId);
     setSelectedJig(null);
     setSelectedUnit(null);
+    activeJigNameRef.current = null;
+    activeUnitNoRef.current = null;
+    selectionGenerationRef.current++;
+    lastNavTapTimeRef.current = Date.now();
+
     const thisReqId = ++currentRequestIdRef.current;
     setLoading(true);
     try {
@@ -1121,10 +1169,64 @@ function App() {
     setSelectedProject('');
     setSelectedJig(null);
     setSelectedUnit(null);
+    activeJigNameRef.current = null;
+    activeUnitNoRef.current = null;
+    selectionGenerationRef.current++;
+    lastNavTapTimeRef.current = Date.now();
     setHierarchyJigs([]);
     setHierarchyProject(null);
     loadData(activeTab);
   };
+
+  // Robust, Anti-Bouncing Navigation Handlers with Generation Tokens and Synchronous Refs
+  const handleSelectJig = useCallback((jig) => {
+    const now = Date.now();
+    if (now - lastNavTapTimeRef.current < 150) return;
+    lastNavTapTimeRef.current = now;
+    selectionGenerationRef.current++;
+
+    scrollToTop(false);
+    clearSelection();
+    activeJigNameRef.current = jig ? (jig.jig_name || jig.id) : null;
+    activeUnitNoRef.current = null;
+    setSelectedJig(jig);
+    setSelectedUnit(null);
+  }, [scrollToTop, clearSelection]);
+
+  const handleSelectUnit = useCallback((unit, sideToOpen = 'LH') => {
+    const now = Date.now();
+    if (now - lastNavTapTimeRef.current < 150) return;
+    lastNavTapTimeRef.current = now;
+    selectionGenerationRef.current++;
+
+    scrollToTop(false);
+    clearSelection();
+    activeUnitNoRef.current = unit ? unit.unit_no : null;
+    activeSideTabRef.current = sideToOpen;
+    setSelectedUnit(unit);
+    setUnitSideTab(sideToOpen);
+  }, [scrollToTop, clearSelection]);
+
+  const handleBackLevel = useCallback(() => {
+    const now = Date.now();
+    if (now - lastNavTapTimeRef.current < 150) return;
+    lastNavTapTimeRef.current = now;
+    selectionGenerationRef.current++;
+
+    scrollToTop(false);
+    clearSelection();
+    if (activeUnitNoRef.current !== null || selectedUnit !== null) {
+      activeUnitNoRef.current = null;
+      setSelectedUnit(null);
+    } else if (activeJigNameRef.current !== null || selectedJig !== null) {
+      activeJigNameRef.current = null;
+      activeUnitNoRef.current = null;
+      setSelectedJig(null);
+      setSelectedUnit(null);
+    } else {
+      handleResetProject();
+    }
+  }, [selectedUnit, selectedJig, handleResetProject, scrollToTop, clearSelection]);
 
   // --- STORE ACTIONS ---
   const openReceiveModal = (item, defaultSide = 'RH') => {
@@ -1704,56 +1806,74 @@ function App() {
       return;
     }
 
-    const isEcn = Boolean(item.is_ecn || item.source_type === 'ecn_workflow_record' || item.source_type === 'ecn_receipt_item' || String(item.bom_item_id).startsWith('ecn_'));
+    const targetLabel = item.target_label || (item.to_department === 'QC_ARRIVAL' ? 'QC Arrival' : (item.to_department || 'Previous Stage'));
+    const sourceDept = (item.from_department || activeTab).toUpperCase();
 
-    setIsSubmittingGlobalRevert(true);
-    try {
-      if (isEcn) {
-        const ecnReqId = item.ecn_requirement_id || (String(item.bom_item_id).startsWith('ecn_') ? Number(String(item.bom_item_id).replace('ecn_', '')) : Number(item.id));
-        const sourceRecId = item.source_id || item.id;
-        const res = await apiClient.post('/ecn/revert', {
-          department: activeTab,
-          record_id: sourceRecId,
-          source_id: sourceRecId,
-          source_type: item.source_type,
-          ecn_requirement_id: ecnReqId,
-          quantity: qty,
-          reason: 'Global department ECN revert',
-          remarks: 'Global department ECN revert',
-        });
-        showToast(res.data?.message || `Successfully reverted ${qty} pcs of ECN ${item.standard_part_no}`);
-      } else {
-        const payload = {
-          department: activeTab,
-          bom_item_id: item.bom_item_id,
-          record_id: item.source_id || item.id,
-          side: item.side,
-          quantity: qty,
-          source_type: item.source_type,
-          source_id: item.source_id,
-          reason: 'Global department workflow revert',
-          remarks: 'Global department workflow revert',
-        };
+    Alert.alert(
+      'Confirm Revert',
+      `Are you sure you want to revert ${qty} pcs of ${item.standard_part_no} (${item.side}) from ${sourceDept} to ${targetLabel}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Confirm Revert',
+          style: 'destructive',
+          onPress: async () => {
+            if (isSubmittingGlobalRevert) return;
+            const isEcn = Boolean(item.is_ecn || item.source_type === 'ecn_workflow_record' || item.source_type === 'ecn_receipt_item' || String(item.bom_item_id).startsWith('ecn_'));
 
-        const res = await apiClient.post('/workflow/revert', payload);
-        showToast(res.data?.message || `Successfully reverted ${qty} pcs of ${item.standard_part_no}`);
-      }
+            setIsSubmittingGlobalRevert(true);
+            try {
+              if (isEcn) {
+                const ecnReqId = item.ecn_requirement_id || (String(item.bom_item_id).startsWith('ecn_') ? Number(String(item.bom_item_id).replace('ecn_', '')) : Number(item.id));
+                const sourceRecId = item.source_id || item.id;
+                const res = await apiClient.post('/ecn/revert', {
+                  department: activeTab,
+                  record_id: sourceRecId,
+                  source_id: sourceRecId,
+                  source_type: item.source_type,
+                  ecn_requirement_id: ecnReqId,
+                  quantity: qty,
+                  reason: 'Global department ECN revert',
+                  remarks: 'Global department ECN revert',
+                });
+                showToast(res.data?.message || `Successfully reverted ${qty} pcs of ECN ${item.standard_part_no}`);
+              } else {
+                const payload = {
+                  department: activeTab,
+                  bom_item_id: item.bom_item_id,
+                  record_id: item.source_id || item.id,
+                  side: item.side,
+                  quantity: qty,
+                  source_type: item.source_type,
+                  source_id: item.source_id,
+                  reason: 'Global department workflow revert',
+                  remarks: 'Global department workflow revert',
+                };
 
-      // Invalidate caches
-      invalidateMobileCache('store');
-      invalidateMobileCache('qc');
-      invalidateMobileCache('rework');
-      invalidateMobileCache('paint');
-      invalidateMobileCache('assembly');
-      invalidateMobileCache('dashboard');
+                const res = await apiClient.post('/workflow/revert', payload);
+                showToast(res.data?.message || `Successfully reverted ${qty} pcs of ${item.standard_part_no}`);
+              }
 
-      await loadGlobalRevertItems(activeTab, false);
-      await loadData(activeTab, false, null, true);
-    } catch (err) {
-      Alert.alert('Revert Failed', err.response?.data?.message || err.message || 'Could not complete revert.');
-    } finally {
-      setIsSubmittingGlobalRevert(false);
-    }
+              // Invalidate caches across operational departments
+              invalidateMobileCache('store');
+              invalidateMobileCache('qc');
+              invalidateMobileCache('rework');
+              invalidateMobileCache('paint');
+              invalidateMobileCache('assembly');
+              invalidateMobileCache('purchase');
+              invalidateMobileCache('dashboard');
+
+              await loadGlobalRevertItems(activeTab, false);
+              await loadData(activeTab, false, null, true);
+            } catch (err) {
+              Alert.alert('Revert Failed', err.response?.data?.message || err.message || 'Could not complete revert.');
+            } finally {
+              setIsSubmittingGlobalRevert(false);
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleBulkGlobalRevertSubmit = async () => {
@@ -1799,6 +1919,7 @@ function App() {
       invalidateMobileCache('rework');
       invalidateMobileCache('paint');
       invalidateMobileCache('assembly');
+      invalidateMobileCache('purchase');
       invalidateMobileCache('dashboard');
 
       await loadGlobalRevertItems(activeTab, false);
@@ -2508,6 +2629,25 @@ function App() {
         </View>
       )}
 
+      {activeTab === 'purchase' && (
+        <View style={styles.subTabsContainer}>
+          <TouchableOpacity
+            style={[styles.subTab, purchaseSubTab === 'queue' && styles.activeSubTab]}
+            onPress={() => { setPurchaseSubTab('queue'); clearSelection(); }}>
+            <Text style={[styles.subTabText, purchaseSubTab === 'queue' && styles.activeSubTabText]}>
+              📋 Requisition Queue
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.subTab, purchaseSubTab === 'revert' && styles.activeSubTabRevert]}
+            onPress={() => { setPurchaseSubTab('revert'); clearSelection(); }}>
+            <Text style={[styles.subTabText, purchaseSubTab === 'revert' && styles.activeSubTabTextRevert]}>
+              ↩ Reverted Parts
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Search & Filter Bar - Tab-Isolated Search (Part 13) */}
       {['store', 'qc', 'paint', 'assembly', 'rework', 'purchase'].includes(activeTab) && (
         <View style={styles.searchBarContainer}>
@@ -2585,13 +2725,7 @@ function App() {
           </Text>
           <TouchableOpacity
             style={styles.backLevelBtn}
-            onPress={() => {
-              scrollToTop(false);
-              clearSelection();
-              if (selectedUnit) setSelectedUnit(null);
-              else if (selectedJig) setSelectedJig(null);
-              else handleResetProject();
-            }}>
+            onPress={handleBackLevel}>
             <Text style={styles.backLevelBtnText}>‹ Back</Text>
           </TouchableOpacity>
         </View>
@@ -2882,10 +3016,7 @@ function App() {
                           styles.jigCard,
                           jig.is_complete ? styles.jigCardComplete : styles.jigCardIncomplete
                         ]}
-                        onPress={() => {
-                          setSelectedJig(jig);
-                          setSelectedUnit(null);
-                        }}>
+                        onPress={() => handleSelectJig(jig)}>
                         <View style={styles.itemHeader}>
                           <Text style={[styles.jigName, jig.is_complete && { color: '#15803d' }]}>
                             {jig.is_complete ? '✓ ' : '⚙️ '}JIG: {jig.jig_name}
@@ -3046,25 +3177,20 @@ function App() {
 
                         if (isCommonUnit) {
                           const comElig = getSideEligibility(unit, 'COMMON');
-                          const openUnit = (sideToOpen = 'COMMON') => {
-                            scrollToTop(false);
-                            clearSelection();
-                            setSelectedUnit(unit);
-                            setUnitSideTab('COMMON');
-                          };
 
                           return (
-                            <TouchableOpacity
+                            <View
                               key={unit.unit_no}
-                              activeOpacity={0.85}
-                              onPress={() => openUnit('COMMON')}
                               style={[
                                 styles.unitCard,
                                 unit.is_complete ? styles.unitCardComplete : styles.unitCardIncomplete,
                                 { padding: 10 }
                               ]}>
                               {/* Common Unit Header */}
-                              <View style={[styles.itemHeader, { marginBottom: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}>
+                              <TouchableOpacity
+                                activeOpacity={0.75}
+                                onPress={() => handleSelectUnit(unit, 'COMMON')}
+                                style={[styles.itemHeader, { marginBottom: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}>
                                 <View>
                                   <Text style={[styles.unitTitle, unit.is_complete && { color: '#15803d' }]}>
                                     {unit.is_complete ? '✓ ' : '📦 '}{unit.unit_no}
@@ -3086,7 +3212,7 @@ function App() {
                                 <Text style={[styles.unitBadge, unit.is_complete ? styles.jigBadgeComplete : styles.unitBadgePending]}>
                                   {unit.is_complete ? 'COMPLETED' : `${unit.completion_pct}%`}
                                 </Text>
-                              </View>
+                              </TouchableOpacity>
 
                               {/* Single Full-Width Common Section */}
                               <TouchableOpacity
@@ -3097,7 +3223,7 @@ function App() {
                                     backgroundColor: comElig.eligible ? '#f8fafc' : '#f1f5f9'
                                   }
                                 ]}
-                                onPress={() => openUnit('COMMON')}>
+                                onPress={() => handleSelectUnit(unit, 'COMMON')}>
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                                   <View style={styles.sidePillCommon}>
                                     <Text style={styles.sidePillTextCommon}>⚪ COMMON</Text>
@@ -3113,7 +3239,7 @@ function App() {
                                   {comElig.buttonText}
                                 </Text>
                               </TouchableOpacity>
-                            </TouchableOpacity>
+                            </View>
                           );
                         }
 
@@ -3127,25 +3253,19 @@ function App() {
 
                         const defaultSide = (showLH && lhElig.eligible) ? 'LH' : (showRH && rhElig.eligible) ? 'RH' : (showLH ? 'LH' : 'RH');
 
-                        const openUnit = (sideToOpen = defaultSide) => {
-                          scrollToTop(false);
-                          clearSelection();
-                          setSelectedUnit(unit);
-                          setUnitSideTab(sideToOpen);
-                        };
-
                         return (
-                          <TouchableOpacity
+                          <View
                             key={unit.unit_no}
-                            activeOpacity={0.85}
-                            onPress={() => openUnit(defaultSide)}
                             style={[
                               styles.unitCard,
                               unit.is_complete ? styles.unitCardComplete : styles.unitCardIncomplete,
                               { padding: 10 }
                             ]}>
                             {/* Single Unit Header */}
-                            <View style={[styles.itemHeader, { marginBottom: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}>
+                            <TouchableOpacity
+                              activeOpacity={0.75}
+                              onPress={() => handleSelectUnit(unit, defaultSide)}
+                              style={[styles.itemHeader, { marginBottom: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}>
                               <View>
                                 <Text style={[styles.unitTitle, unit.is_complete && { color: '#15803d' }]}>
                                   {unit.is_complete ? '✓ ' : '📦 '}{unit.unit_no}
@@ -3164,7 +3284,7 @@ function App() {
                               <Text style={[styles.unitBadge, unit.is_complete ? styles.jigBadgeComplete : styles.unitBadgePending]}>
                                 {unit.is_complete ? 'COMPLETED' : `${unit.completion_pct}%`}
                               </Text>
-                            </View>
+                            </TouchableOpacity>
 
                             {/* Responsive Side Panels: Single side full width or Dual side split */}
                             <View style={{ flexDirection: 'row', gap: (showLH && showRH) ? 8 : 0 }}>
@@ -3177,7 +3297,7 @@ function App() {
                                       borderColor: lhElig.eligible ? '#0ea5e9' : '#e2e8f0',
                                       backgroundColor: lhElig.eligible ? '#f0f9ff' : '#f8fafc' }
                                   ]}
-                                  onPress={() => openUnit('LH')}>
+                                  onPress={() => handleSelectUnit(unit, 'LH')}>
                                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                                     <View style={styles.sidePillLh}>
                                       <Text style={styles.sidePillTextLh}>🔵 LH</Text>
@@ -3204,7 +3324,7 @@ function App() {
                                       borderColor: rhElig.eligible ? '#6366f1' : '#e2e8f0',
                                       backgroundColor: rhElig.eligible ? '#eef2ff' : '#f8fafc' }
                                   ]}
-                                  onPress={() => openUnit('RH')}>
+                                  onPress={() => handleSelectUnit(unit, 'RH')}>
                                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                                     <View style={styles.sidePillRh}>
                                       <Text style={styles.sidePillTextRh}>🔷 RH</Text>
@@ -3222,7 +3342,7 @@ function App() {
                                 </TouchableOpacity>
                               )}
                             </View>
-                          </TouchableOpacity>
+                          </View>
                         );
                       })}
 
@@ -3881,10 +4001,7 @@ function App() {
                           )}
                           <TouchableOpacity
                             style={[styles.smallReceiveBtn, { marginTop: 14, backgroundColor: '#0284c7', paddingHorizontal: 18, paddingVertical: 8 }]}
-                            onPress={() => {
-                              setSelectedUnit(null);
-                              clearSelection();
-                            }}>
+                            onPress={handleBackLevel}>
                             <Text style={styles.smallReceiveBtnText}>‹ Back to Units List</Text>
                           </TouchableOpacity>
                         </View>
@@ -3900,9 +4017,180 @@ function App() {
         ) : (
           // PURCHASE QUEUE OR FALLBACK
           <View style={styles.listContainer}>
-            <Text style={styles.sectionHeader}>
-              PURCHASE REQUISITION QUEUE ({
-                items.filter(item => {
+            {purchaseSubTab === 'revert' ? (
+              <View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <Text style={styles.sectionHeader}>
+                    ↩ PURCHASE REVERTED PARTS ({globalRevertItems.length})
+                  </Text>
+                  {selectedProject && (
+                    <TouchableOpacity
+                      style={styles.clearProjectFilterBtn}
+                      onPress={() => setSelectedProject(null)}>
+                      <Text style={styles.clearProjectFilterBtnText}>All Projects ✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Multi-Selection Control Bar */}
+                <View style={styles.selectionControlBar}>
+                  <TouchableOpacity
+                    style={styles.selectionToggleBtn}
+                    onPress={() => {
+                      if (isGlobalRevertSelectionMode) {
+                        setSelectedGlobalRevertIds(new Set());
+                        setIsGlobalRevertSelectionMode(false);
+                      } else {
+                        setIsGlobalRevertSelectionMode(true);
+                      }
+                    }}>
+                    <Text style={styles.selectionToggleText}>
+                      {isGlobalRevertSelectionMode ? '✕ Cancel Selection' : '☑ Multi-Select'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {isGlobalRevertSelectionMode && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <TouchableOpacity
+                        style={styles.selectAllBtn}
+                        onPress={() => {
+                          const allIds = new Set(globalRevertItems.map(i => i.id));
+                          setSelectedGlobalRevertIds(allIds);
+                        }}>
+                        <Text style={styles.selectAllBtnText}>Select All ({globalRevertItems.length})</Text>
+                      </TouchableOpacity>
+                      {selectedGlobalRevertIds.size > 0 && (
+                        <TouchableOpacity
+                          style={styles.clearSelectBtn}
+                          onPress={() => setSelectedGlobalRevertIds(new Set())}>
+                          <Text style={styles.clearSelectBtnText}>Clear ({selectedGlobalRevertIds.size})</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
+                </View>
+
+                {isLoadingGlobalRevert && globalRevertItems.length === 0 ? (
+                  <View style={{ paddingVertical: 30, alignItems: 'center' }}>
+                    <ActivityIndicator size="large" color="#dc2626" />
+                    <Text style={{ marginTop: 8, color: '#64748b', fontSize: 13 }}>Loading revertible parts...</Text>
+                  </View>
+                ) : (
+                  <>
+                    {globalRevertItems.map((item) => {
+                      const isSelected = selectedGlobalRevertIds.has(item.id);
+                      return (
+                        <TouchableOpacity
+                          key={item.id}
+                          activeOpacity={0.85}
+                          onLongPress={() => {
+                            setIsGlobalRevertSelectionMode(true);
+                            setSelectedGlobalRevertIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(item.id)) next.delete(item.id);
+                              else next.add(item.id);
+                              return next;
+                            });
+                          }}
+                          onPress={() => {
+                            if (isGlobalRevertSelectionMode) {
+                              setSelectedGlobalRevertIds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(item.id)) next.delete(item.id);
+                                else next.add(item.id);
+                                return next;
+                              });
+                            }
+                          }}
+                          style={[
+                            styles.itemCard,
+                            isSelected && { borderColor: '#dc2626', borderWidth: 2, backgroundColor: '#fef2f2' }
+                          ]}>
+                          {/* Row 1: Context Pill + Part No + Side */}
+                          <View style={styles.itemHeader}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                              {isGlobalRevertSelectionMode && (
+                                <View style={[styles.checkboxCircle, isSelected && { backgroundColor: '#dc2626', borderColor: '#dc2626' }]}>
+                                  {isSelected && <Text style={styles.checkmarkText}>✓</Text>}
+                                </View>
+                              )}
+                              <Text style={styles.itemPartNo} numberOfLines={1}>
+                                {item.project_code} • {item.jig_name ? `${item.jig_name} • ` : ''}{item.unit_no ? `${item.unit_no} • ` : ''}{item.standard_part_no}
+                              </Text>
+                              <View style={item.side === 'LH' ? styles.sidePillLh : styles.sidePillRh}>
+                                <Text style={item.side === 'LH' ? styles.sidePillTextLh : styles.sidePillTextRh}>
+                                  {item.side}
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+
+                          {/* Row 2: Lineage Destination Info & Rejection details */}
+                          <View style={{ marginTop: 2, marginBottom: 4 }}>
+                            <Text style={[styles.itemSubText, { fontSize: 11, color: '#475569' }]}>
+                              To: <Text style={{ fontWeight: '700', color: '#dc2626' }}>{item.target_label || 'QC Arrival'}</Text>
+                              {item.rejection_reason ? ` • Reason: ${item.rejection_reason}` : ''}
+                            </Text>
+                          </View>
+
+                          {/* Row 3: Compact Inline Quantity Stepper & Single Revert Action */}
+                          <CompactInlineRevertRow
+                            item={item}
+                            disabled={isSubmittingGlobalRevert || isGlobalRevertSelectionMode}
+                            onRevert={handleQuickGlobalRevert}
+                          />
+                        </TouchableOpacity>
+                      );
+                    })}
+
+                    {globalRevertItems.length === 0 && (
+                      <View style={styles.emptyState}>
+                        <Text style={[styles.emptyStateText, { color: '#64748b' }]}>
+                          ✓ No active revertible parts in PURCHASE.
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                )}
+              </View>
+            ) : (
+              // PURCHASE REQUISITION QUEUE
+              <View>
+                <Text style={styles.sectionHeader}>
+                  PURCHASE REQUISITION QUEUE ({
+                    items.filter(item => {
+                      if (!currentSearchQuery) return true;
+                      const q = currentSearchQuery.toLowerCase().trim();
+                      return (item.bom_item?.standard_part_no || '').toLowerCase().includes(q) ||
+                             (item.bom_item?.project?.name || '').toLowerCase().includes(q) ||
+                             (item.side || '').toLowerCase().includes(q) ||
+                             (item.reason || '').toLowerCase().includes(q) ||
+                             (item.status || '').toLowerCase().includes(q);
+                    }).length
+                  })
+                </Text>
+                {items
+                  .filter(item => {
+                    if (!currentSearchQuery) return true;
+                    const q = currentSearchQuery.toLowerCase().trim();
+                    return (item.bom_item?.standard_part_no || '').toLowerCase().includes(q) ||
+                           (item.bom_item?.project?.name || '').toLowerCase().includes(q) ||
+                           (item.side || '').toLowerCase().includes(q) ||
+                           (item.reason || '').toLowerCase().includes(q) ||
+                           (item.status || '').toLowerCase().includes(q);
+                  })
+                  .map((item, idx) => (
+                  <View key={item.id || idx} style={styles.itemCard}>
+                    <View style={styles.itemHeader}>
+                      <Text style={styles.itemPartNo}>{item.bom_item?.standard_part_no || `Item #${item.id}`}</Text>
+                      <Text style={styles.itemStatus}>{(item.status || 'PENDING').toUpperCase()}</Text>
+                    </View>
+                    <Text style={styles.itemSubText}>Project: {item.bom_item?.project?.name || 'N/A'}</Text>
+                    <Text style={styles.itemSubText}>Side: {item.side} | Qty Required: {item.quantity}</Text>
+                    <Text style={styles.itemSubText}>Reason: {item.reason || 'QC Rejection'}</Text>
+                  </View>
+                ))}
+                {items.filter(item => {
                   if (!currentSearchQuery) return true;
                   const q = currentSearchQuery.toLowerCase().trim();
                   return (item.bom_item?.standard_part_no || '').toLowerCase().includes(q) ||
@@ -3910,41 +4198,11 @@ function App() {
                          (item.side || '').toLowerCase().includes(q) ||
                          (item.reason || '').toLowerCase().includes(q) ||
                          (item.status || '').toLowerCase().includes(q);
-                }).length
-              })
-            </Text>
-            {items
-              .filter(item => {
-                if (!currentSearchQuery) return true;
-                const q = currentSearchQuery.toLowerCase().trim();
-                return (item.bom_item?.standard_part_no || '').toLowerCase().includes(q) ||
-                       (item.bom_item?.project?.name || '').toLowerCase().includes(q) ||
-                       (item.side || '').toLowerCase().includes(q) ||
-                       (item.reason || '').toLowerCase().includes(q) ||
-                       (item.status || '').toLowerCase().includes(q);
-              })
-              .map((item, idx) => (
-              <View key={item.id || idx} style={styles.itemCard}>
-                <View style={styles.itemHeader}>
-                  <Text style={styles.itemPartNo}>{item.bom_item?.standard_part_no || `Item #${item.id}`}</Text>
-                  <Text style={styles.itemStatus}>{(item.status || 'PENDING').toUpperCase()}</Text>
-                </View>
-                <Text style={styles.itemSubText}>Project: {item.bom_item?.project?.name || 'N/A'}</Text>
-                <Text style={styles.itemSubText}>Side: {item.side} | Qty Required: {item.quantity}</Text>
-                <Text style={styles.itemSubText}>Reason: {item.reason || 'QC Rejection'}</Text>
-              </View>
-            ))}
-            {items.filter(item => {
-              if (!currentSearchQuery) return true;
-              const q = currentSearchQuery.toLowerCase().trim();
-              return (item.bom_item?.standard_part_no || '').toLowerCase().includes(q) ||
-                     (item.bom_item?.project?.name || '').toLowerCase().includes(q) ||
-                     (item.side || '').toLowerCase().includes(q) ||
-                     (item.reason || '').toLowerCase().includes(q) ||
-                     (item.status || '').toLowerCase().includes(q);
-            }).length === 0 && (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyStateText}>No purchase items found{currentSearchQuery ? ` matching "${currentSearchQuery}"` : ''}.</Text>
+                }).length === 0 && (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateText}>No purchase items found{currentSearchQuery ? ` matching "${currentSearchQuery}"` : ''}.</Text>
+                  </View>
+                )}
               </View>
             )}
           </View>

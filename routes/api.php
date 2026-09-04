@@ -155,6 +155,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
         Route::prefix('purchase')->group(function () {
             Route::get('/items', [PurchaseQueueController::class, 'index']);
             Route::get('/queue', [PurchaseQueueController::class, 'index']);
+            Route::post('/revert-rejected', [PurchaseQueueController::class, 'revertRejected']);
             Route::patch('/items/{id}/status', [PurchaseQueueController::class, 'updateStatus']);
             Route::patch('/queue/{id}', [PurchaseQueueController::class, 'updateStatus']);
             Route::patch('/queue/{id}/status', [PurchaseQueueController::class, 'updateStatus']);
