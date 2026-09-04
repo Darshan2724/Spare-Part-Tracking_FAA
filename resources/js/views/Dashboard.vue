@@ -1258,8 +1258,8 @@
                           <div v-if="expandedUnits[`${section.key}_${jig.jig_name}_${unit.unit_no}`]" class="mt-2.5 pt-2.5 border-top">
                             <!-- Table Filter Tabs & Search -->
                             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                              <!-- Common Unit Tab -->
-                              <div v-if="unit.has_common || unit.sides?.COMMON" class="btn-group btn-group-sm" role="group">
+                              <!-- Common Only Unit Tab -->
+                              <div v-if="(unit.has_common || unit.sides?.COMMON) && !unit.sides?.LH && !unit.sides?.RH" class="btn-group btn-group-sm" role="group">
                                 <button 
                                   type="button" 
                                   class="btn btn-primary btn-xs"
@@ -1267,7 +1267,7 @@
                                   Common Parts ({{ unit.sides?.COMMON?.parts?.length || 0 }})
                                 </button>
                               </div>
-                              <!-- Side Specific Tabs -->
+                              <!-- Side Specific / Mixed Tabs -->
                               <div v-else class="btn-group btn-group-sm" role="group">
                                 <button 
                                   type="button" 
@@ -1275,9 +1275,10 @@
                                   :class="(unitSideTab[`${section.key}_${jig.jig_name}_${unit.unit_no}`] || 'ALL') === 'ALL' ? 'btn-primary' : 'btn-outline-secondary'"
                                   @click="setUnitSideTab(`${section.key}_${jig.jig_name}_${unit.unit_no}`, 'ALL')"
                                 >
-                                  All ({{ (unit.sides?.LH?.parts?.length || 0) + (unit.sides?.RH?.parts?.length || 0) }})
+                                  All ({{ (unit.sides?.LH?.parts?.length || 0) + (unit.sides?.RH?.parts?.length || 0) + (unit.sides?.COMMON?.parts?.length || 0) }})
                                 </button>
                                 <button 
+                                  v-if="unit.sides?.LH"
                                   type="button" 
                                   class="btn btn-xs" 
                                   :class="unitSideTab[`${section.key}_${jig.jig_name}_${unit.unit_no}`] === 'LH' ? 'btn-primary' : 'btn-outline-secondary'"
@@ -1286,12 +1287,22 @@
                                   LH ({{ unit.sides?.LH?.parts?.length || 0 }})
                                 </button>
                                 <button 
+                                  v-if="unit.sides?.RH"
                                   type="button" 
                                   class="btn btn-xs" 
                                   :class="unitSideTab[`${section.key}_${jig.jig_name}_${unit.unit_no}`] === 'RH' ? 'btn-primary' : 'btn-outline-secondary'"
                                   @click="setUnitSideTab(`${section.key}_${jig.jig_name}_${unit.unit_no}`, 'RH')"
                                 >
                                   RH ({{ unit.sides?.RH?.parts?.length || 0 }})
+                                </button>
+                                <button 
+                                  v-if="unit.sides?.COMMON"
+                                  type="button" 
+                                  class="btn btn-xs" 
+                                  :class="unitSideTab[`${section.key}_${jig.jig_name}_${unit.unit_no}`] === 'COMMON' ? 'btn-primary' : 'btn-outline-secondary'"
+                                  @click="setUnitSideTab(`${section.key}_${jig.jig_name}_${unit.unit_no}`, 'COMMON')"
+                                >
+                                  Common ({{ unit.sides?.COMMON?.parts?.length || 0 }})
                                 </button>
                               </div>
 
@@ -2135,6 +2146,9 @@ const setBomViewType = (type) => {
   activeBomTypeTab.value = type;
   activeHierarchyBomType.value = type;
   filters.value.part_type = (type === 'ALL' ? '' : type);
+  if (type !== 'ALL') {
+    collapsedSections.value[type] = false;
+  }
   fetchData(true);
 };
 
@@ -2161,6 +2175,9 @@ const setHierarchyBomType = (type) => {
   unitSideTab.value = {};
   unitPartSearch.value = {};
   unitPartPage.value = {};
+  if (type !== 'ALL') {
+    collapsedSections.value[type] = false;
+  }
   fetchProjectHierarchy(true);
 };
 
@@ -2182,6 +2199,20 @@ const fetchProjectHierarchy = async (forceFresh = false) => {
     hierarchyData.value = data || {};
     if (data.active_projects?.length) activeProjectsList.value = data.active_projects;
     if (data.completed_projects?.length) completedProjectsList.value = data.completed_projects;
+
+    // In single-type mode (MFG, BOP, STD), auto-expand jigs and units so parts are immediately visible
+    if (activeHierarchyBomType.value !== 'ALL') {
+      nextTick(() => {
+        displayedHierarchySections.value.forEach(sec => {
+          (sec.jigs || []).forEach(j => {
+            expandedJigs.value[`${sec.key}_${j.jig_name}`] = true;
+            (j.units || []).forEach(u => {
+              expandedUnits.value[`${sec.key}_${j.jig_name}_${u.unit_no}`] = true;
+            });
+          });
+        });
+      });
+    }
   };
 
   const cached = cacheStore.get(cacheKey);
@@ -2230,14 +2261,19 @@ const toggleJigExpand = (sectionKey, jigName) => {
 
 const expandAllJigs = () => {
   displayedHierarchySections.value.forEach(sec => {
+    collapsedSections.value[sec.key] = false;
     (sec.jigs || []).forEach(j => {
       expandedJigs.value[`${sec.key}_${j.jig_name}`] = true;
+      (j.units || []).forEach(u => {
+        expandedUnits.value[`${sec.key}_${j.jig_name}_${u.unit_no}`] = true;
+      });
     });
   });
 };
 
 const collapseAllJigs = () => {
   expandedJigs.value = {};
+  expandedUnits.value = {};
 };
 
 const toggleUnitExpand = (unitKey) => {
@@ -2258,16 +2294,30 @@ const getFilteredUnitParts = (unit, unitKey) => {
   const q = (unitPartSearch.value[unitKey] || '').toLowerCase().trim();
 
   let parts = [];
-  if (unit.has_common || unit.sides?.COMMON) {
-    parts = unit.sides?.COMMON?.parts || [];
-  } else if (tab === 'LH') {
-    parts = unit.sides?.LH?.parts || [];
+  const comParts = unit.sides?.COMMON?.parts || [];
+  const lhParts = unit.sides?.LH?.parts || [];
+  const rhParts = unit.sides?.RH?.parts || [];
+
+  if (tab === 'LH') {
+    parts = lhParts;
   } else if (tab === 'RH') {
-    parts = unit.sides?.RH?.parts || [];
+    parts = rhParts;
+  } else if (tab === 'COMMON') {
+    parts = comParts;
   } else {
-    const lh = unit.sides?.LH?.parts || [];
-    const rh = unit.sides?.RH?.parts || [];
-    parts = [...lh, ...rh];
+    // 'ALL' tab
+    if (comParts.length && !lhParts.length && !rhParts.length) {
+      parts = comParts;
+    } else if (!comParts.length) {
+      parts = [...lhParts, ...rhParts];
+    } else {
+      parts = [...lhParts, ...rhParts, ...comParts];
+    }
+  }
+
+  // Fallback if unit.parts is provided at unit root
+  if (!parts.length && Array.isArray(unit.parts)) {
+    parts = unit.parts;
   }
 
   if (!q) return parts;
@@ -2634,9 +2684,8 @@ onUnmounted(() => {
 }
 
 .hierarchy-panel-column {
-  flex: 1 1 0;
-  min-width: 380px;
-  max-width: 100%;
+  width: 100%;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   background: #ffffff;
@@ -2645,8 +2694,21 @@ onUnmounted(() => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
+.hierarchy-panels-container.three-column-mode .hierarchy-panel-column {
+  flex: 1 1 0;
+  min-width: 380px;
+  max-width: 100%;
+}
+
 .hierarchy-panel-column.single-type-panel {
+  width: 100%;
   min-width: 100%;
+  flex: 0 0 auto;
+}
+
+.hierarchy-panel-column.single-type-panel .hierarchy-panel-scrollable-body {
+  max-height: none;
+  overflow-y: visible;
 }
 
 .hierarchy-panel-header-sticky {
