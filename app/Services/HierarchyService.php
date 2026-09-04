@@ -83,6 +83,10 @@ class HierarchyService
             ->with(['requirements', 'supplier', 'project'])
             ->where('project_id', $project->id);
 
+        if (!empty($filters['part_type'])) {
+            $query->where('part_type', strtoupper($filters['part_type']));
+        }
+
         if (!empty($filters['search'])) {
             $search = trim($filters['search']);
             $query->where(function ($q) use ($search) {
@@ -124,6 +128,9 @@ class HierarchyService
                 'completed_projects' => $completedProjects,
                 'canonical_summary' => $this->quantityService->calculateProjectMetrics($project, $filters['side'] ?? null, $filters),
                 'department' => $department,
+                'jigs' => [],
+                'total_jigs' => 0,
+                'completed_jigs' => 0,
                 'message' => 'No BOM items found for this project.',
             ];
         }
@@ -637,6 +644,7 @@ class HierarchyService
                         $commonParts[] = [
                             'id' => $part->id,
                             'standard_part_no' => $part->standard_part_no,
+                            'part_type' => $part->part_type ?? 'MFG',
                             'item_no' => $part->item_no ?? '—',
                             'supplier' => $part->supplier?->name ?? ($part->supplier_name_raw ?? '—'),
                             'side' => 'COMMON',
@@ -973,6 +981,7 @@ class HierarchyService
                         $lhParts[] = [
                             'id' => $part->id,
                             'standard_part_no' => $part->standard_part_no,
+                            'part_type' => $part->part_type ?? 'MFG',
                             'item_no' => $part->item_no ?? '—',
                             'supplier' => $part->supplier?->name ?? ($part->supplier_name_raw ?? '—'),
                             'side' => 'LH',
@@ -997,6 +1006,7 @@ class HierarchyService
                         $rhParts[] = [
                             'id' => $part->id,
                             'standard_part_no' => $part->standard_part_no,
+                            'part_type' => $part->part_type ?? 'MFG',
                             'item_no' => $part->item_no ?? '—',
                             'supplier' => $part->supplier?->name ?? ($part->supplier_name_raw ?? '—'),
                             'side' => 'RH',

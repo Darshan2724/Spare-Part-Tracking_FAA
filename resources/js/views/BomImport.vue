@@ -114,6 +114,53 @@
               </form>
             </div>
 
+            <!-- BOM Type Indicator Banner -->
+            <div v-if="previewRows.length && detectedImportType !== 'ECN'" class="p-2 px-3 rounded border mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2" style="background-color: #f8fafc;">
+              <div class="d-flex align-items-center gap-2">
+                <span 
+                  class="badge px-2.5 py-1.5 fs-7 shadow-xs" 
+                  :class="{
+                    'bg-primary text-white': detectedBomType === 'MFG',
+                    'bg-warning text-dark': detectedBomType === 'BOP',
+                    'bg-teal text-white': detectedBomType === 'STD'
+                  }"
+                  :style="detectedBomType === 'STD' ? 'background-color: #0d9488;' : ''"
+                >
+                  <i class="fas me-1.5" :class="{
+                    'fa-industry': detectedBomType === 'MFG',
+                    'fa-shopping-cart': detectedBomType === 'BOP',
+                    'fa-wrench': detectedBomType === 'STD'
+                  }"></i>
+                  {{ detectedBomType === 'MFG' ? 'Manufacturing BOM (MFG)' : (detectedBomType === 'BOP' ? 'Bought Out Parts (BOP)' : 'Standard Hardware (STD)') }}
+                </span>
+                <strong class="small text-dark">
+                  {{ detectedBomType === 'MFG' ? 'In-House Fabrication & Machining Parts' : (detectedBomType === 'BOP' ? 'Off-The-Shelf Commercial / Catalog Parts' : 'Fasteners, Screws & Standard Hardware') }}
+                </strong>
+              </div>
+              <div class="small text-muted">
+                Auto-Detected from File Headers &bull; Isolated Hierarchy &amp; KPI Scope
+              </div>
+            </div>
+
+            <!-- Duplicate / Repeat Parts Skipped Warning Banner -->
+            <div v-if="importWarnings.length" class="alert alert-warning border-warning shadow-sm mb-3 p-3">
+              <div class="d-flex align-items-start">
+                <i class="fas fa-exclamation-triangle fs-4 text-warning me-2 mt-1"></i>
+                <div class="flex-grow-1">
+                  <h6 class="fw-bold text-dark mb-1">
+                    <i class="fas fa-info-circle me-1 text-warning"></i>
+                    Duplicate / Repeat Parts Detected &amp; Skipped ({{ importWarnings.length }})
+                  </h6>
+                  <p class="mb-2 small text-dark">
+                    Similar project/jig/unit/part/side rows detected in file. By system policy, duplicate rows are <strong>never summed</strong>; only the first occurrence was retained and the rest were skipped by default.
+                  </p>
+                  <ul class="mb-0 small text-muted" style="max-height: 120px; overflow-y: auto;">
+                    <li v-for="(warn, wIdx) in importWarnings" :key="wIdx">{{ warn }}</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
             <!-- Project Match Status / Format Indicator Banner -->
             <div v-if="matchedProjects.length" class="mb-3">
               <!-- ECN Format Detected Pill -->
@@ -397,6 +444,7 @@
                 <thead class="table-light border-bottom">
                   <tr>
                     <th>Filename</th>
+                    <th>BOM Type</th>
                     <th>Project</th>
                     <th>Imported By</th>
                     <th>Date</th>
@@ -414,6 +462,20 @@
                         <span v-if="batch.updated_rows_count > 0" class="text-primary me-1">~{{ batch.updated_rows_count }} updated</span>
                         <span v-if="batch.skipped_rows_count > 0" class="text-muted">{{ batch.skipped_rows_count }} skipped</span>
                       </div>
+                    </td>
+                    <td>
+                      <span 
+                        class="badge fw-bold shadow-xs px-2 py-1"
+                        :class="{
+                          'bg-primary text-white': (batch.bom_type || 'MFG') === 'MFG' && batch.import_type !== 'ECN',
+                          'bg-warning text-dark': batch.bom_type === 'BOP',
+                          'bg-teal text-white': batch.bom_type === 'STD',
+                          'bg-dark text-white': batch.bom_type === 'ECN' || batch.import_type === 'ECN'
+                        }"
+                        :style="batch.bom_type === 'STD' ? 'background-color: #0d9488;' : ''"
+                      >
+                        {{ batch.bom_type || (batch.import_type === 'ECN' ? 'ECN' : 'MFG') }}
+                      </span>
                     </td>
                     <td>
                       <span class="badge bg-light text-dark border">
@@ -447,7 +509,7 @@
                     </td>
                   </tr>
                   <tr v-if="!importHistory.length">
-                    <td colspan="6" class="text-center py-4 text-muted">
+                    <td colspan="7" class="text-center py-4 text-muted">
                       <i class="fas fa-history fa-2x mb-2 text-secondary"></i>
                       <p class="mb-0 small">No BOM import history found.</p>
                     </td>
@@ -560,6 +622,8 @@ const importHistory = ref([]);
 const duplicateInfo = ref(null);
 const selectedFile = ref(null);
 const detectedImportType = ref('REGULAR'); // 'REGULAR' | 'ECN'
+const detectedBomType = ref('MFG'); // 'MFG' | 'BOP' | 'STD'
+const importWarnings = ref([]);
 const previewRows = ref([]);
 const previewSummary = ref(null);
 const reconciliationSummary = ref(null);
@@ -602,6 +666,8 @@ const handleFileChange = (event) => {
 
 const resetPreview = () => {
   detectedImportType.value = 'REGULAR';
+  detectedBomType.value = 'MFG';
+  importWarnings.value = [];
   previewRows.value = [];
   previewSummary.value = null;
   reconciliationSummary.value = null;
@@ -648,6 +714,8 @@ const previewBom = async () => {
       error.value = response.data.message || 'This BOM filename has already been imported.';
     } else {
       detectedImportType.value = response.data.import_type || 'REGULAR';
+      detectedBomType.value = response.data.bom_type || 'MFG';
+      importWarnings.value = response.data.warnings || [];
       previewRows.value = response.data.rows || [];
       previewSummary.value = response.data.summary || null;
       reconciliationSummary.value = response.data.reconciliation || null;

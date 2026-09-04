@@ -80,7 +80,21 @@
                 <tbody>
                   <tr v-for="part in searchResults" :key="part.id">
                     <td>
-                      <div class="fw-bold text-primary fs-6">{{ part.standard_part_no }}</div>
+                      <div class="d-flex align-items-center gap-1.5 flex-wrap mb-1">
+                        <span 
+                          v-if="part.part_type" 
+                          class="badge shadow-xs" 
+                          :class="{
+                            'bg-primary text-white': part.part_type === 'MFG',
+                            'bg-warning text-dark': part.part_type === 'BOP',
+                            'bg-teal text-white': part.part_type === 'STD'
+                          }"
+                          style="font-size: 0.65rem; padding: 1.5px 5px;"
+                        >
+                          {{ part.part_type }}
+                        </span>
+                        <span class="fw-bold text-primary fs-6">{{ part.standard_part_no }}</span>
+                      </div>
                       <small class="text-muted" v-if="part.size">Size: {{ part.size }}</small>
                     </td>
                     <td><span class="badge bg-light text-dark border">{{ part.project?.name || part.project?.project_code || 'N/A' }}</span></td>
@@ -397,6 +411,18 @@
                           <tr v-for="part in activeUnitSideParts" :key="selectedUnitSide + '_' + part.id">
                             <td>
                               <div class="fw-bold text-primary d-flex align-items-center gap-1.5 flex-wrap">
+                                <span 
+                                  v-if="part.part_type" 
+                                  class="badge shadow-xs" 
+                                  :class="{
+                                    'bg-primary text-white': part.part_type === 'MFG',
+                                    'bg-warning text-dark': part.part_type === 'BOP',
+                                    'bg-teal text-white': part.part_type === 'STD'
+                                  }"
+                                  style="font-size: 0.65rem; padding: 1.5px 5px;"
+                                >
+                                  {{ part.part_type }}
+                                </span>
                                 <span>{{ part.standard_part_no }}</span>
                                 <span v-if="part.is_ecn" class="badge bg-warning text-dark extra-small">⚡ {{ part.ecn_number || 'ECN' }}</span>
                               </div>

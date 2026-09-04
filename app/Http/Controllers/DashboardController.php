@@ -42,6 +42,7 @@ class DashboardController extends Controller
             'date_from' => $request->query('date_from'),
             'date_to' => $request->query('date_to'),
             'supplier_id' => $request->query('supplier_id'),
+            'part_type' => $request->query('part_type'),
         ];
         $page = (int) $request->query('page', 1);
         $perPage = (int) $request->query('per_page', 50);
@@ -64,7 +65,74 @@ class DashboardController extends Controller
             'status_filter' => $request->query('status_filter', 'all'),
         ];
 
+        $partType = $request->query('part_type');
+        $normalizedPartType = (!empty($partType) && in_array(strtoupper($partType), ['MFG', 'BOP', 'STD'], true))
+            ? strtoupper($partType)
+            : null;
+
+        if ($normalizedPartType) {
+            $filters['part_type'] = $normalizedPartType;
+        }
+
         $hierarchy = $this->hierarchyService->getDepartmentHierarchy('manager', $projectId, $filters);
+
+        if ($projectId) {
+            $emptySection = [
+                'jigs' => [],
+                'total_jigs' => 0,
+                'completed_jigs' => 0,
+            ];
+
+            if ($normalizedPartType === 'MFG') {
+                $hierarchy['mfg_section'] = [
+                    'jigs' => $hierarchy['jigs'] ?? [],
+                    'total_jigs' => $hierarchy['total_jigs'] ?? count($hierarchy['jigs'] ?? []),
+                    'completed_jigs' => $hierarchy['completed_jigs'] ?? 0,
+                ];
+                $hierarchy['bop_section'] = $emptySection;
+                $hierarchy['std_section'] = $emptySection;
+            } elseif ($normalizedPartType === 'BOP') {
+                $hierarchy['mfg_section'] = $emptySection;
+                $hierarchy['bop_section'] = [
+                    'jigs' => $hierarchy['jigs'] ?? [],
+                    'total_jigs' => $hierarchy['total_jigs'] ?? count($hierarchy['jigs'] ?? []),
+                    'completed_jigs' => $hierarchy['completed_jigs'] ?? 0,
+                ];
+                $hierarchy['std_section'] = $emptySection;
+            } elseif ($normalizedPartType === 'STD') {
+                $hierarchy['mfg_section'] = $emptySection;
+                $hierarchy['bop_section'] = $emptySection;
+                $hierarchy['std_section'] = [
+                    'jigs' => $hierarchy['jigs'] ?? [],
+                    'total_jigs' => $hierarchy['total_jigs'] ?? count($hierarchy['jigs'] ?? []),
+                    'completed_jigs' => $hierarchy['completed_jigs'] ?? 0,
+                ];
+            } else {
+                $baseFilters = $filters;
+                unset($baseFilters['part_type']);
+
+                $mfgH = $this->hierarchyService->getDepartmentHierarchy('manager', $projectId, array_merge($baseFilters, ['part_type' => 'MFG']));
+                $bopH = $this->hierarchyService->getDepartmentHierarchy('manager', $projectId, array_merge($baseFilters, ['part_type' => 'BOP']));
+                $stdH = $this->hierarchyService->getDepartmentHierarchy('manager', $projectId, array_merge($baseFilters, ['part_type' => 'STD']));
+
+                $hierarchy['mfg_section'] = [
+                    'jigs' => $mfgH['jigs'] ?? [],
+                    'total_jigs' => $mfgH['total_jigs'] ?? count($mfgH['jigs'] ?? []),
+                    'completed_jigs' => $mfgH['completed_jigs'] ?? 0,
+                ];
+                $hierarchy['bop_section'] = [
+                    'jigs' => $bopH['jigs'] ?? [],
+                    'total_jigs' => $bopH['total_jigs'] ?? count($bopH['jigs'] ?? []),
+                    'completed_jigs' => $bopH['completed_jigs'] ?? 0,
+                ];
+                $hierarchy['std_section'] = [
+                    'jigs' => $stdH['jigs'] ?? [],
+                    'total_jigs' => $stdH['total_jigs'] ?? count($stdH['jigs'] ?? []),
+                    'completed_jigs' => $stdH['completed_jigs'] ?? 0,
+                ];
+            }
+        }
+
         return response()->json($hierarchy);
     }
 
@@ -77,6 +145,7 @@ class DashboardController extends Controller
         $dateTo = $request->query('date_to');
         $side = $request->query('side');
         $supplierId = $request->query('supplier_id');
+        $partType = $request->query('part_type');
 
         $filters = [
             'project_id' => $projectId,
@@ -85,6 +154,10 @@ class DashboardController extends Controller
             'side' => $side,
             'supplier_id' => $supplierId,
         ];
+
+        if (!empty($partType) && in_array(strtoupper($partType), ['MFG', 'BOP', 'STD'], true)) {
+            $filters['part_type'] = strtoupper($partType);
+        }
 
         // 1. Authoritative canonical calculations via single bulk computation
         $projectsQuery = Project::query();
@@ -99,6 +172,24 @@ class DashboardController extends Controller
         $canonicalSummary = $this->quantityService->calculateDashboardSummary($filters, $bulkMetrics);
         $canonicalSummary['ecn_total_parts'] = $this->quantityService->getEcnTotalForDashboard($filters);
         $canonicalSummary['ecn_total'] = $canonicalSummary['ecn_total_parts'];
+
+        // Compute separated summaries for the 3 BOM types (MFG, BOP, STD)
+        $mfgFilters = array_merge($filters, ['part_type' => 'MFG']);
+        $bopFilters = array_merge($filters, ['part_type' => 'BOP']);
+        $stdFilters = array_merge($filters, ['part_type' => 'STD']);
+
+        $mfgMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $side, $mfgFilters);
+        $bopMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $side, $bopFilters);
+        $stdMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $side, $stdFilters);
+
+        $mfgSummary = $this->quantityService->calculateDashboardSummary($mfgFilters, $mfgMetrics);
+        $bopSummary = $this->quantityService->calculateDashboardSummary($bopFilters, $bopMetrics);
+        $stdSummary = $this->quantityService->calculateDashboardSummary($stdFilters, $stdMetrics);
+
+        $canonicalSummary['mfg'] = $mfgSummary;
+        $canonicalSummary['bop'] = $bopSummary;
+        $canonicalSummary['std'] = $stdSummary;
+
         $canonicalProjectsProgress = $this->quantityService->calculateProjectsProgress($filters, $bulkMetrics);
         $topProjectsNearCompletion = $this->quantityService->getTopProjectsNearCompletion($filters, 10, $canonicalProjectsProgress);
         $healthDistribution = $this->quantityService->calculateProjectHealthDistribution($filters, $bulkMetrics);
@@ -112,6 +203,13 @@ class DashboardController extends Controller
             $recQuery->whereHas('bomItem', fn($q) => $q->where('project_id', $projectId));
             $qcQuery->whereHas('bomItem', fn($q) => $q->where('project_id', $projectId));
             $reworkQuery->whereHas('bomItem', fn($q) => $q->where('project_id', $projectId));
+        }
+
+        if (!empty($filters['part_type'])) {
+            $pType = strtoupper($filters['part_type']);
+            $recQuery->whereHas('bomItem', fn($q) => $q->where('part_type', $pType));
+            $qcQuery->whereHas('bomItem', fn($q) => $q->where('part_type', $pType));
+            $reworkQuery->whereHas('bomItem', fn($q) => $q->where('part_type', $pType));
         }
 
         if ($side) {

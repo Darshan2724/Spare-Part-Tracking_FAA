@@ -82,6 +82,10 @@ class QuantityCalculationService
             ->with(['requirements', 'supplier'])
             ->whereIn('project_id', $projectIds);
 
+        if (!empty($filters['part_type'])) {
+            $bomItemsQuery->where('part_type', strtoupper($filters['part_type']));
+        }
+
         if (!empty($filters['supplier_id'])) {
             $bomItemsQuery->where('supplier_id', $filters['supplier_id']);
         }
@@ -373,6 +377,10 @@ class QuantityCalculationService
         if (!empty($filters['date_to'])) {
             $pqQuery->where('created_at', '<=', $filters['date_to']);
         }
+        if (!empty($filters['part_type'])) {
+            $partType = strtoupper($filters['part_type']);
+            $pqQuery->whereHas('bomItem', fn($q) => $q->where('part_type', $partType));
+        }
         $pendingPurchase = (int) $pqQuery->where('status', 'pending_purchase')->count();
 
         $grandSummary = [
@@ -460,6 +468,9 @@ class QuantityCalculationService
 
         return $projects->map(function ($proj) use ($bulkMetrics) {
             $pMetrics = $bulkMetrics->get($proj->id) ?? $this->formatProjectSummaryResult($proj, []);
+            $req = $pMetrics['required_qty'] ?? 0;
+            $asm = $pMetrics['assembly_completed'] ?? $pMetrics['assembly_qty'] ?? 0;
+            $weightedProgress = $req > 0 ? min(100, round(($asm / $req) * 100, 1)) : 0.0;
 
             return [
                 'id' => $proj->id,
@@ -481,6 +492,8 @@ class QuantityCalculationService
                 'rejected_qty' => $pMetrics['rejected_qty'],
                 'paint_qty' => $pMetrics['paint_qty'],
                 'assembly_qty' => $pMetrics['assembly_qty'],
+                'assembly_completed' => $asm,
+                'weighted_completion' => $weightedProgress,
                 'progress_percent' => $pMetrics['progress_percent'],
                 'completion_pct' => $pMetrics['completion_pct'],
                 'is_complete' => $pMetrics['is_complete'],
@@ -501,17 +514,24 @@ class QuantityCalculationService
     {
         $progress = $precomputedProgress ?? $this->calculateProjectsProgress($filters);
 
-        // Filter active incomplete projects with required > 0
-        $activeIncomplete = $progress->filter(function ($p) {
+        // Filter active incomplete projects with required > 0 and calculate exact weighted assembly completion
+        $activeIncomplete = $progress->map(function ($p) {
+            $req = $p['required_qty'] ?? 0;
+            $asm = $p['assembly_completed'] ?? $p['assembly_qty'] ?? 0;
+            $weighted = $req > 0 ? min(100, round(($asm / $req) * 100, 1)) : 0.0;
+            $p['weighted_completion'] = $weighted;
+            $p['assembly_completed'] = $asm;
+            return $p;
+        })->filter(function ($p) {
             return !$p['is_complete'] && $p['required_qty'] > 0;
-        })->sortByDesc('progress_percent')->values();
+        })->sortByDesc('weighted_completion')->values();
 
         $topSubset = $activeIncomplete->take($limit);
 
         return [
             'labels' => $topSubset->pluck('project_code')->toArray(),
             'names' => $topSubset->map(fn($p) => ($p['project_code'] ?: $p['name']) . ' - ' . $p['name'])->toArray(),
-            'percentages' => $topSubset->pluck('progress_percent')->toArray(),
+            'percentages' => $topSubset->pluck('weighted_completion')->toArray(),
             'required' => $topSubset->pluck('required_qty')->toArray(),
             'received' => $topSubset->pluck('received_qty')->toArray(),
             'pending' => $topSubset->pluck('pending_qty')->toArray(),
@@ -523,6 +543,15 @@ class QuantityCalculationService
     /**
      * Calculate Overall Project Health Distribution for Upper Management.
      * Segments active projects into: Near Completion, On Track, At Risk, Delayed.
+     *
+     * Weighted Completion Formula:
+     *   Numerator:   Sum of all assembly_completed quantities for the project
+     *   Denominator: Sum of all required_quantity amounts for the project
+     *   Completion%: min(100, round((assembly_completed / required_quantity) * 100, 1))
+     *
+     * Under "All Types", this aggregates across all MFG + BOP + STD BOM items.
+     * Under a specific part_type filter, it filters strictly by that part_type.
+     * Zero-required projects are safely handled with 0% completion and excluded.
      *
      * @param array $filters
      * @param Collection|null $precomputedBulkMetrics
@@ -548,25 +577,36 @@ class QuantityCalculationService
 
         $bulkMetrics = $precomputedBulkMetrics ?? $this->calculateBulkProjectsMetrics($projects, $filters['side'] ?? null, $filters);
 
-        // Single bulk query to find latest activity timestamp per project
-        $latestReceipts = ReceiptItem::query()
+        // Single bulk query to find latest activity timestamp per project (optionally filtered by part_type)
+        $latestReceiptsQuery = ReceiptItem::query()
             ->join('bom_items', 'bom_items.id', '=', 'receipt_items.bom_item_id')
-            ->whereIn('bom_items.project_id', $projects->pluck('id'))
+            ->whereIn('bom_items.project_id', $projects->pluck('id'));
+
+        $latestQcQuery = QcInspection::query()
+            ->join('bom_items', 'bom_items.id', '=', 'qc_inspections.bom_item_id')
+            ->whereIn('bom_items.project_id', $projects->pluck('id'));
+
+        if (!empty($filters['part_type'])) {
+            $pType = strtoupper($filters['part_type']);
+            $latestReceiptsQuery->where('bom_items.part_type', $pType);
+            $latestQcQuery->where('bom_items.part_type', $pType);
+        }
+
+        $latestReceipts = $latestReceiptsQuery
             ->select('bom_items.project_id', DB::raw('MAX(receipt_items.updated_at) as max_updated'))
             ->groupBy('bom_items.project_id')
             ->pluck('max_updated', 'project_id');
 
-        $latestQc = QcInspection::query()
-            ->join('bom_items', 'bom_items.id', '=', 'qc_inspections.bom_item_id')
-            ->whereIn('bom_items.project_id', $projects->pluck('id'))
+        $latestQc = $latestQcQuery
             ->select('bom_items.project_id', DB::raw('MAX(qc_inspections.updated_at) as max_updated'))
             ->groupBy('bom_items.project_id')
             ->pluck('max_updated', 'project_id');
 
         foreach ($projects as $proj) {
             $pMetrics = $bulkMetrics->get($proj->id) ?? $this->formatProjectSummaryResult($proj, []);
-            $completion = $pMetrics['completion_pct'];
-            $req = $pMetrics['required_qty'];
+            $req = $pMetrics['required_qty'] ?? 0;
+            $asm = $pMetrics['assembly_completed'] ?? $pMetrics['assembly_qty'] ?? 0;
+            $completion = $req > 0 ? min(100, round(($asm / $req) * 100, 1)) : 0.0;
 
             if ($req === 0) {
                 continue;
