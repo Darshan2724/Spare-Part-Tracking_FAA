@@ -314,6 +314,13 @@ class BomImportService
                 $existingPartSet[$item->standard_part_no] = true;
             }
 
+            $jigSidesInDB = [];
+            foreach ($existingItems as $item) {
+                foreach ($item->requirements as $req) {
+                    $jigSidesInDB[$item->jig_no][$req->side] = true;
+                }
+            }
+
             $incomingNewJigs = [];
             $incomingNewUnits = [];
             $incomingNewParts = [];
@@ -321,7 +328,68 @@ class BomImportService
             foreach ($projectRows as $row) {
                 $itemKey = $this->makeItemKey($row['jig_no'], $row['unit_no'], $row['part_no']);
                 $side = $row['side'];
-                $incomingQty = (int) $row['qty'];
+                $incomingQty = (int) ($row['qty'] ?? $row['quantity'] ?? 0);
+                $jigKey = $row['jig_no'];
+
+                // Structural Conflict Check (Part 22): Existing Jig side structure compatibility
+                if (isset($jigSidesInDB[$jigKey])) {
+                    $dbHasCommon = isset($jigSidesInDB[$jigKey]['COMMON']);
+                    $dbHasSideSpecific = isset($jigSidesInDB[$jigKey]['LH']) || isset($jigSidesInDB[$jigKey]['RH']);
+
+                    if ($dbHasCommon && in_array($side, ['LH', 'RH'], true)) {
+                        $totalConflicts++;
+                        $conflictObj = [
+                            'row_number' => $row['row_number'] ?? 0,
+                            'project_code' => $sheetProjectCode,
+                            'jig_no' => $row['jig_no'],
+                            'unit_no' => $row['unit_no'],
+                            'part_no' => $row['part_no'],
+                            'side' => $side,
+                            'existing_qty' => null,
+                            'incoming_qty' => $incomingQty,
+                            'received_qty' => 0,
+                            'reason' => "Structural Conflict: Existing Jig '{$jigKey}' is a COMMON Jig. Revised BOM contains {$side} side records for this Jig. Mixed side models on the same Jig are forbidden.",
+                            'action_needed' => 'A Jig must be exclusively SIDE_SPECIFIC or COMMON.',
+                        ];
+                        $conflicts[] = $conflictObj;
+                        $classifiedRows[] = array_merge($row, [
+                            'action' => 'CONFLICT_REVIEW',
+                            'status' => 'CONFLICT',
+                            'existing_qty' => null,
+                            'incoming_qty' => $incomingQty,
+                            'qty_diff' => $incomingQty,
+                            'received_qty' => 0,
+                            'reason' => $conflictObj['reason'],
+                        ]);
+                        continue;
+                    } elseif ($dbHasSideSpecific && $side === 'COMMON') {
+                        $totalConflicts++;
+                        $conflictObj = [
+                            'row_number' => $row['row_number'] ?? 0,
+                            'project_code' => $sheetProjectCode,
+                            'jig_no' => $row['jig_no'],
+                            'unit_no' => $row['unit_no'],
+                            'part_no' => $row['part_no'],
+                            'side' => $side,
+                            'existing_qty' => null,
+                            'incoming_qty' => $incomingQty,
+                            'received_qty' => 0,
+                            'reason' => "Structural Conflict: Existing Jig '{$jigKey}' is a SIDE_SPECIFIC (LH/RH) Jig. Revised BOM contains Common (blank side) records for this Jig. Mixed side models on the same Jig are forbidden.",
+                            'action_needed' => 'A Jig must be exclusively SIDE_SPECIFIC or COMMON.',
+                        ];
+                        $conflicts[] = $conflictObj;
+                        $classifiedRows[] = array_merge($row, [
+                            'action' => 'CONFLICT_REVIEW',
+                            'status' => 'CONFLICT',
+                            'existing_qty' => null,
+                            'incoming_qty' => $incomingQty,
+                            'qty_diff' => $incomingQty,
+                            'received_qty' => 0,
+                            'reason' => $conflictObj['reason'],
+                        ]);
+                        continue;
+                    }
+                }
 
                 if (!isset($existingJigs[$row['jig_no']])) {
                     $incomingNewJigs[$row['jig_no']] = true;
@@ -860,8 +928,13 @@ class BomImportService
         ];
         $totalRequiredQuantity = 0;
 
+        $lastProjectCode = '';
         for ($r = $headerRowIndex + 1; $r <= $highestRow; $r++) {
-            $projectCode = trim((string) $sheet->getCell($headerMap['project_code'] . $r)->getValue());
+            $projectCodeRaw = trim((string) $sheet->getCell($headerMap['project_code'] . $r)->getValue());
+            if ($projectCodeRaw !== '') {
+                $lastProjectCode = $projectCodeRaw;
+            }
+            $projectCode = $projectCodeRaw !== '' ? $projectCodeRaw : $lastProjectCode;
             $jigNo = trim((string) $sheet->getCell($headerMap['jig_no'] . $r)->getValue());
             $unitNo = trim((string) $sheet->getCell($headerMap['unit_no'] . $r)->getValue());
             $partNo = trim((string) $sheet->getCell($headerMap['part_no'] . $r)->getValue());
@@ -869,7 +942,7 @@ class BomImportService
             $qtyRaw = $sheet->getCell($headerMap['qty'] . $r)->getValue();
 
             // Skip completely empty rows
-            if ($projectCode === '' && $jigNo === '' && $unitNo === '' && $partNo === '' && $sideRaw === '' && $qtyRaw === null) {
+            if ($projectCodeRaw === '' && $jigNo === '' && $unitNo === '' && $partNo === '' && $sideRaw === '' && $qtyRaw === null) {
                 continue;
             }
 
@@ -888,7 +961,7 @@ class BomImportService
                 $rowErrors[] = "Row {$r}: Part No cannot be blank.";
             }
 
-            // Side normalization & validation
+            // Side normalization & validation (blank/null is normalized to COMMON)
             $side = $this->normalizeSide($sideRaw);
             if ($side === null) {
                 $rowErrors[] = "Row {$r}: Invalid Side '{$sideRaw}'. Must be RH (or R), LH (or L), or COMMON.";
@@ -929,6 +1002,19 @@ class BomImportService
                 $sideStats[$side]['count']++;
                 $sideStats[$side]['qty'] += $qty;
                 $totalRequiredQuantity += $qty;
+            }
+        }
+
+        // Jig Exclusivity Validation (Part 2 & Part 20): A Jig must not contain both Common and Side-Specific parts
+        $jigSideSets = [];
+        foreach ($validRows as $vRow) {
+            $jigSideSets[$vRow['jig_no']][$vRow['side']] = true;
+        }
+        foreach ($jigSideSets as $jigKey => $sidesSeen) {
+            $hasCommon = isset($sidesSeen['COMMON']);
+            $hasSideSpecific = isset($sidesSeen['LH']) || isset($sidesSeen['RH']);
+            if ($hasCommon && $hasSideSpecific) {
+                $errors[] = "Jig '{$jigKey}' contains inconsistent side structures: contains both Common (blank side) and Side-Specific (LH/RH) parts. A Jig must be exclusively SIDE_SPECIFIC or COMMON.";
             }
         }
 
@@ -990,17 +1076,25 @@ class BomImportService
     /**
      * Normalize Side string to RH, LH, or COMMON.
      */
-    protected function normalizeSide(string $value): ?string
+    public function normalizeSide(mixed $value): ?string
     {
-        $upper = strtoupper(trim($value));
+        if ($value === null) {
+            return 'COMMON';
+        }
+        $trimmed = trim((string) $value);
+        if ($trimmed === '') {
+            return 'COMMON';
+        }
 
-        if (in_array($upper, ['R', 'RH', 'RIGHT'], true)) {
+        $upper = strtoupper($trimmed);
+
+        if (in_array($upper, ['R', 'RH', 'RIGHT', 'RA', 'AR'], true)) {
             return 'RH';
         }
-        if (in_array($upper, ['L', 'LH', 'LEFT'], true)) {
+        if (in_array($upper, ['L', 'LH', 'LEFT', 'LA', 'AL'], true)) {
             return 'LH';
         }
-        if (in_array($upper, ['C', 'COM', 'COMMON', 'BOTH'], true)) {
+        if (in_array($upper, ['C', 'COM', 'COMMON', 'BOTH', 'NULL', 'BLANK', 'NONE'], true)) {
             return 'COMMON';
         }
 

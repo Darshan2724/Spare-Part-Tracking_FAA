@@ -237,7 +237,7 @@ class KpiDrilldownService
 
             foreach ($reqs as $req) {
                 $curSide = $req->side;
-                if ($side && $curSide !== $side && $curSide !== 'COMMON') {
+                if ($side && $side !== 'ALL' && $curSide !== $side) {
                     continue;
                 }
 
@@ -247,11 +247,11 @@ class KpiDrilldownService
                 }
 
                 // Filter side-specific records
-                $sideReceipts = $itemReceipts->filter(fn($r) => $r->side === $curSide || $r->side === 'COMMON');
-                $sideQc = $itemQc->filter(fn($q) => $q->side === $curSide || $q->side === 'COMMON');
-                $sideRework = $itemRework->filter(fn($rw) => $rw->side === $curSide || $rw->side === 'COMMON');
-                $sidePaint = $itemPaint->filter(fn($p) => $p->side === $curSide || $p->side === 'COMMON');
-                $sideAsm = $itemAsm->filter(fn($a) => $a->side === $curSide || $a->side === 'COMMON');
+                $sideReceipts = $itemReceipts->filter(fn($r) => $r->side === $curSide);
+                $sideQc = $itemQc->filter(fn($q) => $q->side === $curSide);
+                $sideRework = $itemRework->filter(fn($rw) => $rw->side === $curSide);
+                $sidePaint = $itemPaint->filter(fn($p) => $p->side === $curSide);
+                $sideAsm = $itemAsm->filter(fn($a) => $a->side === $curSide);
 
                 // Compute canonical metrics for this part + side
                 $rawReceived = (int) $sideReceipts->sum('received_quantity');
@@ -288,6 +288,7 @@ class KpiDrilldownService
                     'part_no' => $item->standard_part_no,
                     'item_no' => $item->item_no,
                     'side' => $curSide,
+                    'source_side' => $curSide === 'COMMON' ? null : $curSide,
                     'combined_identifier' => "{$item->jig_no} / {$item->unit_no} / {$item->standard_part_no} / {$curSide}",
                     'excel_part_number' => $excelPartNumber,
                     'supplier' => $item->supplier?->name ?? $item->supplier_name_raw ?? 'Standard',

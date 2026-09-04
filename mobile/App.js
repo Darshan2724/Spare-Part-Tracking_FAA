@@ -1128,9 +1128,10 @@ function App() {
 
   // --- STORE ACTIONS ---
   const openReceiveModal = (item, defaultSide = 'RH') => {
+    const side = (item.side === 'COMMON' || defaultSide === 'COMMON' || item.side_stats?.COMMON) ? 'COMMON' : defaultSide;
     setSelectedItemForReceive(item);
-    setReceiveSide(defaultSide);
-    const pending = item.side_stats?.[defaultSide]?.pending ?? 1;
+    setReceiveSide(side);
+    const pending = item.side_stats?.[side]?.pending ?? 1;
     setReceiveQty(String(pending > 0 ? pending : 1));
     setDeliveryNote(`DN-${Date.now().toString().slice(-4)}`);
     setShowReceiveModal(true);
@@ -2926,12 +2927,12 @@ function App() {
                   const getSideEligibility = (unit, side) => {
                     if (!unit) return { eligible: false, count: 0, required: 0, received: 0, pct: 0, label: '', buttonText: '' };
                     const sideObj = unit.sides?.[side] || {};
-                    const sideParts = (unit.parts || []).filter(p => p.side_stats?.[side] || p.side_stats?.COMMON);
+                    const sideParts = (unit.parts || []).filter(p => side === 'COMMON' ? (p.side_stats?.COMMON || p.side === 'COMMON') : (p.side_stats?.[side] || p.side === side));
                     const sideMetrics = sideObj.metrics || {};
                     const hasSideParts = sideParts.length > 0 || !!unit.sides?.[side];
 
-                    const totalRequired = sideObj.total_required ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.required || p.side_stats?.COMMON?.required || 0), 0);
-                    const totalReceived = sideObj.total_received ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.received || p.side_stats?.COMMON?.received || 0), 0);
+                    const totalRequired = sideObj.total_required ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.required || 0), 0);
+                    const totalReceived = sideObj.total_received ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.received || 0), 0);
                     const totalPending = sideObj.pending_quantity ?? Math.max(0, totalRequired - totalReceived);
 
                     let count = 0;
@@ -2940,56 +2941,56 @@ function App() {
 
                     if (activeTab === 'paint') {
                       if (paintSubTab === 'revert') {
-                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || p.side_stats?.COMMON?.total_revertible || 0), 0);
+                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || 0), 0);
                         count = revQty;
                         label = `${revQty} Revertible to QC`;
                         buttonText = revQty > 0 ? `Open ${side} (${revQty} Revert) ›` : `Open ${side} ›`;
                       } else {
-                        const readyQty = sideMetrics.paint_ready ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.paint_ready || p.side_stats?.COMMON?.paint_ready || 0), 0);
-                        const compQty = sideMetrics.paint_completed ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.paint_completed || p.side_stats?.COMMON?.paint_completed || 0), 0);
+                        const readyQty = sideMetrics.paint_ready ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.paint_ready || 0), 0);
+                        const compQty = sideMetrics.paint_completed ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.paint_completed || 0), 0);
                         count = readyQty;
                         label = `${readyQty} Ready • ${compQty} Done`;
                         buttonText = readyQty > 0 ? `Open ${side} (${readyQty} Ready) ›` : `Open ${side} ›`;
                       }
                     } else if (activeTab === 'assembly') {
                       if (assemblySubTab === 'revert') {
-                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || p.side_stats?.COMMON?.total_revertible || 0), 0);
+                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || 0), 0);
                         count = revQty;
                         label = `${revQty} Revertible`;
                         buttonText = revQty > 0 ? `Open ${side} (${revQty} Revert) ›` : `Open ${side} ›`;
                       } else if (assemblySubTab === 'completed') {
-                        const compQty = sideMetrics.assembly_completed ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.assembly_completed || p.side_stats?.COMMON?.assembly_completed || 0), 0);
+                        const compQty = sideMetrics.assembly_completed ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.assembly_completed || 0), 0);
                         count = compQty;
                         label = `${compQty} Assembled`;
                         buttonText = compQty > 0 ? `Open ${side} (${compQty} Done) ›` : `Open ${side} ›`;
                       } else {
-                        const readyQty = sideMetrics.assembly_ready ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.assembly_ready || p.side_stats?.COMMON?.assembly_ready || 0), 0);
-                        const compQty = sideMetrics.assembly_completed ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.assembly_completed || p.side_stats?.COMMON?.assembly_completed || 0), 0);
+                        const readyQty = sideMetrics.assembly_ready ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.assembly_ready || 0), 0);
+                        const compQty = sideMetrics.assembly_completed ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.assembly_completed || 0), 0);
                         count = readyQty;
                         label = `${readyQty} Ready • ${compQty} Assembled`;
                         buttonText = readyQty > 0 ? `Open ${side} (${readyQty} Ready) ›` : `Open ${side} ›`;
                       }
                     } else if (activeTab === 'qc') {
                       if (qcSubTab === 'revert') {
-                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || p.side_stats?.COMMON?.total_revertible || 0), 0);
+                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || 0), 0);
                         count = revQty;
                         label = `${revQty} Revertible to Store`;
                         buttonText = revQty > 0 ? `Open ${side} (${revQty} Revert) ›` : `Open ${side} ›`;
                       } else if (qcSubTab === 'arrival') {
-                        const pendingArrival = sideMetrics.qc_pending_arrival ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.qc_pending_arrival || p.side_stats?.COMMON?.qc_pending_arrival || 0), 0);
+                        const pendingArrival = sideMetrics.qc_pending_arrival ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.qc_pending_arrival || 0), 0);
                         count = pendingArrival;
                         label = `${pendingArrival} Pending Arrival`;
                         buttonText = pendingArrival > 0 ? `Open ${side} (${pendingArrival} Arrival) ›` : `Open ${side} ›`;
                       } else {
-                        const pendingInsp = sideMetrics.qc_pending_inspection ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.qc_pending_inspection || p.side_stats?.COMMON?.qc_pending_inspection || 0), 0);
-                        const approved = sideMetrics.qc_approved ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.qc_approved || p.side_stats?.COMMON?.qc_approved || 0), 0);
+                        const pendingInsp = sideMetrics.qc_pending_inspection ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.qc_pending_inspection || 0), 0);
+                        const approved = sideMetrics.qc_approved ?? sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.qc_approved || 0), 0);
                         count = pendingInsp;
                         label = `${pendingInsp} Pending QC • ${approved} App`;
                         buttonText = pendingInsp > 0 ? `Open ${side} (${pendingInsp} Inspect) ›` : `Open ${side} ›`;
                       }
                     } else if (activeTab === 'rework') {
                       if (reworkSubTab === 'revert') {
-                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || p.side_stats?.COMMON?.total_revertible || 0), 0);
+                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || 0), 0);
                         count = revQty;
                         label = `${revQty} Revertible to QC`;
                         buttonText = revQty > 0 ? `Open ${side} (${revQty} Revert) ›` : `Open ${side} ›`;
@@ -3004,7 +3005,7 @@ function App() {
                     } else {
                       // Store
                       if (storeSubTab === 'revert') {
-                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || p.side_stats?.COMMON?.total_revertible || 0), 0);
+                        const revQty = sideParts.reduce((acc, p) => acc + (p.side_stats?.[side]?.total_revertible || 0), 0);
                         count = revQty;
                         label = `${revQty} Revertible to Supplier`;
                         buttonText = revQty > 0 ? `Open ${side} (${revQty} Revert) ›` : `Open ${side} ›`;
@@ -3041,11 +3042,86 @@ function App() {
                       </Text>
 
                       {filteredUnits.map((unit) => {
+                        const isCommonUnit = Boolean(unit.has_common || unit.sides?.COMMON || selectedJig.jig_type === 'COMMON' || (unit.parts && unit.parts.some(p => p.side === 'COMMON' || p.side_stats?.COMMON)));
+
+                        if (isCommonUnit) {
+                          const comElig = getSideEligibility(unit, 'COMMON');
+                          const openUnit = (sideToOpen = 'COMMON') => {
+                            scrollToTop(false);
+                            clearSelection();
+                            setSelectedUnit(unit);
+                            setUnitSideTab('COMMON');
+                          };
+
+                          return (
+                            <TouchableOpacity
+                              key={unit.unit_no}
+                              activeOpacity={0.85}
+                              onPress={() => openUnit('COMMON')}
+                              style={[
+                                styles.unitCard,
+                                unit.is_complete ? styles.unitCardComplete : styles.unitCardIncomplete,
+                                { padding: 10 }
+                              ]}>
+                              {/* Common Unit Header */}
+                              <View style={[styles.itemHeader, { marginBottom: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' }]}>
+                                <View>
+                                  <Text style={[styles.unitTitle, unit.is_complete && { color: '#15803d' }]}>
+                                    {unit.is_complete ? '✓ ' : '📦 '}{unit.unit_no}
+                                  </Text>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                                    <Text style={styles.unitPartsSubText}>
+                                      Total Parts: {unit.total_required || unit.total_parts || (unit.parts ? unit.parts.filter(p => !p.is_ecn).length : 0)}
+                                    </Text>
+                                    <View style={styles.sidePillCommon}>
+                                      <Text style={styles.sidePillTextCommon}>⚪ COMMON TOOLING</Text>
+                                    </View>
+                                    {Boolean((unit.is_ecn_present || unit.ecn_present || (unit.ecn_parts && unit.ecn_parts > 0) || (unit.ecn_part_count && unit.ecn_part_count > 0) || unit.ecn_number_display) && (unit.ecn_number_display || unit.ecn_parts || unit.ecn_part_count || unit.ecn_count)) && (
+                                      <View style={styles.ecnBadgeCompact}>
+                                        <Text style={styles.ecnBadgeCompactText}>⚡ {unit.ecn_number_display || `ECN (${unit.ecn_parts || unit.ecn_part_count || unit.ecn_count} ${(unit.ecn_parts || unit.ecn_part_count || unit.ecn_count) === 1 ? 'part' : 'parts'})`}</Text>
+                                      </View>
+                                    )}
+                                  </View>
+                                </View>
+                                <Text style={[styles.unitBadge, unit.is_complete ? styles.jigBadgeComplete : styles.unitBadgePending]}>
+                                  {unit.is_complete ? 'COMPLETED' : `${unit.completion_pct}%`}
+                                </Text>
+                              </View>
+
+                              {/* Single Full-Width Common Section */}
+                              <TouchableOpacity
+                                style={[
+                                  styles.mobileSidePanel,
+                                  {
+                                    borderColor: comElig.eligible ? '#64748b' : '#e2e8f0',
+                                    backgroundColor: comElig.eligible ? '#f8fafc' : '#f1f5f9'
+                                  }
+                                ]}
+                                onPress={() => openUnit('COMMON')}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                  <View style={styles.sidePillCommon}>
+                                    <Text style={styles.sidePillTextCommon}>⚪ COMMON</Text>
+                                  </View>
+                                  <Text style={{ fontSize: 10.5, fontWeight: '700', color: '#475569' }}>
+                                    {comElig.pct}%
+                                  </Text>
+                                </View>
+                                <Text style={{ fontSize: 11, fontWeight: '700', color: '#1e293b', marginBottom: 2 }}>
+                                  {comElig.label}
+                                </Text>
+                                <Text style={{ fontSize: 10.5, fontWeight: '700', color: comElig.eligible ? '#2563eb' : '#94a3b8', marginTop: 6 }}>
+                                  {comElig.buttonText}
+                                </Text>
+                              </TouchableOpacity>
+                            </TouchableOpacity>
+                          );
+                        }
+
                         const lhElig = getSideEligibility(unit, 'LH');
                         const rhElig = getSideEligibility(unit, 'RH');
 
-                        const hasLh = (unit.parts || []).some(p => p.side_stats?.LH || p.side_stats?.COMMON) || !!unit.sides?.LH;
-                        const hasRh = (unit.parts || []).some(p => p.side_stats?.RH || p.side_stats?.COMMON) || !!unit.sides?.RH;
+                        const hasLh = (unit.parts || []).some(p => p.side_stats?.LH || p.side === 'LH') || !!unit.sides?.LH;
+                        const hasRh = (unit.parts || []).some(p => p.side_stats?.RH || p.side === 'RH') || !!unit.sides?.RH;
                         const showLH = hasLh || !hasRh;
                         const showRH = hasRh || !hasLh;
 
@@ -3168,12 +3244,16 @@ function App() {
                   const partsList = Array.isArray(selectedUnit.parts) ? selectedUnit.parts : [];
                   const visibleParts = partsList.filter(item => {
                     if (!item) return false;
-                    const matchSide = unitSideTab === 'LH'
-                      ? !!(item.side_stats?.LH || item.side_stats?.COMMON)
-                      : !!(item.side_stats?.RH || item.side_stats?.COMMON);
+                    const matchSide = unitSideTab === 'COMMON'
+                      ? !!(item.side_stats?.COMMON || item.side === 'COMMON')
+                      : (unitSideTab === 'LH'
+                          ? !!(item.side_stats?.LH || item.side === 'LH')
+                          : !!(item.side_stats?.RH || item.side === 'RH'));
                     if (!matchSide) return false;
 
-                    const currentSideStats = unitSideTab === 'LH' ? (item.side_stats?.LH || item.side_stats?.COMMON || {}) : (item.side_stats?.RH || item.side_stats?.COMMON || {});
+                    const currentSideStats = unitSideTab === 'COMMON'
+                      ? (item.side_stats?.COMMON || {})
+                      : (unitSideTab === 'LH' ? (item.side_stats?.LH || {}) : (item.side_stats?.RH || {}));
 
                     // Store subtabs
                     if (activeTab === 'store') {
@@ -3215,7 +3295,9 @@ function App() {
                   });
 
                   const getEligibleQty = (p) => {
-                    const s = unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON || {}) : (p.side_stats?.RH || p.side_stats?.COMMON || {});
+                    const s = unitSideTab === 'COMMON'
+                      ? (p.side_stats?.COMMON || {})
+                      : (unitSideTab === 'LH' ? (p.side_stats?.LH || {}) : (p.side_stats?.RH || {}));
                     if (activeTab === 'store') {
                       return storeSubTab === 'revert' ? (s.total_revertible || 0) : (s.pending || 0);
                     }
@@ -3250,7 +3332,7 @@ function App() {
                     <View>
                       {/* Department Subtab Switchers */}
                       {activeTab === 'store' && (() => {
-                        const getSideStat = (p) => (unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON) : (p.side_stats?.RH || p.side_stats?.COMMON));
+                        const getSideStat = (p) => (unitSideTab === 'COMMON' ? (p.side_stats?.COMMON || {}) : (unitSideTab === 'LH' ? (p.side_stats?.LH || {}) : (p.side_stats?.RH || {})));
                         const pendingCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.pending || 0) > 0).length;
                         const revertCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.total_revertible || 0) > 0).length;
 
@@ -3275,7 +3357,7 @@ function App() {
                       })()}
 
                       {activeTab === 'qc' && (() => {
-                        const getSideStat = (p) => (unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON) : (p.side_stats?.RH || p.side_stats?.COMMON));
+                        const getSideStat = (p) => (unitSideTab === 'COMMON' ? (p.side_stats?.COMMON || {}) : (unitSideTab === 'LH' ? (p.side_stats?.LH || {}) : (p.side_stats?.RH || {})));
                         const arrivalCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.qc_pending_arrival || 0) > 0).length;
                         const inspectionCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.qc_pending_inspection || 0) > 0).length;
                         const revertCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.total_revertible || 0) > 0).length;
@@ -3308,7 +3390,7 @@ function App() {
                       })()}
 
                       {activeTab === 'rework' && (() => {
-                        const getSideStat = (p) => (unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON) : (p.side_stats?.RH || p.side_stats?.COMMON));
+                        const getSideStat = (p) => (unitSideTab === 'COMMON' ? (p.side_stats?.COMMON || {}) : (unitSideTab === 'LH' ? (p.side_stats?.LH || {}) : (p.side_stats?.RH || {})));
                         const queueCount = (selectedUnit.parts || []).filter(p => ((getSideStat(p)?.rework_pending || 0) + (getSideStat(p)?.rework_in_progress || 0)) > 0).length;
                         const revertCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.total_revertible || 0) > 0).length;
 
@@ -3333,7 +3415,7 @@ function App() {
                       })()}
 
                       {activeTab === 'paint' && (() => {
-                        const getSideStat = (p) => (unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON) : (p.side_stats?.RH || p.side_stats?.COMMON));
+                        const getSideStat = (p) => (unitSideTab === 'COMMON' ? (p.side_stats?.COMMON || {}) : (unitSideTab === 'LH' ? (p.side_stats?.LH || {}) : (p.side_stats?.RH || {})));
                         const queueCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.paint_ready || 0) > 0).length;
                         const revertCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.total_revertible || 0) > 0).length;
 
@@ -3358,7 +3440,7 @@ function App() {
                       })()}
 
                       {activeTab === 'assembly' && (() => {
-                        const getSideStat = (p) => (unitSideTab === 'LH' ? (p.side_stats?.LH || p.side_stats?.COMMON) : (p.side_stats?.RH || p.side_stats?.COMMON));
+                        const getSideStat = (p) => (unitSideTab === 'COMMON' ? (p.side_stats?.COMMON || {}) : (unitSideTab === 'LH' ? (p.side_stats?.LH || {}) : (p.side_stats?.RH || {})));
                         const queueCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.assembly_ready || 0) > 0).length;
                         const completedCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.assembly_completed || 0) > 0).length;
                         const revertCount = (selectedUnit.parts || []).filter(p => (getSideStat(p)?.total_revertible || 0) > 0).length;
@@ -3429,7 +3511,9 @@ function App() {
                         if (!item) return null;
                         const itemKey = `${item.id}_${unitSideTab}`;
                         const isSelected = selectedItemIds.has(itemKey);
-                        const currentSideStats = unitSideTab === 'LH' ? (item.side_stats?.LH || item.side_stats?.COMMON || {}) : (item.side_stats?.RH || item.side_stats?.COMMON || {});
+                        const currentSideStats = unitSideTab === 'COMMON'
+                          ? (item.side_stats?.COMMON || {})
+                          : (unitSideTab === 'LH' ? (item.side_stats?.LH || {}) : (item.side_stats?.RH || {}));
                         const req = Number(currentSideStats.required ?? 0);
                         const rec = Number(currentSideStats.received ?? 0);
                         const pen = Number(currentSideStats.pending ?? 0);
@@ -3454,9 +3538,9 @@ function App() {
                                     </View>
                                   )}
                                   <Text style={styles.itemPartNo} numberOfLines={1}>{item.standard_part_no}</Text>
-                                  <View style={unitSideTab === 'LH' ? styles.sidePillLh : styles.sidePillRh}>
-                                    <Text style={unitSideTab === 'LH' ? styles.sidePillTextLh : styles.sidePillTextRh}>
-                                      {unitSideTab}{item.original_side && item.original_side !== unitSideTab ? ` (${item.original_side})` : ''}
+                                  <View style={unitSideTab === 'COMMON' || item.side === 'COMMON' ? styles.sidePillCommon : (unitSideTab === 'LH' ? styles.sidePillLh : styles.sidePillRh)}>
+                                    <Text style={unitSideTab === 'COMMON' || item.side === 'COMMON' ? styles.sidePillTextCommon : (unitSideTab === 'LH' ? styles.sidePillTextLh : styles.sidePillTextRh)}>
+                                      {unitSideTab === 'COMMON' || item.side === 'COMMON' ? '⚪ COMMON' : unitSideTab}{item.original_side && item.original_side !== unitSideTab && unitSideTab !== 'COMMON' ? ` (${item.original_side})` : ''}
                                     </Text>
                                   </View>
                                 </View>
@@ -3531,9 +3615,9 @@ function App() {
                                   </View>
                                 )}
                                 <Text style={styles.itemPartNo} numberOfLines={1}>{item.standard_part_no}</Text>
-                                <View style={unitSideTab === 'LH' ? styles.sidePillLh : styles.sidePillRh}>
-                                  <Text style={unitSideTab === 'LH' ? styles.sidePillTextLh : styles.sidePillTextRh}>
-                                    {unitSideTab}{item.original_side && item.original_side !== unitSideTab ? ` (${item.original_side})` : ''}
+                                <View style={unitSideTab === 'COMMON' || item.side === 'COMMON' ? styles.sidePillCommon : (unitSideTab === 'LH' ? styles.sidePillLh : styles.sidePillRh)}>
+                                  <Text style={unitSideTab === 'COMMON' || item.side === 'COMMON' ? styles.sidePillTextCommon : (unitSideTab === 'LH' ? styles.sidePillTextLh : styles.sidePillTextRh)}>
+                                    {unitSideTab === 'COMMON' || item.side === 'COMMON' ? '⚪ COMMON' : unitSideTab}{item.original_side && item.original_side !== unitSideTab && unitSideTab !== 'COMMON' ? ` (${item.original_side})` : ''}
                                   </Text>
                                 </View>
                               </View>
@@ -3748,7 +3832,7 @@ function App() {
                                         <TouchableOpacity
                                           style={[styles.actionBtn, { backgroundColor: '#0d9488' }]}
                                           onPress={() => openAssemblyModal(item)}>
-                                          <Text style={styles.actionBtnText}>MARK ASSEMBLED ({asmReady} pcs)</Text>
+                                          <Text style={styles.actionBtnText}>COMPLETE ASSEMBLY ({asmReady} pcs)</Text>
                                         </TouchableOpacity>
                                       ) : (
                                         <Text style={{ fontSize: 11, color: '#0d9488', fontWeight: '700', marginTop: 3 }}>
@@ -5519,6 +5603,19 @@ const styles = StyleSheet.create({
   },
   sidePillTextRh: {
     color: '#1d4ed8',
+    fontWeight: '800',
+    fontSize: 9.5,
+  },
+  sidePillCommon: {
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#94a3b8',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  sidePillTextCommon: {
+    color: '#475569',
     fontWeight: '800',
     fontSize: 9.5,
   },
