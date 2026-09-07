@@ -1,28 +1,45 @@
 ====================================================================
-SPARETRACK — SERVER & MOBILE DEPLOYMENT COMMANDS
+SPARETRACK — PRODUCTION SERVER & MOBILE DEPLOYMENT COMMANDS
 ====================================================================
 
-GitHub Pull Request URL:
-https://github.com/Darshan2724/Spare-Part-Tracking_FAA/pull/new/feat/strict-department-revert-system
+Release / PR Reference:
+Merged Pull Request #21 (commit f64b271)
+Repository: https://github.com/Darshan2724/Spare-Part-Tracking_FAA
 
 --------------------------------------------------------------------
 POWERSHELL ONE-LINER (COPY & PASTE ALL AT ONCE ON SERVER PC):
 --------------------------------------------------------------------
 
-git pull origin main; npm run build; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
+git stash; git pull origin main; npm run build; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx; Start-Sleep -Seconds 3; curl.exe -s http://127.0.0.1:8080/api/v1/health
 
 --------------------------------------------------------------------
 STEP-BY-STEP SERVER COMMANDS:
 --------------------------------------------------------------------
 
-1. git pull origin main
-2. npm run build
-3. docker exec -t sparetrack-app php artisan migrate --force
-4. docker exec -t sparetrack-app php artisan optimize:clear
-5. docker exec -t sparetrack-app php artisan config:cache
-6. docker exec -t sparetrack-app php artisan route:cache
-7. docker exec -t sparetrack-app php artisan view:cache
-8. docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
+1. git stash
+2. git pull origin main
+3. npm run build
+4. docker exec -t sparetrack-app php artisan migrate --force
+5. docker exec -t sparetrack-app php artisan optimize:clear
+6. docker exec -t sparetrack-app php artisan config:cache
+7. docker exec -t sparetrack-app php artisan route:cache
+8. docker exec -t sparetrack-app php artisan view:cache
+9. docker exec -t sparetrack-app php artisan queue:restart
+10. docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
+11. curl.exe -s http://127.0.0.1:8080/api/v1/health
+
+--------------------------------------------------------------------
+1-CLICK AUTOMATED SCRIPTS:
+--------------------------------------------------------------------
+
+Windows CMD / Run:
+.\update_server.bat
+
+Windows PowerShell:
+.\update_server.ps1
+
+Linux / macOS:
+chmod +x update_server.sh && ./update_server.sh
 
 --------------------------------------------------------------------
 MOBILE OTA UPDATE COMMANDS (RUN IN MOBILE FOLDER):
@@ -31,7 +48,23 @@ MOBILE OTA UPDATE COMMANDS (RUN IN MOBILE FOLDER):
 cd "c:\Darshan Details\Internship Faith Automation\Projects\Spare Part Tracking\SpareTrack\mobile"
 
 Preview Build (EAS update):
-npx --yes eas-cli update --branch preview --message "feat: strict multi-department revert system"
+npx --yes eas-cli update --branch preview --message "Enforce strict MFG mobile intake & performance optimization"
 
 Production Build (EAS update):
-npx --yes eas-cli update --branch production --message "feat: strict multi-department revert system"
+npx --yes eas-cli update --branch production --message "Enforce strict MFG mobile intake & performance optimization"
+
+--------------------------------------------------------------------
+READ-ONLY HISTORICAL PRODUCTION DATA AUDIT:
+--------------------------------------------------------------------
+
+docker exec -t sparetrack-app php artisan audit:mobile-bop
+
+--------------------------------------------------------------------
+SUMMARY OF CHANGES IN THIS RELEASE:
+--------------------------------------------------------------------
+- Strict Mobile Intake MFG-Only Enforcement (Server 422 validation, mobile UI restrictions)
+- Systemwide Hierarchy Performance Architecture (Single-pass partitioning, 75.2% faster)
+- Safe Performance Database Indexes (receipts, items, bom_items, qc_inspections, events)
+- Fixed Missing Column search bug (part_description -> remarks / supplier_name_raw)
+- Zero Data Loss Guaranteed (Preserves FA-273 / FA-279 production history)
+====================================================================

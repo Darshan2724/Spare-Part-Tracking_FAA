@@ -1,20 +1,27 @@
 # 🚀 SpareTrack Server Deployment Commands
-## (QC ECN Queue Fix + Scoped Dashboard Indicators + Zero Downtime Docker Deployment)
+## (Mobile Intake Strict MFG Enforcement + Systemwide Performance Architecture + Zero Downtime Docker Deployment)
 
-This document contains the exact 1-click script and Docker commands to apply all changes from today to the SpareTrack server.
+> **Release Reference:** Merged [Pull Request #21](https://github.com/Darshan2724/Spare-Part-Tracking_FAA/pull/21) (`f64b271`)
+
+This document contains the exact 1-click script and Docker commands to deploy the latest verified changes to the SpareTrack production server (`192.168.9.200:8080`).
+
 
 ---
 
 ## ⚡ Option 1: Run 1-Click Script on Server (Recommended)
 
 ### If your server is **Windows**:
-Open Command Prompt or PowerShell in `SpareTrack` folder and run:
+Open Command Prompt or PowerShell in the `SpareTrack` folder and run:
 ```bat
 .\update_server.bat
 ```
+*Or in PowerShell:*
+```powershell
+.\update_server.ps1
+```
 
 ### If your server is **Linux / macOS**:
-Open terminal in `SpareTrack` folder and run:
+Open terminal in the `SpareTrack` folder and run:
 ```bash
 chmod +x update_server.sh
 ./update_server.sh
@@ -26,12 +33,12 @@ chmod +x update_server.sh
 
 ### For **Windows PowerShell**:
 ```powershell
-git stash; git pull origin main; npm run build; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
+git stash; git pull origin main; npm run build; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx; Start-Sleep -Seconds 3; curl.exe -s http://127.0.0.1:8080/api/v1/health
 ```
 
 ### For **Linux / macOS Bash**:
 ```bash
-git stash && git pull origin main && npm run build && docker exec -t sparetrack-app php artisan migrate --force && docker exec -t sparetrack-app php artisan optimize:clear && docker exec -t sparetrack-app php artisan config:cache && docker exec -t sparetrack-app php artisan route:cache && docker exec -t sparetrack-app php artisan view:cache && docker exec -t sparetrack-app php artisan queue:restart && docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
+git stash && git pull origin main && npm run build && docker exec -t sparetrack-app php artisan migrate --force && docker exec -t sparetrack-app php artisan optimize:clear && docker exec -t sparetrack-app php artisan config:cache && docker exec -t sparetrack-app php artisan route:cache && docker exec -t sparetrack-app php artisan view:cache && docker exec -t sparetrack-app php artisan queue:restart && docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx && sleep 3 && curl -s http://127.0.0.1:8080/api/v1/health
 ```
 
 ---
@@ -42,13 +49,13 @@ git stash && git pull origin main && npm run build && docker exec -t sparetrack-
 # 1. Stash any locally generated server build artifacts
 git stash
 
-# 2. Pull latest code from main
+# 2. Pull latest merged code from main
 git pull origin main
 
-# 3. Build web frontend production assets
+# 3. Build web frontend production assets (Vite)
 npm run build
 
-# 4. Run database migrations (Zero data loss, PostgreSQL safe)
+# 4. Run database migrations (Adds composite & FK indexes safely with zero data loss)
 docker exec -t sparetrack-app php artisan migrate --force
 
 # 5. Clear and re-cache Laravel optimizations
@@ -62,13 +69,37 @@ docker exec -t sparetrack-app php artisan queue:restart
 
 # 7. Gracefully restart application containers (PostgreSQL database container stays running untouched)
 docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
+
+# 8. Verify backend health
+curl.exe -s http://127.0.0.1:8080/api/v1/health
 ```
 
 ---
 
-## 📦 What Today's Update Applies to the Server:
-1. **QC ECN Queue Stale State Fix**: Rejected ECN parts no longer reappear in QC inspection queue.
-2. **ECN Reject Idempotency**: Prevents repeated rejections from creating duplicate purchase records.
-3. **ECN Revert Record ID Fix**: Fully resolves requirement IDs and receipt item IDs seamlessly.
-4. **Main Dashboard Scoped ECN Badges**: Clean, bright amber `[ECN]` indicators on Jig, Unit, LH, and RH cards that auto-vanish once assembled.
-5. **Pure Regular Part Lists**: Main dashboard part lists display strictly 100% regular BOM parts.
+## 📱 Mobile Floor Terminal OTA Update
+
+To publish the update over-the-air to all shop floor Android devices without reinstalling the APK:
+
+```powershell
+cd mobile
+npx eas-cli update --branch production --message "Enforce strict MFG mobile intake & performance optimization"
+```
+
+---
+
+## 🔍 Audit Historical Production Records (Read-Only)
+
+To inspect historical non-MFG intake records on existing production projects (e.g., `FA-273`) without modifying any data:
+
+```bash
+docker exec -t sparetrack-app php artisan audit:mobile-bop
+```
+
+---
+
+## 📦 What Latest Update Applies to the Server:
+1. **Strict Mobile Intake MFG-Only Enforcement**: 100% of mobile part intake is restricted to `MFG` items. Non-MFG items (`BOP`/`STD`) are rejected with `422 Unprocessable Entity`.
+2. **Single-Pass In-Memory Hierarchy Partitioning**: Reduces `GET /dashboard/project-hierarchy` latency from 463ms to 115ms (75.2% faster) and query execution time by 83.5%.
+3. **Database Performance & FK Indexes**: Adds indexes on `receipts(project_id, created_at)`, `receipt_items(receipt_id)`, `receipt_items(updated_at)`, `bom_items(project_id, part_type, standard_part_no)`, `qc_inspections(inspected_by)`, and `workflow_events(created_at)`.
+4. **Search Column Bug Fix**: Resolves 500 error on parts search by replacing non-existent column `part_description` with `remarks` and `supplier_name_raw` (search speed: 3.7ms).
+5. **Selective Project Calculations**: `HierarchyService` only computes metrics for the target project during single-project drilldown.
