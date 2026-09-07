@@ -108,28 +108,10 @@ class DashboardController extends Controller
                     'completed_jigs' => $hierarchy['completed_jigs'] ?? 0,
                 ];
             } else {
-                $baseFilters = $filters;
-                unset($baseFilters['part_type']);
-
-                $mfgH = $this->hierarchyService->getDepartmentHierarchy('manager', $projectId, array_merge($baseFilters, ['part_type' => 'MFG']));
-                $bopH = $this->hierarchyService->getDepartmentHierarchy('manager', $projectId, array_merge($baseFilters, ['part_type' => 'BOP']));
-                $stdH = $this->hierarchyService->getDepartmentHierarchy('manager', $projectId, array_merge($baseFilters, ['part_type' => 'STD']));
-
-                $hierarchy['mfg_section'] = [
-                    'jigs' => $mfgH['jigs'] ?? [],
-                    'total_jigs' => $mfgH['total_jigs'] ?? count($mfgH['jigs'] ?? []),
-                    'completed_jigs' => $mfgH['completed_jigs'] ?? 0,
-                ];
-                $hierarchy['bop_section'] = [
-                    'jigs' => $bopH['jigs'] ?? [],
-                    'total_jigs' => $bopH['total_jigs'] ?? count($bopH['jigs'] ?? []),
-                    'completed_jigs' => $bopH['completed_jigs'] ?? 0,
-                ];
-                $hierarchy['std_section'] = [
-                    'jigs' => $stdH['jigs'] ?? [],
-                    'total_jigs' => $stdH['total_jigs'] ?? count($stdH['jigs'] ?? []),
-                    'completed_jigs' => $stdH['completed_jigs'] ?? 0,
-                ];
+                // In All Types view, partition the single-pass hierarchy in memory (1 DB pass vs 4 DB passes)
+                $hierarchy['mfg_section'] = $this->hierarchyService->partitionHierarchyByPartType($hierarchy['jigs'] ?? [], 'MFG', 'manager');
+                $hierarchy['bop_section'] = $this->hierarchyService->partitionHierarchyByPartType($hierarchy['jigs'] ?? [], 'BOP', 'manager');
+                $hierarchy['std_section'] = $this->hierarchyService->partitionHierarchyByPartType($hierarchy['jigs'] ?? [], 'STD', 'manager');
             }
         }
 

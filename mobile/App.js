@@ -1040,6 +1040,7 @@ function App() {
             side: selectedSide,
             search: activeSearch,
             stage: subTab,
+            part_type: 'MFG',
           }
         });
         mobileCacheRef.current.set(cacheKey, res.data);
@@ -1263,6 +1264,8 @@ function App() {
         await apiClient.post('/store/receipts', {
           project_id: selectedItemForReceive.project_id,
           delivery_note_number: deliveryNote,
+          source: 'MOBILE_INTAKE',
+          part_type: 'MFG',
           items: [
             {
               bom_item_id: selectedItemForReceive.id,
@@ -1966,6 +1969,8 @@ function App() {
       const res = await apiClient.post('/store/bulk-receive', {
         project_id: selectedProject || targetItems[0]?.project_id,
         delivery_note_number: bulkDeliveryNote || `DN-BULK-${new Date().toISOString().slice(0, 10)}`,
+        source: 'MOBILE_INTAKE',
+        part_type: 'MFG',
         items: itemsPayload,
       });
 
