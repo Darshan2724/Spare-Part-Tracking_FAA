@@ -828,7 +828,7 @@ function App() {
           await Updates.fetchUpdateAsync();
           Alert.alert(
             'New Update Available',
-            'A new update with Store Revert and JIG Units fixes has been downloaded. Restart the app now to apply it immediately?',
+            'A new update with Purchase Revert and Navigation fixes has been downloaded. Restart the app now to apply it immediately?',
             [
               { text: 'Later', style: 'cancel' },
               { text: 'Restart Now', onPress: () => Updates.reloadAsync() }
@@ -2427,7 +2427,7 @@ function App() {
             >
               <View style={[styles.otaDot, { backgroundColor: otaChecking ? '#f59e0b' : '#10b981' }]} />
               <Text style={styles.otaText}>
-                {otaChecking ? 'Checking for updates...' : '⚡ v2.4.0 Live • Tap to Check for Updates'}
+                {otaChecking ? 'Checking for updates...' : '⚡ v2.5.0 Live • Tap to Check for Updates'}
               </Text>
               {otaChecking && <ActivityIndicator size="small" color="#64748b" style={{ marginLeft: 6 }} />}
             </TouchableOpacity>
