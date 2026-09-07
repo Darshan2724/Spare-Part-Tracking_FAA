@@ -87,7 +87,21 @@
                   <tbody>
                     <tr v-for="item in items" :key="item.id">
                       <td>
-                        <div class="fw-bold text-primary fs-6">{{ item.standard_part_no }}</div>
+                        <div class="d-flex align-items-center gap-1.5 flex-wrap">
+                          <span 
+                            v-if="item.part_type" 
+                            class="badge shadow-xs" 
+                            :class="{
+                              'bg-primary text-white': item.part_type === 'MFG',
+                              'bg-warning text-dark': item.part_type === 'BOP',
+                              'bg-teal text-white': item.part_type === 'STD'
+                            }"
+                            style="font-size: 0.65rem; padding: 1.5px 5px;"
+                          >
+                            {{ item.part_type }}
+                          </span>
+                          <span class="fw-bold text-primary fs-6">{{ item.standard_part_no }}</span>
+                        </div>
                         <small class="text-muted" v-if="item.item_no">Item #: {{ item.item_no }}</small>
                       </td>
                       <td><span class="badge bg-light text-dark border">{{ item.project?.name || item.project?.project_code || 'N/A' }}</span></td>
@@ -420,6 +434,18 @@
                           <tr v-for="item in activeUnitSideParts" :key="selectedUnitSide + '_' + item.id">
                             <td>
                               <div class="fw-bold text-primary d-flex align-items-center gap-1.5 flex-wrap">
+                                <span 
+                                  v-if="item.part_type" 
+                                  class="badge shadow-xs" 
+                                  :class="{
+                                    'bg-primary text-white': item.part_type === 'MFG',
+                                    'bg-warning text-dark': item.part_type === 'BOP',
+                                    'bg-teal text-white': item.part_type === 'STD'
+                                  }"
+                                  style="font-size: 0.65rem; padding: 1.5px 5px;"
+                                >
+                                  {{ item.part_type }}
+                                </span>
                                 <span>{{ item.standard_part_no }}</span>
                                 <span v-if="item.is_ecn" class="badge bg-warning text-dark extra-small">⚡ {{ item.ecn_number || 'ECN' }}</span>
                               </div>
@@ -1249,5 +1275,8 @@ onMounted(() => {
 }
 .text-muted-gray {
   color: #8993A1;
+}
+.bg-teal {
+  background-color: #0d9488 !important;
 }
 </style>

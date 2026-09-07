@@ -451,10 +451,19 @@ class AssemblyController extends Controller
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'ASSEMBLY']) ?: abort(403);
 
         $projectId = $request->input('project_id') ? (int) $request->input('project_id') : null;
+        $isMobile = $request->header('X-Client-Platform') === 'mobile'
+            || $request->header('X-Source-Channel') === 'MOBILE_INTAKE'
+            || $request->input('source') === 'MOBILE_INTAKE'
+            || $request->routeIs('*mobile*');
+
         $filters = [
             'side' => $request->input('side'),
             'search' => $request->input('search'),
         ];
+
+        if ($isMobile || $request->filled('part_type')) {
+            $filters['part_type'] = $isMobile ? 'MFG' : strtoupper($request->input('part_type'));
+        }
 
         $data = $hierarchyService->getDepartmentHierarchy('assembly', $projectId, $filters);
         return response()->json($data);

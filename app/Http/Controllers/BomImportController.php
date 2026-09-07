@@ -102,6 +102,7 @@ class BomImportController extends Controller
             ->get()
             ->map(function ($b) {
                 $b->import_type = 'BOM';
+                $b->bom_type = $b->bom_type ?: 'MFG';
                 return $b;
             });
 
@@ -109,6 +110,7 @@ class BomImportController extends Controller
             ->get()
             ->map(function ($b) {
                 $b->import_type = 'ECN';
+                $b->bom_type = 'ECN';
                 return $b;
             });
 

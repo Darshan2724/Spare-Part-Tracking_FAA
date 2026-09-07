@@ -48,14 +48,14 @@ class HierarchyService
             }
         }
 
-        $bulkMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $filters['side'] ?? null, $filters);
-
-        $projectsList = $projects->map(function ($proj) use ($department, $bulkMetrics, $filters) {
-            $m = $bulkMetrics->get($proj->id) ?? [];
-            return $this->formatProjectOverviewStatsFromMetrics($proj, $department, $m, $filters);
-        });
-
         if (!$projectId) {
+            $bulkMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $filters['side'] ?? null, $filters);
+
+            $projectsList = $projects->map(function ($proj) use ($department, $bulkMetrics, $filters) {
+                $m = $bulkMetrics->get($proj->id) ?? [];
+                return $this->formatProjectOverviewStatsFromMetrics($proj, $department, $m, $filters);
+            });
+
             return [
                 'is_hierarchical' => false,
                 'projects' => $projectsList,
@@ -66,8 +66,14 @@ class HierarchyService
             ];
         }
 
-        $project = Project::find($projectId);
+        $project = $projects->firstWhere('id', $projectId) ?? Project::find($projectId);
         if (!$project) {
+            $bulkMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $filters['side'] ?? null, $filters);
+            $projectsList = $projects->map(function ($proj) use ($department, $bulkMetrics, $filters) {
+                $m = $bulkMetrics->get($proj->id) ?? [];
+                return $this->formatProjectOverviewStatsFromMetrics($proj, $department, $m, $filters);
+            });
+
             return [
                 'is_hierarchical' => false,
                 'projects' => $projectsList,
@@ -78,10 +84,25 @@ class HierarchyService
             ];
         }
 
+        // Lightweight project list when viewing single project drilldown to avoid N-project heavy re-computations
+        $projectsList = $projects->map(function ($proj) {
+            return [
+                'id' => $proj->id,
+                'name' => $proj->name,
+                'project_code' => $proj->project_code,
+                'description' => $proj->description,
+                'status' => $proj->status,
+            ];
+        });
+
         // Query BOM Items with necessary relations
         $query = BomItem::query()
             ->with(['requirements', 'supplier', 'project'])
             ->where('project_id', $project->id);
+
+        if (!empty($filters['part_type'])) {
+            $query->where('part_type', strtoupper($filters['part_type']));
+        }
 
         if (!empty($filters['search'])) {
             $search = trim($filters['search']);
@@ -90,8 +111,9 @@ class HierarchyService
                   ->orWhere('item_no', 'LIKE', "%{$search}%")
                   ->orWhere('jig_no', 'LIKE', "%{$search}%")
                   ->orWhere('unit_no', 'LIKE', "%{$search}%")
-                  ->orWhere('part_description', 'LIKE', "%{$search}%")
                   ->orWhere('size', 'LIKE', "%{$search}%")
+                  ->orWhere('remarks', 'LIKE', "%{$search}%")
+                  ->orWhere('supplier_name_raw', 'LIKE', "%{$search}%")
                   ->orWhereHas('supplier', function ($sq) use ($search) {
                       $sq->where('name', 'LIKE', "%{$search}%");
                   });
@@ -124,6 +146,9 @@ class HierarchyService
                 'completed_projects' => $completedProjects,
                 'canonical_summary' => $this->quantityService->calculateProjectMetrics($project, $filters['side'] ?? null, $filters),
                 'department' => $department,
+                'jigs' => [],
+                'total_jigs' => 0,
+                'completed_jigs' => 0,
                 'message' => 'No BOM items found for this project.',
             ];
         }
@@ -637,6 +662,7 @@ class HierarchyService
                         $commonParts[] = [
                             'id' => $part->id,
                             'standard_part_no' => $part->standard_part_no,
+                            'part_type' => $part->part_type ?? 'MFG',
                             'item_no' => $part->item_no ?? '—',
                             'supplier' => $part->supplier?->name ?? ($part->supplier_name_raw ?? '—'),
                             'side' => 'COMMON',
@@ -973,6 +999,7 @@ class HierarchyService
                         $lhParts[] = [
                             'id' => $part->id,
                             'standard_part_no' => $part->standard_part_no,
+                            'part_type' => $part->part_type ?? 'MFG',
                             'item_no' => $part->item_no ?? '—',
                             'supplier' => $part->supplier?->name ?? ($part->supplier_name_raw ?? '—'),
                             'side' => 'LH',
@@ -997,6 +1024,7 @@ class HierarchyService
                         $rhParts[] = [
                             'id' => $part->id,
                             'standard_part_no' => $part->standard_part_no,
+                            'part_type' => $part->part_type ?? 'MFG',
                             'item_no' => $part->item_no ?? '—',
                             'supplier' => $part->supplier?->name ?? ($part->supplier_name_raw ?? '—'),
                             'side' => 'RH',
@@ -1450,10 +1478,6 @@ class HierarchyService
             return strcmp($a['jig_name'], $b['jig_name']);
         });
 
-        $allProjects = Project::orderBy('name')->get();
-        $activeProjects = $allProjects->where('status', 'active')->values();
-        $completedProjects = $allProjects->where('status', 'completed')->values();
-
         if ($project) {
             $projEcnTotal = $ecnMap['project_total'] ?? 0;
             $project->setAttribute('ecn_parts', $projEcnTotal);
@@ -1481,6 +1505,187 @@ class HierarchyService
             'total_jigs' => count($formattedJigs),
             'completed_jigs' => count(array_filter($formattedJigs, fn($j) => $j['is_complete'])),
             'message' => count($formattedJigs) === 0 ? "No BOM hierarchy found for this project." : null,
+        ];
+    }
+
+    /**
+     * Partition an existing formatted hierarchy tree by BOM part_type (MFG, BOP, STD) in a single in-memory pass.
+     * Avoids re-executing heavy database queries and complete hierarchy rebuilds.
+     */
+    public function partitionHierarchyByPartType(array $jigs, string $targetType, string $department = 'manager'): array
+    {
+        $filteredJigs = [];
+        $targetType = strtoupper($targetType);
+
+        foreach ($jigs as $jig) {
+            $filteredUnits = [];
+            $jigMetrics = $this->initZeroMetrics();
+            $jigRequired = 0;
+            $jigReceived = 0;
+            $jigPending = 0;
+            $completeUnitsCount = 0;
+
+            foreach ($jig['units'] ?? [] as $unit) {
+                $unitHasParts = false;
+                $filteredSides = [];
+                $unitMetrics = $this->initZeroMetrics();
+                $unitRequired = 0;
+                $unitReceived = 0;
+                $unitPending = 0;
+                $unitAsmComp = 0;
+                $allFilteredUnitParts = [];
+
+                foreach ($unit['sides'] ?? [] as $sideKey => $sideData) {
+                    $filteredParts = array_values(array_filter($sideData['parts'] ?? [], function ($p) use ($targetType) {
+                        $pt = is_array($p) ? ($p['part_type'] ?? 'MFG') : ($p->part_type ?? 'MFG');
+                        return strtoupper($pt) === $targetType;
+                    }));
+
+                    if (empty($filteredParts)) {
+                        continue;
+                    }
+
+                    $unitHasParts = true;
+                    $sideMetrics = $this->initZeroMetrics();
+                    $sideRequired = 0;
+                    $sideReceived = 0;
+                    $sidePending = 0;
+                    $sideAsmComp = 0;
+
+                    foreach ($filteredParts as $p) {
+                        $req = is_array($p) ? ($p['required_qty'] ?? 0) : ($p->required_qty ?? 0);
+                        $rec = is_array($p) ? ($p['received_qty'] ?? 0) : ($p->received_qty ?? 0);
+                        $pen = is_array($p) ? ($p['pending_qty'] ?? 0) : ($p->pending_qty ?? 0);
+                        $st = is_array($p) ? ($p['side_stats'][$sideKey] ?? []) : ($p->side_stats[$sideKey] ?? []);
+                        $asm = $st['assembly_completed'] ?? 0;
+
+                        $sideRequired += $req;
+                        $sideReceived += $rec;
+                        $sidePending += $pen;
+                        $sideAsmComp += $asm;
+                        $this->accumulateMetrics($sideMetrics, $st);
+                        $allFilteredUnitParts[] = $p;
+                    }
+
+                    $sideCompletionPct = match ($department) {
+                        'store' => ($sideRequired > 0 ? min(100, round(($sideReceived / $sideRequired) * 100, 1)) : 100),
+                        'qc' => ($sideRequired > 0 ? min(100, round(($sideMetrics['qc_approved'] / $sideRequired) * 100, 1)) : 100),
+                        'rework' => ($sideMetrics['qc_rework'] > 0 ? min(100, round(($sideMetrics['rework_completed'] / $sideMetrics['qc_rework']) * 100, 1)) : 100),
+                        'paint' => ($sideRequired > 0 ? min(100, round(($sideMetrics['paint_completed'] / $sideRequired) * 100, 1)) : 100),
+                        default => ($sideRequired > 0 ? min(100, round(($sideAsmComp / $sideRequired) * 100, 1)) : 100),
+                    };
+
+                    $sideIsComplete = ($sideRequired > 0 && $sideAsmComp >= $sideRequired);
+
+                    $newSideData = $sideData;
+                    $newSideData['parts'] = $filteredParts;
+                    $newSideData['total_parts'] = count($filteredParts);
+                    $newSideData['total_required'] = $sideRequired;
+                    $newSideData['total_received'] = $sideReceived;
+                    $newSideData['pending_quantity'] = $sidePending;
+                    $newSideData['assembly_completed'] = $sideAsmComp;
+                    $newSideData['completion_pct'] = $sideCompletionPct;
+                    $newSideData['is_complete'] = $sideIsComplete;
+                    $newSideData['metrics'] = $sideMetrics;
+
+                    $filteredSides[$sideKey] = $newSideData;
+
+                    $unitRequired += $sideRequired;
+                    $unitReceived += $sideReceived;
+                    $unitPending += $sidePending;
+                    $unitAsmComp += $sideAsmComp;
+                    $this->accumulateMetrics($unitMetrics, $sideMetrics);
+                }
+
+                if (!$unitHasParts) {
+                    continue;
+                }
+
+                $lhReq = $filteredSides['LH']['total_required'] ?? 0;
+                $rhReq = $filteredSides['RH']['total_required'] ?? 0;
+                $lhComplete = $filteredSides['LH']['is_complete'] ?? false;
+                $rhComplete = $filteredSides['RH']['is_complete'] ?? false;
+                $commComplete = $filteredSides['COMMON']['is_complete'] ?? false;
+
+                $unitIsComplete = false;
+                if (isset($filteredSides['COMMON'])) {
+                    $unitIsComplete = $commComplete;
+                } elseif ($lhReq > 0 && $rhReq > 0) {
+                    $unitIsComplete = ($lhComplete && $rhComplete);
+                } elseif ($lhReq > 0) {
+                    $unitIsComplete = $lhComplete;
+                } elseif ($rhReq > 0) {
+                    $unitIsComplete = $rhComplete;
+                }
+
+                $unitCompletionPct = match ($department) {
+                    'store' => ($unitRequired > 0 ? min(100, round(($unitReceived / $unitRequired) * 100, 1)) : 100),
+                    'qc' => ($unitRequired > 0 ? min(100, round(($unitMetrics['qc_approved'] / $unitRequired) * 100, 1)) : 100),
+                    'rework' => ($unitMetrics['qc_rework'] > 0 ? min(100, round(($unitMetrics['rework_completed'] / $unitMetrics['qc_rework']) * 100, 1)) : 100),
+                    'paint' => ($unitRequired > 0 ? min(100, round(($unitMetrics['paint_completed'] / $unitRequired) * 100, 1)) : 100),
+                    default => ($unitRequired > 0 ? min(100, round(($unitAsmComp / $unitRequired) * 100, 1)) : 100),
+                };
+
+                $newUnit = $unit;
+                $newUnit['parts'] = $allFilteredUnitParts;
+                $newUnit['total_parts'] = count($allFilteredUnitParts);
+                $newUnit['total_required'] = $unitRequired;
+                $newUnit['total_received'] = $unitReceived;
+                $newUnit['total_pending'] = $unitPending;
+                $newUnit['pending_quantity'] = $unitPending;
+                $newUnit['has_lh'] = isset($filteredSides['LH']);
+                $newUnit['has_rh'] = isset($filteredSides['RH']);
+                $newUnit['has_common'] = isset($filteredSides['COMMON']);
+                $newUnit['sides'] = $filteredSides;
+                $newUnit['metrics'] = $unitMetrics;
+                $newUnit['completion_pct'] = $unitCompletionPct;
+                $newUnit['is_complete'] = $unitIsComplete;
+
+                if ($unitIsComplete) {
+                    $completeUnitsCount++;
+                }
+
+                $filteredUnits[] = $newUnit;
+
+                $jigRequired += $unitRequired;
+                $jigReceived += $unitReceived;
+                $jigPending += $unitPending;
+                $this->accumulateMetrics($jigMetrics, $unitMetrics);
+            }
+
+            if (empty($filteredUnits)) {
+                continue;
+            }
+
+            $totalUnitsCount = count($filteredUnits);
+            $jigIsComplete = ($totalUnitsCount > 0 && $completeUnitsCount === $totalUnitsCount);
+            $jigCompletionPct = match ($department) {
+                'store' => ($jigRequired > 0 ? min(100, round(($jigReceived / $jigRequired) * 100, 1)) : 100),
+                'qc' => ($jigRequired > 0 ? min(100, round(($jigMetrics['qc_approved'] / $jigRequired) * 100, 1)) : 100),
+                'rework' => ($jigMetrics['qc_rework'] > 0 ? min(100, round(($jigMetrics['rework_completed'] / $jigMetrics['qc_rework']) * 100, 1)) : 100),
+                'paint' => ($jigRequired > 0 ? min(100, round(($jigMetrics['paint_completed'] / $jigRequired) * 100, 1)) : 100),
+                default => ($jigRequired > 0 ? min(100, round(($jigMetrics['assembly_completed'] / $jigRequired) * 100, 1)) : 100),
+            };
+
+            $newJig = $jig;
+            $newJig['units'] = $filteredUnits;
+            $newJig['total_units'] = $totalUnitsCount;
+            $newJig['complete_units'] = $completeUnitsCount;
+            $newJig['total_required'] = $jigRequired;
+            $newJig['total_received'] = $jigReceived;
+            $newJig['total_pending'] = $jigPending;
+            $newJig['total_parts'] = array_sum(array_column($filteredUnits, 'total_parts'));
+            $newJig['metrics'] = $jigMetrics;
+            $newJig['completion_pct'] = $jigCompletionPct;
+            $newJig['is_complete'] = $jigIsComplete;
+
+            $filteredJigs[] = $newJig;
+        }
+
+        return [
+            'jigs' => $filteredJigs,
+            'total_jigs' => count($filteredJigs),
+            'completed_jigs' => count(array_filter($filteredJigs, fn($j) => $j['is_complete'])),
         ];
     }
 

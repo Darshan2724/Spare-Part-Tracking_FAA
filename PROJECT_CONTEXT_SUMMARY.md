@@ -4,9 +4,9 @@
 Project: SpareTrack (Industrial Spare Parts Tracking & Workflow Execution System)
 Document: PROJECT_CONTEXT_SUMMARY.md
 Status: Canonical Project Context & Universal AI Knowledge Base
-Last Updated: September 04, 2026
+Last Updated: September 07, 2026
 Last Updated By: Antigravity
-Version: 2.5.0
+Version: 2.7.0
 Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment)
 ```
 
@@ -367,6 +367,7 @@ SpareTrack/
 
 ### 7.2 Indexing & Performance Strategy
 * **Trigram Indexes (`pg_trgm`):** Accelerated multi-field fuzzy search across `bom_items(standard_part_no, item_no, jig_no, unit_no, part_description)` and `suppliers(name, code, contact_person)`.
+* **Unique Composite BOM Index:** `bom_items(project_id, jig_no, unit_no, standard_part_no, part_type)` ensures parts across different BOM types (`MFG`, `BOP`, `STD`) remain strictly isolated without collisions.
 * **Composite Indexes:** Optimized for high-frequency floor queue filtering:
   - `receipt_items(bom_item_id, side, status)`
   - `receipt_items(status, received_quantity)`
@@ -381,9 +382,9 @@ SpareTrack/
 | Model Name | Purpose | Primary Key | Key Foreign Keys | Current State vs History | Production Critical |
 |---|---|---|---|---|---|
 | `Project` | Customer tooling assembly contract | `id` (int) | None | Current State | **YES** |
-| `BomItem` | Master BOM part entry | `id` (int) | `project_id`, `supplier_id`, `import_batch_id` | Current State | **YES** |
+| `BomItem` | Master BOM part entry with `part_type` (`MFG` \| `BOP` \| `STD`) | `id` (int) | `project_id`, `supplier_id`, `import_batch_id` | Current State | **YES** |
 | `BomRequirement` | Side-isolated required quantity | `id` (int) | `bom_item_id` | Current State | **YES** |
-| `BomImportBatch` | Regular BOM file upload ledger | `id` (int) | `project_id`, `imported_by` | History / Audit | **YES** |
+| `BomImportBatch` | BOM file upload ledger with `bom_type` (`MFG` \| `BOP` \| `STD`) | `id` (int) | `project_id`, `imported_by` | History / Audit | **YES** |
 | `Receipt` | Store delivery batch header | `id` (int) | `project_id`, `received_by` | Current State | **YES** |
 | `ReceiptItem` | Physical inventory piece ledger | `id` (int) | `receipt_id`, `bom_item_id` | Current State | **YES** |
 | `QcInspection` | QC quality inspection records | `id` (int) | `bom_item_id`, `receipt_item_id`, `inspector_id` | Current State | **YES** |
@@ -493,6 +494,12 @@ Engineering Change Notices (ECN) represent distinct engineering modifications an
 
 * **Pending Intake Calculation:** $\text{Pending Qty} = \max(0, \text{Required Qty} - \text{Total Received Qty})$.
 * **Partial Quantities:** Supports split receipts. Unreceived balances remain active in pending intake.
+* **Mobile Intake Strictly Restricted to MFG Only:**
+  - 100% of all part intake originating from the mobile app (via `/api/v1/mobile/store/receive`, `/api/v1/mobile/store/bulk-receive`, or with headers `X-Client-Platform: mobile` / `X-Source-Channel: MOBILE_INTAKE`) must be classified and processed strictly as `MFG` items.
+  - Mobile intake strictly forbids processing `BOP` (Bought Out Parts) or `STD` (Standard Hardware) components. Any attempt to receive non-MFG items or pass `part_type = 'BOP'/'STD'` via mobile is rejected at the API boundary with `422 Unprocessable Entity`.
+  - Mobile Store Hierarchy defaults to `part_type = 'MFG'`, presenting only manufactured parts to floor operators.
+  - Desktop web intake continues to support receiving all valid BOM part types.
+  - Historical BOP/STD receipts in existing production projects (e.g. `FA-273`) are strictly preserved for historical integrity and can be inspected anytime via `php artisan audit:mobile-bop`.
 * **Valid Receipt Statuses:**
   $$\text{Valid Statuses} = \{\text{'received'}, \text{'sent\_to\_qc'}, \text{'qc\_received'}, \text{'qc\_approved'}, \text{'qc\_rejected'}, \text{'qc\_rework'}, \text{'paint\_completed'}, \text{'assembly\_completed'}, \text{'returned\_to\_store'}\}$$
 * **Immediate QC Arrival Visibility:** In `HierarchyService.php`, `$qcPendingArrival` queries `whereIn('status', ['received', 'sent_to_qc'])`. Parts received by Store appear instantly in Mobile QC Arrival without requiring manual store dispatch.
@@ -641,6 +648,25 @@ The Purchase Desk (`resources/js/views/PurchaseQueue.vue`) is organized into 4 d
 | **Assembly Completed** | Parts 100% mechanically assembled into final fixtures | $\sum \text{assembly\_records.quantity} \quad (\text{status} = \text{'completed'})$ |
 | **ECN Total** | Grand sum of isolated Engineering Change Notice parts | `EcnRequirement::sum('required_qty')` |
 | **Project Completion %** | Overall manufacturing assembly completion percentage | $\min\left(100, \text{round}\left(\frac{\text{Assembly Completed}}{\text{Total Parts}} \times 100, 1\right)\right)$ |
+
+### 23.2 Separated 3x9 KPI Architecture (MFG, BOP, STD)
+To eliminate congestion and prevent conflating custom fabricated parts with off-the-shelf components, the main dashboard provides separated 9-KPI metric groups:
+1. **Manufacturing BOM (MFG)** — Custom fabricated tooling components (Blue accent `#2563eb`).
+2. **Bought Out Parts (BOP)** — Commercial purchased parts like pneumatic cylinders, sensors, switches (Amber accent `#d97706`).
+3. **Standard Hardware (STD)** — Fasteners, dowel pins, bolts, washers, screws (Teal accent `#0d9488`).
+
+* **Strict Order:** 1. MFG $\rightarrow$ 2. BOP $\rightarrow$ 3. STD. Clean section headers without verbose subtitles (`Manufacturing`, `BOP`, `Standard`).
+* **9 Core KPIs Standardized:** Every BOM group (including BOP and STD) displays the standardized 9-card workflow grid: `Total Parts`, `Total Parts Received`, `Parts Pending`, `Store`, `QC`, `Rework`, `Paint`, `Assembly`, `Assembly Completed`. Irrelevant catalog items and hardware metrics are completely removed to eliminate empty grid gaps.
+* **BOM Type Filter & Aggregated Portfolio Health:**
+  - **All Types Mode (`ALL`):** When "Active Projects" and "All Types" are active, "Top Projects Near Completion" and "Project Health Distribution" compute a true weighted aggregate across all three part types (`MFG + BOP + STD`):
+    $$\text{Weighted Completion \%} = \min\left(100, \text{round}\left(\frac{\sum_{\text{MFG+BOP+STD}} \text{assembly\_completed}}{\sum_{\text{MFG+BOP+STD}} \text{required\_quantity}} \times 100, 1\right)\right)$$
+    Numerator: `sum(assembly_completed)`. Denominator: `sum(required_quantity)`. Zero-required projects are handled safely with 0.0% completion without division-by-zero.
+  - **Single Type Filter (`MFG`, `BOP`, `STD`):** When a specific BOM type button is selected, the entire dashboard (KPIs, Charts, and Drill-Down Hierarchy) filters strictly to that part type.
+* **Option B Hierarchy Drill-Down:**
+  - When a project is selected under `All Types`: Displays three compact, individually collapsible sections (`Manufacturing`, `BOP`, `Standard`), each with its own independent Jig $\rightarrow$ Unit $\rightarrow$ Part inventory tree.
+  - When a single type (`MFG`, `BOP`, or `STD`) is selected: Displays only that selected type's hierarchy tree.
+  - Jigs and units are scoped per section (`${sectionKey}_${jigName}`) preventing expand/collapse collision across types.
+* **KPI Drilldown Modal:** Passes `part_type` filter parameter to backend, displays color-coded BOM Type badge, and includes a `TYPE` column.
 
 ---
 
@@ -836,13 +862,18 @@ git stash; git pull origin main; npm run build; docker exec -t sparetrack-app ph
 
 ## 30. Import & Incremental BOM Rules `[VERIFIED]`
 
-1. **Header Detection:** Dynamically detects required headers (`Project Code`, `Jig No`, `Unit No`, `Part No`, `Side`, `Qty`).
-2. **Project Matching:** `ProjectIdentityResolver.php` matches incoming project codes against existing projects in PostgreSQL (e.g. `FA-279` matches `FA-279 - Main Floor Framing`).
-3. **Revision Classification:**
-   - `ADD`: New component not previously present in project BOM.
+1. **BOM Type Detection:** Dynamically detects BOM type from column headers:
+   - `BOP`: Presence of `BOP Part No` / `BOP Part Number` header.
+   - `STD`: Presence of `STD Part No` / `Standard Hardware Part No` header.
+   - `MFG`: Default; presence of `MFG Part No` / `Standard Part No` / `Part Number`.
+2. **Project Matching:** `ProjectIdentityResolver.php` matches incoming project codes against existing projects in PostgreSQL (e.g. `FA-273` matches `FA-273`).
+3. **Repeat Parts Skipping (Never Summed):** When multiple rows with identical composite keys `(project, jig, unit, part_no, side)` exist in an uploaded file (common in BOP and STD sheets), the importer retains the **first occurrence only**, **never sums quantities**, and emits an upload warning banner noting that repeat parts are skipped by default.
+4. **Isolated Reconciliation Diffing:** Incremental reconciliation diffing against existing project BOM records strictly filters by `where('part_type', $bomType)`. Importing a BOP or STD BOM never marks existing MFG parts as missing, deleted, or conflicting.
+5. **Revision Classification:**
+   - `ADD`: New component of that `part_type` not previously present in project BOM.
    - `UPDATE`: Existing component with altered required quantity.
    - `UNCHANGED`: Existing component with identical required quantity.
-4. **Quantity Downward Revision Protection:** If an incoming revision decreases required quantity below what has already been received on the floor, the row is marked as a `CONFLICT` and requires administrative confirmation.
+6. **Quantity Downward Revision Protection:** If an incoming revision decreases required quantity below what has already been received on the floor, the row is marked as a `CONFLICT` and requires administrative confirmation.
 
 ---
 
@@ -984,6 +1015,10 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Date | Change Summary | Files / Modules Affected | Database Schema Changes | Behavioral Impact | Testing Status |
 |---|---|---|---|---|---|
+| **2026-09-07** | Permanent Mobile Intake Strict MFG-Only Enforcement & Systemwide Performance Architecture | `StoreController.php`, `HierarchyService.php`, `DashboardController.php`, `routes/api.php`, `mobile/client.js`, `mobile/App.js`, `2026_09_07_120000_add_performance_and_fk_indexes.php` | Added composite indexes on `receipts`, `receipt_items`, `bom_items`, `qc_inspections`, `workflow_events` | Enforces 100% MFG-only mobile intake with 422 rejections for non-MFG; single-pass in-memory hierarchy partitioning (75% faster project hierarchy, 84% less query time, 65% fewer queries); fixes part_description search bug; read-only audit command `audit:mobile-bop` | Passing (201 tests, 2426 assertions) |
+| **2026-09-04** | Project Hierarchy Drill-Down Permanent Fix (MFG/BOP/STD Single-Type Views & Level 5 Parts Table) | `DashboardController.php`, `Dashboard.vue`, `DashboardTypeFilteringAndHierarchyTest.php` | None (Canonical API contract refinement) | Guarantees mfg_section, bop_section, std_section keys across all views; eliminates circular JSON; synchronizes toolbar state; enables Level 5 parts table in single-type panels | Passing (182 tests, 2300 assertions) |
+| **2026-09-04** | Dashboard MFG/BOP/STD Filter + Aggregated Project Health + Option B Three-Section Hierarchy Refinement | `DashboardController.php`, `QuantityCalculationService.php`, `Dashboard.vue`, `DashboardTypeFilteringAndHierarchyTest.php` | None (Backward-compatible API & state calculation) | Top projects & health distribution weighted aggregate, single-type isolation, Option B three-type compact hierarchy with scoped expansion, 9-KPI standardized BOP/STD | Passing (181 tests, 2249 assertions) |
+| **2026-09-04** | Isolated 3-BOM Type Support (MFG, BOP, STD) with 3x9 KPI Architecture | `BomImportService.php`, `QuantityCalculationService.php`, `HierarchyService.php`, `KpiDrilldownService.php`, `DashboardController.php`, `Dashboard.vue`, `BomImport.vue`, Department Views | Added `part_type` on `bom_items` & `bom_type` on `bom_import_batches`, composite unique constraint | Isolated 3x9 KPI groups, BOM type switcher, duplicate skipping with upload warnings, isolated reconciliation diffing | Passing (178 tests, 2206 assertions) |
 | **2026-09-04** | Updated universal project context & self-contained knowledge base | `PROJECT_CONTEXT_SUMMARY.md` | None (Documentation) | Provides canonical onboarding context for future AI sessions | Verified against 158 tests |
 | **2026-09-02** | Supplier Load KPI & Excel bulk import engine | `SupplierController.php`, `SupplierImportService.php`, `SupplierLoadService.php` | Added `supplier_imports` table & `supplier_import_id` FK | Real-time vendor capacity tracking & safe import batch deletion | Passing |
 | **2026-09-01** | Unit Supplier Allocation (BASE/WELDMENT/CHILD) & Multi-Phone | `SupplierAllocationController.php`, `SupplierAllocationTab.vue`, `SupplierPhone.php` | Added `supplier_assignments`, `supplier_assignment_history`, `supplier_phones` | 2-panel allocation workspace with today $\pm 3$ days datepicker | Passing |
@@ -1038,5 +1073,5 @@ When troubleshooting any reported anomaly or bug, follow this safe protocol:
 > 6. **Follow Canonical Math Invariants:** Never alter quantity formulas without verifying compliance with [Section 31 (Data Integrity Rules)](#31-data-integrity-rules).
 > 7. **Maintain Reverse Lineage Integrity:** Follow [Section 18 (Revert Rules)](#18-revert-rules) for any workflow transition changes.
 > 8. **Respect Git Branching Policy:** All development work occurs on `branch-a`. PR required to merge into `main`.
-> 9. **Verify with Automated Tests:** Run `docker exec -t sparetrack-app php artisan test` to confirm all 158 tests pass before concluding.
+> 9. **Verify with Automated Tests:** Run `docker exec -t sparetrack-app php artisan test` to confirm all 181 tests pass before concluding.
 > 10. **Update This Document on Every Meaningful Change:** Whenever a new feature, bug fix, migration, API endpoint, or workflow rule is modified, update `PROJECT_CONTEXT_SUMMARY.md` in the same development cycle (recommended every 2–4 hours of active work).

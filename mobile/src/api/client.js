@@ -19,6 +19,8 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
+    'X-Client-Platform': 'mobile',
+    'X-Source-Channel': 'MOBILE_INTAKE',
   },
 });
 

@@ -54,6 +54,46 @@ class BomImportService
     }
 
     /**
+     * Inspect sheet headers to auto-detect BOM Type: MFG, BOP, or STD.
+     */
+    public function detectBomType(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet): string
+    {
+        $highestRow = min(15, (int) $sheet->getHighestRow());
+        $highestColStr = $sheet->getHighestColumn();
+        $highestCol = min(20, Coordinate::columnIndexFromString($highestColStr));
+
+        for ($r = 1; $r <= $highestRow; $r++) {
+            for ($c = 1; $c <= $highestCol; $c++) {
+                $rawVal = (string) $sheet->getCellByColumnAndRow($c, $r)->getValue();
+                $clean = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', trim($rawVal)));
+                if (str_contains($clean, 'boppart')) {
+                    return 'BOP';
+                }
+                if (str_contains($clean, 'stdpart')) {
+                    return 'STD';
+                }
+            }
+        }
+
+        return 'MFG';
+    }
+
+    /**
+     * Inspect workbook from file path to auto-detect BOM Type.
+     */
+    public function detectBomTypeFromPath(string $path): string
+    {
+        try {
+            $reader = IOFactory::createReaderForFile($path);
+            $reader->setReadDataOnly(true);
+            $spreadsheet = $reader->load($path);
+            return $this->detectBomType($spreadsheet->getActiveSheet());
+        } catch (\Throwable $e) {
+            return 'MFG';
+        }
+    }
+
+    /**
      * Check if the filename has already been successfully imported.
      * Enforces that every BOM revision must use a different filename.
      */
@@ -181,11 +221,13 @@ class BomImportService
         }
 
         $extracted = $this->extractAndValidateRows($path, $filename);
+        $bomType = $extracted['bom_type'] ?? 'MFG';
 
         if (!empty($extracted['errors'])) {
             return [
                 'success' => false,
                 'import_type' => 'REGULAR',
+                'bom_type' => $bomType,
                 'filename' => $filename,
                 'sheet' => $extracted['sheet_name'],
                 'summary' => $extracted['summary'],
@@ -196,11 +238,12 @@ class BomImportService
         }
 
         $rows = $extracted['rows'];
-        $reconciliation = $this->reconcileImportRows($rows, $filename);
+        $reconciliation = $this->reconcileImportRows($rows, $filename, $bomType);
 
         return [
             'success' => empty($extracted['errors']),
             'import_type' => 'REGULAR',
+            'bom_type' => $bomType,
             'filename' => $filename,
             'sheet' => $extracted['sheet_name'],
             'summary' => $extracted['summary'],
@@ -217,7 +260,7 @@ class BomImportService
     /**
      * Reconcile parsed BOM rows against database state for matched projects.
      */
-    public function reconcileImportRows(array $rows, string $filename): array
+    public function reconcileImportRows(array $rows, string $filename, string $bomType = 'MFG'): array
     {
         $projectGroups = collect($rows)->groupBy('project_code');
         $classifiedRows = [];
@@ -278,8 +321,9 @@ class BomImportService
             $isRevision = true;
             $existingProjectId = $existingProject->id;
 
-            // Load existing BOM items and requirements in single query
+            // Load existing BOM items and requirements in single query scoped by BOM type
             $existingItems = BomItem::where('project_id', $existingProjectId)
+                ->where('part_type', $bomType)
                 ->with(['requirements'])
                 ->get();
 
@@ -592,10 +636,12 @@ class BomImportService
         }
 
         $extracted = $this->extractAndValidateRows($path, $filename);
+        $bomType = $extracted['bom_type'] ?? ($data['bom_type'] ?? 'MFG');
 
         if (!empty($extracted['errors'])) {
             return [
                 'success' => false,
+                'bom_type' => $bomType,
                 'message' => 'BOM contains validation errors and cannot be imported.',
                 'errors' => $extracted['errors'],
                 'warnings' => $extracted['warnings'],
@@ -606,6 +652,7 @@ class BomImportService
         if (empty($rows)) {
             return [
                 'success' => false,
+                'bom_type' => $bomType,
                 'message' => 'No valid BOM data rows found in the file.',
                 'errors' => ['The uploaded BOM file contains no data rows.'],
             ];
@@ -615,7 +662,7 @@ class BomImportService
         $fileSize = is_file($path) ? filesize($path) : null;
 
         try {
-            return DB::transaction(function () use ($rows, $filename, $userId, $extracted, $fileHash, $fileSize, $path) {
+            return DB::transaction(function () use ($rows, $filename, $userId, $extracted, $fileHash, $fileSize, $path, $bomType) {
                 // Double check duplicate filename inside transaction for concurrency safety
                 $txDup = $this->checkDuplicateFilename($filename);
                 if ($txDup) {
@@ -632,7 +679,7 @@ class BomImportService
                     ];
                 }
 
-                $reconciliation = $this->reconcileImportRows($rows, $filename);
+                $reconciliation = $this->reconcileImportRows($rows, $filename, $bomType);
 
                 // If there are blocking conflicts, abort transaction
                 if (!empty($reconciliation['conflicts'])) {
@@ -686,11 +733,15 @@ class BomImportService
                         'total_rows' => $projectRows->count(),
                         'successful_rows' => $projectRows->count(),
                         'import_type' => $importType,
+                        'bom_type' => $bomType,
                         'status' => 'completed',
                     ]);
 
-                    // Index existing items for this project
-                    $existingBomItems = BomItem::where('project_id', $project->id)->with('requirements')->get();
+                    // Index existing items for this project scoped to this BOM type
+                    $existingBomItems = BomItem::where('project_id', $project->id)
+                        ->where('part_type', $bomType)
+                        ->with('requirements')
+                        ->get();
                     $itemsMap = [];
                     foreach ($existingBomItems as $item) {
                         $itemsMap[$this->makeItemKey($item->jig_no, $item->unit_no, $item->standard_part_no)] = $item;
@@ -712,6 +763,7 @@ class BomImportService
                                 'jig_no' => $row['jig_no'],
                                 'unit_no' => $row['unit_no'],
                                 'standard_part_no' => $row['part_no'],
+                                'part_type' => $bomType,
                                 'import_batch_id' => $batch->id,
                                 'proj_spec_yn' => 'Y',
                             ]);
@@ -787,6 +839,7 @@ class BomImportService
                         'filename' => $filename,
                         'file_hash' => $fileHash,
                         'import_type' => $importType,
+                        'bom_type' => $bomType,
                         'projects' => array_values(array_map(fn ($p) => $p->project_code, $affectedProjects)),
                         'added_requirements' => $totalAdded,
                         'updated_requirements' => $totalUpdated,
@@ -801,6 +854,7 @@ class BomImportService
                     'filename' => $filename,
                     'file_hash' => $fileHash,
                     'import_type' => $importType,
+                    'bom_type' => $bomType,
                     'summary' => $extracted['summary'],
                     'reconciliation' => [
                         'added_count' => $totalAdded,
@@ -810,6 +864,7 @@ class BomImportService
                         'is_revision' => $reconciliation['is_revision'],
                     ],
                     'imported_rows' => count($rows),
+                    'warnings' => array_merge($extracted['warnings'], $reconciliation['warnings']),
                 ];
             });
         } catch (\Illuminate\Database\QueryException $e) {
@@ -859,6 +914,7 @@ class BomImportService
         $sheetName = $sheet->getTitle();
         $highestRow = $sheet->getHighestRow();
         $highestColumn = $sheet->getHighestColumn();
+        $bomType = $this->detectBomType($sheet);
 
         // 1. Scan for Header Row and Check for Legacy Formats
         $headerRowIndex = null;
@@ -893,6 +949,7 @@ class BomImportService
         if ($legacyDetected && $headerRowIndex === null) {
             return [
                 'sheet_name' => $sheetName,
+                'bom_type' => $bomType,
                 'summary' => $this->emptySummary(),
                 'rows' => [],
                 'errors' => [
@@ -905,10 +962,11 @@ class BomImportService
         if ($headerRowIndex === null) {
             return [
                 'sheet_name' => $sheetName,
+                'bom_type' => $bomType,
                 'summary' => $this->emptySummary(),
                 'rows' => [],
                 'errors' => [
-                    'Invalid BOM format. Could not locate required FA-279 column headers (Project Code, Jig No, Unit No, Part No, Side, Qty).',
+                    'Invalid BOM format. Could not locate required column headers (Project Code, Jig No, Unit No, Part No, Side, Qty).',
                 ],
                 'warnings' => ['Please ensure headers are in the approved format (e.g. Project Code, Jig, Unit No., Part No., Side, Qty).'],
             ];
@@ -921,6 +979,7 @@ class BomImportService
         $uniqueJigs = [];
         $uniqueUnits = [];
         $uniqueParts = [];
+        $duplicateSkippedCount = 0;
         $sideStats = [
             'RH' => ['count' => 0, 'qty' => 0],
             'LH' => ['count' => 0, 'qty' => 0],
@@ -977,7 +1036,14 @@ class BomImportService
             $comboKey = "{$projectCode}|{$jigNo}|{$unitNo}|{$partNo}|{$side}";
             if (isset($seenCombinations[$comboKey])) {
                 $prevRow = $seenCombinations[$comboKey];
-                $rowErrors[] = "Row {$r}: Duplicate combination for Project '{$projectCode}', Jig '{$jigNo}', Unit '{$unitNo}', Part '{$partNo}', Side '{$side}' (first seen on Row {$prevRow}).";
+                if ($bomType === 'BOP' || $bomType === 'STD') {
+                    // USER RULE: Repeat parts added by mistake. Skip them, take only one part, never sum them up, and emit a warning.
+                    $warnings[] = "Row {$r}: Duplicate part '{$partNo}' (Unit {$unitNo}, Side {$side}) detected. Similar part already on Row {$prevRow}; skipping duplicate as per system rules.";
+                    $duplicateSkippedCount++;
+                    continue;
+                } else {
+                    $rowErrors[] = "Row {$r}: Duplicate combination for Project '{$projectCode}', Jig '{$jigNo}', Unit '{$unitNo}', Part '{$partNo}', Side '{$side}' (first seen on Row {$prevRow}).";
+                }
             } else {
                 $seenCombinations[$comboKey] = $r;
             }
@@ -1005,6 +1071,13 @@ class BomImportService
             }
         }
 
+        if ($duplicateSkippedCount > 0) {
+            array_unshift(
+                $warnings,
+                "Notice: {$duplicateSkippedCount} duplicate part rows were found in this {$bomType} BOM and automatically skipped. First occurrence was retained, duplicates were not summed."
+            );
+        }
+
         // Jig Exclusivity Validation (Part 2 & Part 20): A Jig must not contain both Common and Side-Specific parts
         $jigSideSets = [];
         foreach ($validRows as $vRow) {
@@ -1027,10 +1100,13 @@ class BomImportService
             'side_distribution' => $sideStats,
             'total_required_quantity' => $totalRequiredQuantity,
             'header_row' => $headerRowIndex,
+            'bom_type' => $bomType,
+            'duplicate_skipped_count' => $duplicateSkippedCount,
         ];
 
         return [
             'sheet_name' => $sheetName,
+            'bom_type' => $bomType,
             'summary' => $summary,
             'rows' => $validRows,
             'errors' => $errors,
@@ -1054,7 +1130,7 @@ class BomImportService
                 $map['jig_no'] = $col;
             } elseif (in_array($clean, ['unitno', 'unit', 'unitnumber'], true)) {
                 $map['unit_no'] = $col;
-            } elseif (in_array($clean, ['partno', 'part', 'partnumber', 'standardpartno'], true)) {
+            } elseif (in_array($clean, ['partno', 'part', 'partnumber', 'standardpartno', 'boppartno', 'boppart', 'stdpartno', 'stdpart', 'mfgpartno', 'mfgpart'], true)) {
                 $map['part_no'] = $col;
             } elseif (in_array($clean, ['side'], true)) {
                 $map['side'] = $col;

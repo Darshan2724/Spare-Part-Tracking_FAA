@@ -742,6 +742,55 @@ class EcnWorkflowService
                     $req->save();
                     break;
 
+                case 'purchase':
+                    $pq = \App\Models\PurchaseQueueItem::lockForUpdate()->find($recordId);
+                    $item = null;
+                    $req = null;
+
+                    if ($pq) {
+                        if (preg_match('/ReceiptItem #(\d+)/', $pq->remarks ?? '', $mRec)) {
+                            $item = EcnReceiptItem::lockForUpdate()->find((int)$mRec[1]);
+                        }
+                        if (preg_match('/Req #(\d+)/', $pq->remarks ?? '', $mReq)) {
+                            $req = EcnRequirement::lockForUpdate()->find((int)$mReq[1]);
+                        }
+                        if (!$req && $pq->project_id) {
+                            $req = EcnRequirement::where('project_id', $pq->project_id)
+                                ->where('part_no', $pq->standard_part_no)
+                                ->lockForUpdate()
+                                ->first();
+                        }
+                        $revertQty = min($quantity, (int)$pq->rejected_quantity);
+                        if ($revertQty === (int)$pq->rejected_quantity) {
+                            $pq->update(['rejected_quantity' => 0, 'status' => 'closed', 'remarks' => trim(($pq->remarks ?? '') . " | [REVERTED TO QC ARRIVAL] Reverted to QC Arrival: {$remarks}")]);
+                        } else {
+                            $pq->decrement('rejected_quantity', $revertQty);
+                            $pq->update(['remarks' => trim(($pq->remarks ?? '') . " | [PARTIALLY REVERTED TO QC ARRIVAL] Partially reverted {$revertQty} pcs to QC Arrival: {$remarks}")]);
+                        }
+                    } else {
+                        $item = EcnReceiptItem::lockForUpdate()->find($recordId);
+                        if ($item) {
+                            $req = EcnRequirement::lockForUpdate()->find($item->ecn_requirement_id);
+                        } else {
+                            $req = EcnRequirement::lockForUpdate()->findOrFail($recordId);
+                        }
+                        $revertQty = $quantity;
+                    }
+
+                    if ($item) {
+                        $item->status = 'received';
+                        $item->save();
+                    }
+                    if ($req) {
+                        $req->current_state = 'STORE'; // In ECN, STORE is QC Arrival
+                        $req->save();
+                    } else {
+                        throw new \InvalidArgumentException("Could not resolve ECN requirement for purchase revert record #{$recordId}");
+                    }
+
+                    $targetDept = 'QC_ARRIVAL';
+                    break;
+
                 default:
                     throw new \InvalidArgumentException("Invalid department '{$department}' for ECN revert.");
             }

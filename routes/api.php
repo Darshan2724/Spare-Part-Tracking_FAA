@@ -123,9 +123,18 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::get('/returned', [StoreController::class, 'returnedItems']);
             Route::post('/items/{id}/process-returned', [StoreController::class, 'processReturnedItem']);
             Route::post('/receipts', [StoreController::class, 'store']);
+            Route::post('/receive', [StoreController::class, 'store']);
             Route::post('/bulk-receive', [StoreController::class, 'bulkReceive']);
             Route::post('/items/{id}/send-to-qc', [StoreController::class, 'sendToQc']);
             Route::post('/items/{id}/revert', [StoreController::class, 'revert']);
+        });
+
+        // Dedicated Mobile Store Intake (MFG-Only Enforced)
+        Route::prefix('mobile/store')->group(function () {
+            Route::get('/hierarchy', [StoreController::class, 'hierarchy']);
+            Route::post('/receive', [StoreController::class, 'mobileReceive']);
+            Route::post('/receipts', [StoreController::class, 'mobileReceive']);
+            Route::post('/bulk-receive', [StoreController::class, 'mobileBulkReceive']);
         });
 
         // Quality Control Operations
@@ -155,6 +164,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
         Route::prefix('purchase')->group(function () {
             Route::get('/items', [PurchaseQueueController::class, 'index']);
             Route::get('/queue', [PurchaseQueueController::class, 'index']);
+            Route::post('/revert-rejected', [PurchaseQueueController::class, 'revertRejected']);
             Route::patch('/items/{id}/status', [PurchaseQueueController::class, 'updateStatus']);
             Route::patch('/queue/{id}', [PurchaseQueueController::class, 'updateStatus']);
             Route::patch('/queue/{id}/status', [PurchaseQueueController::class, 'updateStatus']);

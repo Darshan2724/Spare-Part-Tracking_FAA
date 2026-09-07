@@ -11,6 +11,7 @@ use App\Models\ReceiptItem;
 use App\Models\ReworkRecord;
 use App\Models\WorkflowEvent;
 use App\Models\EcnRequirement;
+use App\Models\PurchaseQueueItem;
 use App\Services\EcnWorkflowService;
 use App\Services\EcnBulkSplitService;
 use Illuminate\Http\Request;
@@ -29,7 +30,7 @@ class WorkflowRevertController extends Controller
     public function getRevertOptions(Request $request)
     {
         $request->validate([
-            'department' => ['required', 'in:store,qc,rework,paint,assembly'],
+            'department' => ['required', 'in:store,qc,rework,paint,assembly,purchase'],
             'bom_item_id' => ['required', 'exists:bom_items,id'],
             'side' => ['required', 'in:RH,LH,COMMON'],
         ]);
@@ -197,6 +198,30 @@ class WorkflowRevertController extends Controller
                     }
                 }
                 break;
+
+            case 'purchase':
+                $items = PurchaseQueueItem::where('bom_item_id', $bomItemId)
+                    ->where(fn($q) => $q->where('side', $side)->orWhere('side', 'COMMON'))
+                    ->whereIn('status', ['pending_purchase', 'exported'])
+                    ->where('rejected_quantity', '>', 0)
+                    ->orderBy('id', 'desc')
+                    ->get();
+
+                foreach ($items as $item) {
+                    $avail = (int) $item->rejected_quantity;
+                    if ($avail > 0) {
+                        $options[] = [
+                            'source_type' => 'purchase_queue_item',
+                            'source_id' => $item->id,
+                            'available_quantity' => $avail,
+                            'from_department' => 'PURCHASE',
+                            'to_department' => 'QC_ARRIVAL',
+                            'target_label' => 'QC Arrival',
+                            'description' => "QC Rejection in Purchase Queue #{$item->id} ({$avail} pcs)",
+                        ];
+                    }
+                }
+                break;
         }
 
         return response()->json([
@@ -215,7 +240,7 @@ class WorkflowRevertController extends Controller
     public function getRevertItems(Request $request)
     {
         $request->validate([
-            'department' => ['required', 'in:store,qc,rework,paint,assembly'],
+            'department' => ['required', 'in:store,qc,rework,paint,assembly,purchase'],
             'project_id' => ['nullable', 'integer', 'exists:projects,id'],
             'side' => ['nullable', 'in:RH,LH,COMMON'],
             'search' => ['nullable', 'string', 'max:100'],
@@ -567,6 +592,81 @@ class WorkflowRevertController extends Controller
                     }
                 }
                 break;
+
+            case 'purchase':
+                $q = PurchaseQueueItem::with(['project', 'bomItem.supplier', 'bomItem.project', 'rejectedBy'])
+                    ->whereIn('status', ['pending_purchase', 'exported'])
+                    ->where('rejected_quantity', '>', 0)
+                    ->orderBy('id', 'desc');
+
+                if ($projectId) {
+                    $q->where('project_id', $projectId);
+                }
+                if ($side) {
+                    $q->where(fn($sQ) => $sQ->where('side', $side)->orWhere('side', 'COMMON'));
+                }
+                if ($search) {
+                    $qStr = '%' . trim($search) . '%';
+                    $q->where(function ($sub) use ($qStr) {
+                        $sub->where('standard_part_no', 'ilike', $qStr)
+                            ->orWhere('rejection_reason', 'ilike', $qStr)
+                            ->orWhereHas('bomItem', function ($bSub) use ($qStr) {
+                                $bSub->where('standard_part_no', 'ilike', $qStr)
+                                     ->orWhere('item_no', 'ilike', $qStr)
+                                     ->orWhere('jig_no', 'ilike', $qStr)
+                                     ->orWhere('unit_no', 'ilike', $qStr);
+                            })
+                            ->orWhereHas('project', function ($pSub) use ($qStr) {
+                                $pSub->where('name', 'ilike', $qStr)
+                                     ->orWhere('project_code', 'ilike', $qStr);
+                            });
+                    });
+                }
+
+                $records = $q->take($perPage * 2)->get();
+                foreach ($records as $pq) {
+                    $bom = $pq->bomItem;
+                    $avail = (int) $pq->rejected_quantity;
+                    if ($avail <= 0) continue;
+
+                    $rawItems[] = [
+                        'id' => "purchase_revert_{$pq->id}",
+                        'bom_item_id' => $bom?->id ?? $pq->bom_item_id,
+                        'purchase_queue_item_id' => $pq->id,
+                        'standard_part_no' => $pq->standard_part_no ?? $bom?->standard_part_no,
+                        'item_no' => $bom?->item_no ?? '',
+                        'side' => $pq->side,
+                        'project_id' => $pq->project_id ?? $bom?->project_id,
+                        'project_code' => $pq->project?->project_code ?? ($bom?->project?->project_code ?? 'N/A'),
+                        'project_name' => $pq->project?->name ?? ($bom?->project?->name ?? ''),
+                        'jig_no' => $bom?->jig_no ?? ($bom?->jig_name ?? ''),
+                        'jig_name' => $bom?->jig_no ?? ($bom?->jig_name ?? ''),
+                        'unit_no' => $bom?->unit_no ?? '',
+                        'supplier_name' => $bom?->supplier?->name ?? 'Standard',
+                        'available_quantity' => $avail,
+                        'rejected_quantity' => $avail,
+                        'rejection_reason' => $pq->rejection_reason ?? 'QC Rejection',
+                        'rejected_by_name' => $pq->rejectedBy?->name ?? 'QC Inspector',
+                        'rejected_at' => $pq->rejected_at ? (is_string($pq->rejected_at) ? $pq->rejected_at : $pq->rejected_at->format('Y-m-d H:i')) : $pq->created_at?->format('Y-m-d H:i'),
+                        'current_state' => 'QC Rejected (In Purchase)',
+                        'from_department' => 'PURCHASE',
+                        'to_department' => 'QC_ARRIVAL',
+                        'target_label' => 'QC Arrival',
+                        'source_type' => 'purchase_queue_item',
+                        'source_id' => $pq->id,
+                        'revert_options' => [[
+                            'source_type' => 'purchase_queue_item',
+                            'source_id' => $pq->id,
+                            'available_quantity' => $avail,
+                            'from_department' => 'PURCHASE',
+                            'to_department' => 'QC_ARRIVAL',
+                            'target_label' => 'QC Arrival',
+                            'description' => "QC Rejection in Purchase #{$pq->id} ({$avail} pcs)",
+                        ]],
+                    ];
+                    if (count($rawItems) >= $perPage) break;
+                }
+                break;
         }
 
         return response()->json([
@@ -602,11 +702,11 @@ class WorkflowRevertController extends Controller
         }
 
         $request->validate([
-            'department' => ['required', 'in:store,qc,rework,paint,assembly'],
+            'department' => ['required', 'in:store,qc,rework,paint,assembly,purchase'],
             'bom_item_id' => ['required', 'exists:bom_items,id'],
             'side' => ['required', 'in:RH,LH,COMMON'],
             'quantity' => ['required', 'integer', 'min:1'],
-            'source_type' => ['nullable', 'in:receipt_item,qc_inspection,paint_record'],
+            'source_type' => ['nullable', 'in:receipt_item,qc_inspection,paint_record,purchase_queue_item'],
             'source_id' => ['nullable', 'integer'],
             'reason' => ['nullable', 'string', 'max:500'],
         ]);
@@ -630,6 +730,9 @@ class WorkflowRevertController extends Controller
                 break;
             case 'assembly':
                 $user?->hasAnyRole(['ADMIN', 'ASSEMBLY', 'QC']) ?: abort(403, 'Unauthorized. Assembly operational permission required.');
+                break;
+            case 'purchase':
+                $user?->hasAnyRole(['ADMIN', 'PURCHASE', 'QC']) ?: abort(403, 'Unauthorized. Purchase operational permission required.');
                 break;
         }
 
@@ -660,6 +763,9 @@ class WorkflowRevertController extends Controller
                 case 'assembly':
                     return $this->executeAssemblyRevert($bomItem, $side, $requestedQty, $sourceType, $sourceId, $reason, $user);
 
+                case 'purchase':
+                    return $this->executePurchaseRevert($bomItem, $side, $requestedQty, $sourceId, $reason, $user);
+
                 default:
                     return response()->json(['success' => false, 'message' => 'Invalid department for revert.'], 422);
             }
@@ -672,7 +778,7 @@ class WorkflowRevertController extends Controller
     public function bulkRevert(Request $request)
     {
         $request->validate([
-            'department' => ['required', 'in:store,qc,rework,paint,assembly'],
+            'department' => ['required', 'in:store,qc,rework,paint,assembly,purchase'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.side' => ['nullable', 'in:RH,LH,COMMON'],
             'items.*.quantity' => ['nullable', 'integer', 'min:1'],
@@ -698,6 +804,9 @@ class WorkflowRevertController extends Controller
                 break;
             case 'assembly':
                 $user?->hasAnyRole(['ADMIN', 'ASSEMBLY', 'QC']) ?: abort(403, 'Unauthorized. Assembly operational permission required.');
+                break;
+            case 'purchase':
+                $user?->hasAnyRole(['ADMIN', 'PURCHASE', 'QC']) ?: abort(403, 'Unauthorized. Purchase operational permission required.');
                 break;
         }
 
@@ -735,6 +844,9 @@ class WorkflowRevertController extends Controller
                             break;
                         case 'assembly':
                             $res = $this->executeAssemblyRevert($bomItem, $side, $qty, $sourceType, $sourceId, $reason, $user);
+                            break;
+                        case 'purchase':
+                            $res = $this->executePurchaseRevert($bomItem, $side, $qty, $sourceId, $reason, $user);
                             break;
                     }
 
@@ -1255,6 +1367,164 @@ class WorkflowRevertController extends Controller
     }
 
     /**
+     * Purchase -> QC Arrival Revert
+     */
+    public function executePurchaseRevert(BomItem $bomItem, string $side, int $qty, ?int $sourceId, string $reason, $user)
+    {
+        $query = PurchaseQueueItem::where('project_id', $bomItem->project_id)
+            ->where(function ($q) use ($bomItem) {
+                $q->where('bom_item_id', $bomItem->id)
+                  ->orWhere('standard_part_no', $bomItem->standard_part_no);
+            })
+            ->where(fn($q) => $q->where('side', $side)->orWhere('side', 'COMMON'))
+            ->whereIn('status', ['pending_purchase', 'exported'])
+            ->where('rejected_quantity', '>', 0)
+            ->lockForUpdate();
+
+        if ($sourceId) {
+            $query->where('id', $sourceId);
+        }
+
+        $purchaseItems = $query->orderBy('id', 'desc')->get();
+
+        if ($purchaseItems->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => "No reversible QC-rejected purchase items found for {$bomItem->standard_part_no} ({$side}).",
+            ], 422);
+        }
+
+        $totalAvail = (int) $purchaseItems->sum('rejected_quantity');
+        if ($qty > $totalAvail) {
+            return response()->json([
+                'success' => false,
+                'message' => "Requested revert quantity ({$qty}) exceeds available rejected purchase quantity ({$totalAvail}).",
+            ], 422);
+        }
+
+        $qtyRemaining = $qty;
+        $affectedRecords = [];
+
+        foreach ($purchaseItems as $pqItem) {
+            if ($qtyRemaining <= 0) break;
+
+            $pAvail = (int) $pqItem->rejected_quantity;
+            $takeQty = min($qtyRemaining, $pAvail);
+
+            // 1. Decrement / update PurchaseQueueItem
+            if ($takeQty === $pAvail) {
+                $pqItem->update([
+                    'rejected_quantity' => 0,
+                    'status' => 'closed',
+                    'remarks' => trim(($pqItem->remarks ? $pqItem->remarks . " | " : "") . "[REVERTED TO QC ARRIVAL] Reverted {$takeQty} pcs to QC Arrival by User #" . ($user?->id ?? 'sys') . ": {$reason}"),
+                ]);
+            } else {
+                $pqItem->decrement('rejected_quantity', $takeQty);
+                $pqItem->update([
+                    'remarks' => trim(($pqItem->remarks ? $pqItem->remarks . " | " : "") . "[PARTIALLY REVERTED TO QC ARRIVAL] Reverted {$takeQty} pcs to QC Arrival by User #" . ($user?->id ?? 'sys') . ": {$reason}"),
+                ]);
+            }
+
+            // 2. Decrement QcInspection.rejected_quantity
+            $qcInsp = null;
+            if ($pqItem->qc_inspection_id) {
+                $qcInsp = QcInspection::lockForUpdate()->find($pqItem->qc_inspection_id);
+                if ($qcInsp) {
+                    $qcInsp->decrement('rejected_quantity', $takeQty);
+                }
+            }
+
+            // 3. Restore ReceiptItem status to 'sent_to_qc' (QC Arrival)
+            $receiptItem = null;
+            if (!empty($qcInsp?->receipt_item_id)) {
+                $receiptItem = ReceiptItem::lockForUpdate()->find($qcInsp->receipt_item_id);
+            }
+            if (!$receiptItem) {
+                // Fallback: search for qc_rejected receipt item for this BOM item and side
+                $receiptItem = ReceiptItem::where('bom_item_id', $bomItem->id)
+                    ->where(fn($q) => $q->where('side', $side)->orWhere('side', 'COMMON'))
+                    ->where('status', 'qc_rejected')
+                    ->lockForUpdate()
+                    ->orderByDesc('id')
+                    ->first();
+            }
+
+            if ($receiptItem) {
+                $rQty = (int) $receiptItem->received_quantity;
+                if ($receiptItem->status === 'qc_rejected') {
+                    if ($rQty === $takeQty) {
+                        $receiptItem->update([
+                            'status' => 'sent_to_qc',
+                            'qc_received_at' => null,
+                        ]);
+                    } elseif ($rQty > $takeQty) {
+                        $receiptItem->decrement('received_quantity', $takeQty);
+                        $returnedItem = $receiptItem->replicate();
+                        $returnedItem->received_quantity = $takeQty;
+                        $returnedItem->status = 'sent_to_qc';
+                        $returnedItem->qc_received_at = null;
+                        $returnedItem->remarks = "Reverted from Purchase Rejection #{$pqItem->id}";
+                        $returnedItem->save();
+                    } else {
+                        $receiptItem->update([
+                            'status' => 'sent_to_qc',
+                            'qc_received_at' => null,
+                        ]);
+                    }
+                } else {
+                    $returnedItem = $receiptItem->replicate();
+                    $returnedItem->received_quantity = $takeQty;
+                    $returnedItem->status = 'sent_to_qc';
+                    $returnedItem->qc_received_at = null;
+                    $returnedItem->remarks = "Reverted from Purchase Rejection #{$pqItem->id}";
+                    $returnedItem->save();
+                }
+            } else {
+                ReceiptItem::create([
+                    'bom_item_id' => $bomItem->id,
+                    'side' => $side,
+                    'received_quantity' => $takeQty,
+                    'status' => 'sent_to_qc',
+                    'qc_received_at' => null,
+                    'remarks' => "Reverted from Purchase Rejection #{$pqItem->id}",
+                ]);
+            }
+
+            // 4. Create WorkflowEvent
+            WorkflowEvent::create([
+                'bom_item_id' => $bomItem->id,
+                'project_id' => $bomItem->project_id,
+                'user_id' => $user?->id,
+                'event_type' => 'purchase_reverted_to_qc',
+                'side' => $side,
+                'quantity' => $takeQty,
+                'previous_state' => 'qc_rejected',
+                'new_state' => 'sent_to_qc',
+                'remarks' => "Purchase Revert: Reverted {$takeQty} pcs from Purchase back to QC Arrival. Reason: {$reason}",
+            ]);
+
+            $affectedRecords[] = [
+                'purchase_queue_item_id' => $pqItem->id,
+                'reverted_quantity' => $takeQty,
+            ];
+
+            $qtyRemaining -= $takeQty;
+        }
+
+        $this->broadcastRevert($bomItem, $side, $qty, 'PURCHASE', 'QC_ARRIVAL');
+
+        return response()->json([
+            'success' => true,
+            'message' => "Successfully reverted {$qty} units of {$bomItem->standard_part_no} from Purchase back to QC Arrival.",
+            'reverted_quantity' => $qty,
+            'from_department' => 'PURCHASE',
+            'to_department' => 'QC_ARRIVAL',
+            'target_label' => 'QC Arrival',
+            'records' => $affectedRecords,
+        ]);
+    }
+
+    /**
      * Helper to restore / create a ReceiptItem in 'qc_received' status for QC Inspection Queue.
      */
     protected function restoreReceiptItemToQcReceived(BomItem $bomItem, string $side, int $quantity, ?ReceiptItem $receiptItem = null): ReceiptItem
@@ -1350,6 +1620,7 @@ class WorkflowRevertController extends Controller
             'rework' => ['REWORK', 'REWORK_OPERATOR', 'QC'],
             'paint' => ['PAINT', 'PAINT_OPERATOR', 'PAINT_SHOP'],
             'assembly' => ['ASSEMBLY', 'ASSEMBLY_OPERATOR'],
+            'purchase' => ['PURCHASE', 'PURCHASE_MANAGER', 'PURCHASE_OPERATOR', 'QC', 'QC_MANAGER'],
         ];
 
         $allowedRoles = $deptRoleMap[strtolower($dept)] ?? [];

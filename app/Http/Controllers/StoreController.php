@@ -36,8 +36,9 @@ class StoreController extends Controller
                   ->orWhere('item_no', 'LIKE', "%{$search}%")
                   ->orWhere('jig_no', 'LIKE', "%{$search}%")
                   ->orWhere('unit_no', 'LIKE', "%{$search}%")
-                  ->orWhere('part_description', 'LIKE', "%{$search}%")
                   ->orWhere('size', 'LIKE', "%{$search}%")
+                  ->orWhere('remarks', 'LIKE', "%{$search}%")
+                  ->orWhere('supplier_name_raw', 'LIKE', "%{$search}%")
                   ->orWhereHas('project', function ($pq) use ($search) {
                       $pq->where('name', 'LIKE', "%{$search}%")
                         ->orWhere('project_code', 'LIKE', "%{$search}%");
@@ -50,6 +51,10 @@ class StoreController extends Controller
 
         if ($request->filled('project_id')) {
             $query->where('project_id', $request->input('project_id'));
+        }
+
+        if ($request->filled('part_type')) {
+            $query->where('part_type', strtoupper($request->input('part_type')));
         }
 
         if ($request->filled('side')) {
@@ -96,9 +101,12 @@ class StoreController extends Controller
             return $item;
         });
 
-        $rawProjects = Project::orderBy('name')->get();
-        $bulkMetrics = $this->quantityService->calculateBulkProjectsMetrics($rawProjects);
-        $projects = $rawProjects->map(function ($proj) use ($bulkMetrics) {
+        $targetProjects = $request->filled('project_id')
+            ? Project::where('id', $request->input('project_id'))->get()
+            : Project::orderBy('name')->get();
+
+        $bulkMetrics = $this->quantityService->calculateBulkProjectsMetrics($targetProjects);
+        $projects = $targetProjects->map(function ($proj) use ($bulkMetrics) {
             $m = $bulkMetrics->get($proj->id) ?? [];
             return [
                 'id' => $proj->id,
@@ -134,6 +142,9 @@ class StoreController extends Controller
                 if ($request->filled('project_id')) {
                     $q->where('project_id', $request->input('project_id'));
                 }
+                if ($request->filled('part_type')) {
+                    $q->where('part_type', strtoupper($request->input('part_type')));
+                }
                 if ($request->filled('jig_no')) {
                     $q->where('jig_no', $request->input('jig_no'));
                 }
@@ -144,7 +155,9 @@ class StoreController extends Controller
                     $search = trim($request->input('search'));
                     $q->where(function ($sq) use ($search) {
                         $sq->where('standard_part_no', 'LIKE', "%{$search}%")
-                          ->orWhere('item_no', 'LIKE', "%{$search}%");
+                          ->orWhere('item_no', 'LIKE', "%{$search}%")
+                          ->orWhere('size', 'LIKE', "%{$search}%")
+                          ->orWhere('remarks', 'LIKE', "%{$search}%");
                     });
                 }
             });
@@ -188,6 +201,7 @@ class StoreController extends Controller
                 'unit_id' => $item->unit_no ? 'Unit ' . $item->unit_no : 'Unit 00',
                 'part_id' => $item->id,
                 'part_no' => $item->standard_part_no,
+                'part_type' => $item->part_type ?? 'MFG',
                 'side' => $req->side,
                 'required_qty' => $requiredQty,
                 'received_qty' => $receivedQty,
@@ -208,11 +222,28 @@ class StoreController extends Controller
     {
         $request->user()?->hasAnyRole(['ADMIN', 'STORE']) ?: abort(403, 'Unauthorized. Store operational permission required.');
 
+        // Normalize single-item payload if provided without items array
+        if ($request->filled('bom_item_id') && !$request->has('items')) {
+            $request->merge([
+                'items' => [
+                    [
+                        'bom_item_id' => $request->input('bom_item_id'),
+                        'side' => $request->input('side', 'COMMON'),
+                        'received_quantity' => $request->input('received_quantity', $request->input('quantity', 1)),
+                        'remarks' => $request->input('remarks'),
+                    ]
+                ]
+            ]);
+        }
+
         $request->validate([
             'project_id' => ['required', 'exists:projects,id'],
             'supplier_id' => ['nullable', 'exists:suppliers,id'],
             'delivery_note_number' => ['nullable', 'string', 'max:100'],
             'remarks' => ['nullable', 'string', 'max:1000'],
+            'part_type' => ['nullable', 'string', 'max:10'],
+            'bom_type' => ['nullable', 'string', 'max:10'],
+            'source' => ['nullable', 'string', 'max:50'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.side' => ['nullable', 'in:RH,LH,COMMON'],
             'items.*.received_quantity' => ['nullable', 'integer', 'min:1'],
@@ -222,6 +253,35 @@ class StoreController extends Controller
         $rawItems = $request->input('items', []);
         $groups = $this->ecnBulkSplitService->classifySelection($rawItems);
 
+        $isMobile = $request->header('X-Client-Platform') === 'mobile'
+            || $request->header('X-Source-Channel') === 'MOBILE_INTAKE'
+            || $request->input('source') === 'MOBILE_INTAKE'
+            || $request->routeIs('*mobile*');
+
+        // Canonical Security & Data-Integrity Gate: Strict MFG enforcement for mobile intake
+        if ($isMobile) {
+            $clientPartType = strtoupper((string) ($request->input('part_type') ?? $request->input('bom_type') ?? ''));
+            if ($clientPartType && in_array($clientPartType, ['BOP', 'STD'], true)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'part_type' => ['Mobile part intake is strictly restricted to MFG items. BOP and STD parts cannot be processed via mobile intake.']
+                ]);
+            }
+
+            $regularBomIds = array_filter(array_map(fn($item) => (int)($item['bom_item_id'] ?? 0), $groups['regular']));
+            if (!empty($regularBomIds)) {
+                $nonMfgItems = BomItem::whereIn('id', $regularBomIds)
+                    ->where('part_type', '!=', 'MFG')
+                    ->get(['id', 'standard_part_no', 'part_type']);
+
+                if ($nonMfgItems->isNotEmpty()) {
+                    $invalidList = $nonMfgItems->map(fn($i) => "{$i->standard_part_no} ({$i->part_type})")->implode(', ');
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'part_type' => ["Mobile part intake is strictly restricted to MFG items. The following non-MFG items cannot be received via mobile: {$invalidList}."]
+                    ]);
+                }
+            }
+        }
+
         // Pre-validate partition IDs to guarantee type safety and clear errors
         foreach ($groups['regular'] as $rItem) {
             $bomId = (int)$rItem['bom_item_id'];
@@ -229,6 +289,16 @@ class StoreController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => "Invalid Regular BOM Item #{$bomId} for store receipt."
+                ], 422);
+            }
+        }
+
+        foreach ($groups['ecn'] as $eItem) {
+            $reqId = (int)$eItem['ecn_requirement_id'];
+            if (!EcnRequirement::where('id', $reqId)->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Invalid ECN Requirement #{$reqId} for store receipt."
                 ], 422);
             }
         }
@@ -324,10 +394,12 @@ class StoreController extends Controller
             }
 
             $regCount = count($groups['regular']);
+            $totalProcessed = $regCount + $ecnProcessedCount;
             return response()->json([
                 'success' => true,
                 'message' => "Receipt recorded successfully ({$regCount} regular, {$ecnProcessedCount} ECN).",
                 'receipt_id' => $receipt?->id,
+                'items_count' => $totalProcessed,
                 'regular_processed' => $regCount,
                 'ecn_processed' => $ecnProcessedCount,
             ]);
@@ -500,6 +572,26 @@ class StoreController extends Controller
     }
 
     /**
+     * Dedicated Mobile Store Receive Entry Point.
+     * Enforces canonical source = MOBILE_INTAKE and strictly MFG-only intake.
+     */
+    public function mobileReceive(Request $request)
+    {
+        $request->merge(['source' => 'MOBILE_INTAKE']);
+        return $this->store($request);
+    }
+
+    /**
+     * Dedicated Mobile Store Bulk Receive Entry Point.
+     * Enforces canonical source = MOBILE_INTAKE and strictly MFG-only intake.
+     */
+    public function mobileBulkReceive(Request $request)
+    {
+        $request->merge(['source' => 'MOBILE_INTAKE']);
+        return $this->bulkReceive($request);
+    }
+
+    /**
      * Store Hierarchy API: Returns project JIG -> Unit -> Parts tree.
      */
     public function hierarchy(Request $request, \App\Services\HierarchyService $hierarchyService)
@@ -507,12 +599,21 @@ class StoreController extends Controller
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE']) ?: abort(403);
 
         $projectId = $request->input('project_id') ? (int) $request->input('project_id') : null;
+        $isMobile = $request->header('X-Client-Platform') === 'mobile'
+            || $request->header('X-Source-Channel') === 'MOBILE_INTAKE'
+            || $request->input('source') === 'MOBILE_INTAKE'
+            || $request->routeIs('*mobile*');
+
         $filters = [
             'side' => $request->input('side'),
             'search' => $request->input('search'),
             'stage' => $request->input('stage') ?? $request->input('queue_type') ?? $request->input('subtab'),
             'queue_type' => $request->input('queue_type') ?? $request->input('stage'),
         ];
+
+        if ($isMobile || $request->filled('part_type')) {
+            $filters['part_type'] = $isMobile ? 'MFG' : strtoupper($request->input('part_type'));
+        }
 
         $data = $hierarchyService->getDepartmentHierarchy('store', $projectId, $filters);
         return response()->json($data);

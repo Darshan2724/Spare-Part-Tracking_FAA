@@ -26,9 +26,33 @@ class BomImportBatch extends Model
         'conflict_rows_count',
         'diff_summary',
         'import_type',
+        'bom_type',
         'errors',
         'status',
     ];
+
+    public function scopeMfg($query)
+    {
+        return $query->where('bom_type', 'MFG');
+    }
+
+    public function scopeBop($query)
+    {
+        return $query->where('bom_type', 'BOP');
+    }
+
+    public function scopeStd($query)
+    {
+        return $query->where('bom_type', 'STD');
+    }
+
+    public function scopeOfType($query, ?string $type)
+    {
+        if (!empty($type)) {
+            return $query->where('bom_type', strtoupper($type));
+        }
+        return $query;
+    }
 
     protected $casts = [
         'errors' => 'array',

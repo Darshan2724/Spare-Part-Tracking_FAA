@@ -21,8 +21,32 @@ class BomItem extends Model
         'supplier_name_raw',
         'remarks',
         'proj_spec_yn',
+        'part_type',
         'import_batch_id',
     ];
+
+    public function scopeMfg($query)
+    {
+        return $query->where('part_type', 'MFG');
+    }
+
+    public function scopeBop($query)
+    {
+        return $query->where('part_type', 'BOP');
+    }
+
+    public function scopeStd($query)
+    {
+        return $query->where('part_type', 'STD');
+    }
+
+    public function scopeOfType($query, ?string $type)
+    {
+        if (!empty($type)) {
+            return $query->where('part_type', strtoupper($type));
+        }
+        return $query;
+    }
 
     public function project()
     {

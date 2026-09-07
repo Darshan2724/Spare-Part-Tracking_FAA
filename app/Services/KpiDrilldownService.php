@@ -175,6 +175,10 @@ class KpiDrilldownService
             ->with(['requirements', 'supplier', 'project'])
             ->whereIn('project_id', $projectIds);
 
+        if (!empty($filters['part_type'])) {
+            $bomQuery->where('part_type', strtoupper($filters['part_type']));
+        }
+
         if ($search) {
             $bomQuery->where(function ($q) use ($search) {
                 $q->where('standard_part_no', 'ILIKE', "%{$search}%")
@@ -291,6 +295,7 @@ class KpiDrilldownService
                     'source_side' => $curSide === 'COMMON' ? null : $curSide,
                     'combined_identifier' => "{$item->jig_no} / {$item->unit_no} / {$item->standard_part_no} / {$curSide}",
                     'excel_part_number' => $excelPartNumber,
+                    'part_type' => $item->part_type ?? 'MFG',
                     'supplier' => $item->supplier?->name ?? $item->supplier_name_raw ?? 'Standard',
                 ];
 

@@ -33,17 +33,55 @@ class PurchaseQueueController extends Controller
             $query->where('project_id', $request->input('project_id'));
         }
 
+        if ($request->filled('side')) {
+            $query->where(fn($q) => $q->where('side', $request->input('side'))->orWhere('side', 'COMMON'));
+        }
+
         if ($request->filled('status')) {
             $query->where('status', $request->input('status'));
         }
 
-        $items = $query->orderByDesc('created_at')->paginate(20);
+        $perPage = (int) ($request->input('per_page') ?? 20);
+        $items = $query->orderByDesc('created_at')->paginate($perPage);
         $projects = Project::orderBy('name')->get(['id', 'name', 'project_code']);
 
         return response()->json([
             'items' => $items,
             'projects' => $projects,
         ]);
+    }
+
+    public function revertRejected(Request $request)
+    {
+        $request->user()?->hasAnyRole(['ADMIN', 'PURCHASE', 'QC']) ?: abort(403, 'Unauthorized. Purchase or QC operational permission required.');
+
+        $request->validate([
+            'purchase_queue_item_id' => ['required', 'integer', 'exists:purchase_queue_items,id'],
+            'quantity' => ['nullable', 'integer', 'min:1'],
+            'reason' => ['nullable', 'string', 'max:500'],
+            'idempotency_key' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $pqItem = PurchaseQueueItem::with(['bomItem', 'project'])->findOrFail($request->input('purchase_queue_item_id'));
+        $qty = (int) ($request->input('quantity') ?? $pqItem->rejected_quantity);
+        $reason = $request->input('reason') ?? 'Purchase-side QC rejection reversal';
+
+        if ($pqItem->bom_item_id && $pqItem->bomItem) {
+            $workflowRevertController = app(\App\Http\Controllers\WorkflowRevertController::class);
+            return $workflowRevertController->executePurchaseRevert(
+                $pqItem->bomItem,
+                $pqItem->side,
+                $qty,
+                $pqItem->id,
+                $reason,
+                $request->user()
+            );
+        } else {
+            // ECN Purchase Revert
+            $ecnWorkflowService = app(\App\Services\EcnWorkflowService::class);
+            $res = $ecnWorkflowService->revert('purchase', $pqItem->id, $qty, $reason, $request->user()?->id);
+            return response()->json($res);
+        }
     }
 
     public function updateStatus(Request $request, int $id)
