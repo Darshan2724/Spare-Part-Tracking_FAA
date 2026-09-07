@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\EcnImportBatch;
 use App\Models\EcnRequirement;
 use App\Models\Project;
+use App\Events\EcnUpdated;
 use App\Services\ProjectIdentityResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -595,6 +596,17 @@ class EcnImportService
                 'skipped' => $skipped,
                 'filename' => $filename,
             ]);
+
+            try {
+                event(new EcnUpdated([
+                    'project_id' => $projectId,
+                    'event_type' => 'ECN_IMPORTED',
+                    'quantity' => $added + $updated,
+                    'new_state' => 'PENDING',
+                ]));
+            } catch (\Throwable $e) {
+                Log::warning("Realtime broadcast for EcnUpdated failed on import: " . $e->getMessage());
+            }
 
             return [
                 'success' => true,

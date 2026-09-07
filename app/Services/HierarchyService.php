@@ -34,9 +34,9 @@ class HierarchyService
      */
     public function getDepartmentHierarchy(string $department, ?int $projectId = null, array $filters = []): array
     {
-        $projects = Project::orderBy('name')->get();
-        $activeProjects = $projects->where('status', 'active')->values();
-        $completedProjects = $projects->where('status', 'completed')->values();
+        $projects = Project::withActiveEcn()->orderBy('name')->get();
+        $activeProjects = $projects->filter(fn($p) => $p->status === 'active' || (bool)($p->has_active_ecn ?? false))->values();
+        $completedProjects = $projects->filter(fn($p) => $p->status === 'completed' && !(bool)($p->has_active_ecn ?? false))->values();
 
         $stage = strtolower($filters['stage'] ?? $filters['queue_type'] ?? $filters['subtab'] ?? '');
         $ecnDeptContext = $department;

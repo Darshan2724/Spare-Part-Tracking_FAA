@@ -613,9 +613,11 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
+import { useAppCacheStore } from '@/stores/cache';
 import axios from 'axios';
 
 const authStore = useAuthStore();
+const cacheStore = useAppCacheStore();
 const activeTab = ref('import'); // 'import' | 'history'
 const importHistory = ref([]);
 
@@ -767,6 +769,10 @@ const importBom = async () => {
 
     if (response.data.success) {
       successMessage.value = response.data.message || (detectedImportType.value === 'ECN' ? 'ECN Master Sheet imported and attached successfully.' : 'BOM imported and reconciled successfully.');
+      cacheStore.invalidate('dashboard');
+      cacheStore.invalidate('project_hierarchy');
+      cacheStore.invalidate('ecn');
+      cacheStore.invalidate('store');
       resetPreview();
       selectedFile.value = null;
       duplicateInfo.value = null;
@@ -846,6 +852,10 @@ const executeDelete = async () => {
     if (res.data.success) {
       importHistory.value = importHistory.value.filter(b => !(b.id === batchId && (b.import_type || 'BOM') === typeParam));
       successMessage.value = res.data.message || 'Import batch deleted successfully.';
+      cacheStore.invalidate('dashboard');
+      cacheStore.invalidate('project_hierarchy');
+      cacheStore.invalidate('ecn');
+      cacheStore.invalidate('store');
       showDeleteModal.value = false;
       selectedDeleteBatch.value = null;
       deleteImpact.value = null;

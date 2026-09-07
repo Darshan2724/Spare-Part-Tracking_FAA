@@ -458,7 +458,8 @@ class QuantityCalculationService
      */
     public function calculateProjectsProgress(array $filters = [], ?Collection $precomputedBulkMetrics = null): Collection
     {
-        $projects = Project::where('status', 'active')
+        $projects = Project::withActiveEcn()
+            ->activeOrHasActiveEcn()
             ->withCount('bomItems')
             ->orderBy('name')
             ->get();
@@ -476,6 +477,9 @@ class QuantityCalculationService
                 'id' => $proj->id,
                 'project_code' => $proj->project_code,
                 'name' => $proj->name,
+                'status' => $proj->status,
+                'has_active_ecn' => (bool)($proj->has_active_ecn ?? false),
+                'is_ecn_active' => $proj->is_ecn_active,
                 'total_items' => $proj->bom_items_count,
                 'required_qty' => $pMetrics['required_qty'],
                 'received_qty' => $pMetrics['received_qty'],

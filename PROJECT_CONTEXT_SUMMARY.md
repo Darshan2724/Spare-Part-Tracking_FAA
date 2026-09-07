@@ -465,6 +465,15 @@ Engineering Change Notices (ECN) represent distinct engineering modifications an
 * **Auto-Vanish Rule:** When an ECN requirement reaches `ASSEMBLY_COMPLETED`, the `[ECN]` indicator badge automatically disappears from that LH/RH, Unit, and Jig card on the Main Dashboard.
 * **Dedicated ECN Reports Portal:** Comprehensive 9-KPI drilldown terminal accessible at `/ecn-reports`.
 
+### 11.2 ECN Completed Project Dynamic Visibility Rule
+When an ECN is imported or created for a project that was previously marked `Completed` (`status = 'completed'`):
+1. **Dynamic Active Inclusion:** The project immediately surfaces in the active projects list (`active_projects`) across the Main Dashboard, Project Dropdown, Hierarchy Tree, and ECN Reports page.
+2. **Correlated Subquery Efficiency:** Uses `Project::withActiveEcn()` and `scopeActiveOrHasActiveEcn()` via correlated `EXISTS (SELECT 1 FROM ecn_requirements WHERE ecn_requirements.project_id = projects.id AND current_state != 'ASSEMBLY_COMPLETED' AND required_qty > 0 AND deleted_at IS NULL)` to prevent N+1 queries.
+3. **Preservation of Completion History:** The project's underlying database status (`projects.status = 'completed'`) and `actual_completion_date` remain strictly preserved and are never mutated or wiped.
+4. **Zero Duplication:** Projects are cleanly partitioned into either `active_projects` or `completed_projects` with 0 duplication across lists.
+5. **Auto-Return to Completed:** When all active ECN requirements for a completed project reach `ASSEMBLY_COMPLETED`, the project automatically returns to `completed_projects` without requiring manual administrative intervention.
+6. **Real-time Invalidation:** ECN import, updates, and batch deletions trigger `EcnUpdated` Echo events and invalidate client-side Pinia caches (`useAppCacheStore`) so visibility updates occur instantly across all tabs.
+
 ---
 
 ## 12. Department Workflow `[VERIFIED]`

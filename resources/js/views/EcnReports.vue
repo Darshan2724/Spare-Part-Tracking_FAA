@@ -621,7 +621,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import axios from 'axios';
 
@@ -851,9 +851,16 @@ const fetchProjects = async () => {
   try {
     const res = await axios.get('/api/v1/dashboard/summary');
     const projectsList = res.data.projects_progress || [];
-    allProjects.value = projectsList;
-    activeProjects.value = projectsList.filter(p => p.status === 'active' || !p.status);
-    completedProjects.value = projectsList.filter(p => p.status === 'completed');
+
+    if (res.data.active_projects?.length || res.data.completed_projects?.length) {
+      activeProjects.value = res.data.active_projects || [];
+      completedProjects.value = res.data.completed_projects || [];
+      allProjects.value = [...activeProjects.value, ...completedProjects.value];
+    } else {
+      allProjects.value = projectsList;
+      activeProjects.value = projectsList.filter(p => p.is_ecn_active || p.has_active_ecn || p.status === 'active' || !p.status);
+      completedProjects.value = projectsList.filter(p => p.status === 'completed' && !p.has_active_ecn && !p.is_ecn_active);
+    }
   } catch (err) {
     console.error('Failed to load projects list:', err);
   }
@@ -917,6 +924,22 @@ const resetFilters = () => {
 onMounted(async () => {
   await fetchProjects();
   await fetchEcnData();
+
+  if (window.Echo) {
+    window.Echo.channel('workflow')
+      .listen('.ecn.updated', () => {
+        fetchProjects();
+        fetchEcnData();
+      });
+  }
+});
+
+onUnmounted(() => {
+  if (window.Echo) {
+    try {
+      window.Echo.leaveChannel('workflow');
+    } catch (e) {}
+  }
 });
 </script>
 

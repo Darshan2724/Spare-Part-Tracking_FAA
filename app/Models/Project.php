@@ -72,4 +72,50 @@ class Project extends Model
     {
         return $this->hasMany(SupplierAssignment::class);
     }
+
+    /**
+     * Scope to attach correlated EXISTS subquery for active qualifying ECNs.
+     * An active ECN requirement is non-soft-deleted, has required_qty > 0, and has not reached ASSEMBLY_COMPLETED.
+     */
+    public function scopeWithActiveEcn($query)
+    {
+        return $query->withExists(['ecnRequirements as has_active_ecn' => function ($q) {
+            $q->where('current_state', '!=', 'ASSEMBLY_COMPLETED')
+              ->where('required_qty', '>', 0);
+        }]);
+    }
+
+    /**
+     * Scope to filter projects that are either actively in production (status = 'active')
+     * or have at least one qualifying active ECN requirement.
+     */
+    public function scopeActiveOrHasActiveEcn($query)
+    {
+        return $query->where(function ($q) {
+            $q->where('status', 'active')
+              ->orWhereHas('ecnRequirements', function ($eq) {
+                  $eq->where('current_state', '!=', 'ASSEMBLY_COMPLETED')
+                     ->where('required_qty', '>', 0);
+              });
+        });
+    }
+
+    /**
+     * Scope to filter projects having at least one qualifying active ECN requirement.
+     */
+    public function scopeHasActiveEcn($query)
+    {
+        return $query->whereHas('ecnRequirements', function ($q) {
+            $q->where('current_state', '!=', 'ASSEMBLY_COMPLETED')
+              ->where('required_qty', '>', 0);
+        });
+    }
+
+    /**
+     * Determine whether the project is effectively active for ECN purposes.
+     */
+    public function getIsEcnActiveAttribute(): bool
+    {
+        return $this->status === 'active' || (bool)($this->has_active_ecn ?? false);
+    }
 }

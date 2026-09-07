@@ -142,11 +142,11 @@ class DashboardController extends Controller
         }
 
         // 1. Authoritative canonical calculations via single bulk computation
-        $projectsQuery = Project::query();
+        $projectsQuery = Project::withActiveEcn();
         if ($projectId) {
             $projectsQuery->where('id', $projectId);
         } else {
-            $projectsQuery->where('status', 'active');
+            $projectsQuery->activeOrHasActiveEcn();
         }
         $projects = $projectsQuery->get();
 
@@ -361,6 +361,10 @@ class DashboardController extends Controller
                 ];
             });
 
+        $allHierarchyProjects = Project::withActiveEcn()->orderBy('name')->get();
+        $activeProjectsList = $allHierarchyProjects->filter(fn($p) => $p->status === 'active' || (bool)($p->has_active_ecn ?? false))->values();
+        $completedProjectsList = $allHierarchyProjects->filter(fn($p) => $p->status === 'completed' && !(bool)($p->has_active_ecn ?? false))->values();
+
         return response()->json([
             'summary' => $canonicalSummary,
             'status_distribution' => $statusDistribution,
@@ -368,6 +372,8 @@ class DashboardController extends Controller
             'quality_trend' => $qualityTrend,
             'recent_events' => $recentEvents,
             'projects_progress' => $canonicalProjectsProgress,
+            'active_projects' => $activeProjectsList,
+            'completed_projects' => $completedProjectsList,
             'top_projects' => $topProjectsNearCompletion,
             'health_distribution' => $healthDistribution,
             'supplier_performance' => $supplierPerformance,

@@ -2543,6 +2543,10 @@ onMounted(async () => {
       })
       .listen('.part.reverted', () => {
         fetchData();
+      })
+      .listen('.ecn.updated', () => {
+        fetchInitialProjectsList();
+        fetchData(true);
       });
   }
 });
