@@ -1,7 +1,7 @@
 # 🚀 SpareTrack Server Deployment Commands
-## (Mobile Intake Strict MFG Enforcement + Systemwide Performance Architecture + Zero Downtime Docker Deployment)
+## (ECN Completed Project Visibility + Mobile Intake Strict MFG Enforcement + Performance Architecture)
 
-> **Release Reference:** Merged [Pull Request #21](https://github.com/Darshan2724/Spare-Part-Tracking_FAA/pull/21) (`f64b271`)
+> **Release Reference:** Latest merged commit `9c40ddd` (`main` / `branch-a`)
 
 This document contains the exact 1-click script and Docker commands to deploy the latest verified changes to the SpareTrack production server (`192.168.9.200:8080`).
 
