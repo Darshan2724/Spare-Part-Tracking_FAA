@@ -8,8 +8,9 @@ echo "=========================================================="
 
 echo ""
 echo "[1/7] Fetching and pulling latest code from origin/main..."
-git stash
-git pull origin main
+git stash --include-untracked
+git fetch origin main
+git reset --hard origin/main
 
 echo ""
 echo "[2/7] Building production frontend web assets (Vite)..."

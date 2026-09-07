@@ -4,8 +4,9 @@ Write-Host "  (Docker Backend, Web Assets, DB Migrations & Caches)    " -Foregro
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 Write-Host "`n[1/7] Fetching and pulling latest code from origin/main..." -ForegroundColor Yellow
-git stash
-git pull origin main
+git stash --include-untracked
+git fetch origin main
+git reset --hard origin/main
 
 Write-Host "`n[2/7] Building production frontend web assets (Vite)..." -ForegroundColor Yellow
 npm run build
