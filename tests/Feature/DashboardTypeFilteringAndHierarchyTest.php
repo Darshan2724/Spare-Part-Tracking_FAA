@@ -615,5 +615,124 @@ class DashboardTypeFilteringAndHierarchyTest extends TestCase
         $this->assertStringContainsString('expandedUnits.value[`${sec.key}_${j.jig_name}_${u.unit_no}`] = true;', $vueContent);
         $this->assertMatchesRegularExpression('/collapseAllJigs\s*=\s*\(\)\s*=>\s*\{.*?expandedJigs\.value\s*=\s*\{\};.*?expandedUnits\.value\s*=\s*\{\};/s', $vueContent);
     }
+
+    public function test_all_types_hierarchy_unifies_shared_jigs_and_units_into_single_nodes()
+    {
+        $admin = $this->getAdminUser();
+
+        $project = Project::create([
+            'name' => 'Project Shared Jig Multi-Type',
+            'project_code' => 'TEST-UNIFIED-' . uniqid(),
+            'status' => 'active',
+        ]);
+
+        // Same Jig JIG-COMMON-01 and Unit Unit 1 across all 3 BOM types
+        $mfg = BomItem::create([
+            'project_id' => $project->id,
+            'jig_no' => 'JIG-COMMON-01',
+            'unit_no' => 'Unit 1',
+            'item_no' => 'ITM-M-01',
+            'part_name' => 'Manufacturing Clamp',
+            'standard_part_no' => 'PART-UNI-MFG-01',
+            'part_type' => 'MFG',
+        ]);
+        BomRequirement::create(['bom_item_id' => $mfg->id, 'side' => 'LH', 'required_quantity' => 10]);
+
+        $bop = BomItem::create([
+            'project_id' => $project->id,
+            'jig_no' => 'JIG-COMMON-01',
+            'unit_no' => 'Unit 1',
+            'item_no' => 'ITM-B-01',
+            'part_name' => 'Bought Out Sensor',
+            'standard_part_no' => 'PART-UNI-BOP-01',
+            'part_type' => 'BOP',
+        ]);
+        BomRequirement::create(['bom_item_id' => $bop->id, 'side' => 'LH', 'required_quantity' => 5]);
+
+        $std = BomItem::create([
+            'project_id' => $project->id,
+            'jig_no' => 'JIG-COMMON-01',
+            'unit_no' => 'Unit 1',
+            'item_no' => 'ITM-S-01',
+            'part_name' => 'Standard Fastener',
+            'standard_part_no' => 'PART-UNI-STD-01',
+            'part_type' => 'STD',
+        ]);
+        BomRequirement::create(['bom_item_id' => $std->id, 'side' => 'LH', 'required_quantity' => 20]);
+
+        // Fetch hierarchy with All Types
+        $res = $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/v1/dashboard/project-hierarchy?project_id=' . $project->id);
+
+        $res->assertStatus(200);
+        $data = $res->json();
+
+        // 1. Unified 'jigs' array must contain JIG-COMMON-01 exactly once
+        $this->assertArrayHasKey('jigs', $data);
+        $jigs = $data['jigs'];
+        $jigOccurrences = array_filter($jigs, fn($j) => $j['jig_name'] === 'JIG-COMMON-01');
+        $this->assertCount(1, $jigOccurrences, 'Jig JIG-COMMON-01 must appear exactly once in unified hierarchy');
+
+        $unifiedJig = array_values($jigOccurrences)[0];
+        $this->assertEquals(35, $unifiedJig['total_required']); // 10 + 5 + 20
+
+        // 2. Units inside JIG-COMMON-01 must contain Unit 1 exactly once
+        $this->assertArrayHasKey('units', $unifiedJig);
+        $unitOccurrences = array_filter($unifiedJig['units'], fn($u) => $u['unit_no'] === 'Unit 1');
+        $this->assertCount(1, $unitOccurrences, 'Unit 1 must appear exactly once inside JIG-COMMON-01');
+
+        $unifiedUnit = array_values($unitOccurrences)[0];
+        $this->assertArrayHasKey('sides', $unifiedUnit);
+        $lhParts = $unifiedUnit['sides']['LH']['parts'] ?? [];
+        $this->assertCount(3, $lhParts, 'Unit 1 LH side must contain all 3 parts (MFG, BOP, STD)');
+
+        $partTypes = array_map(fn($p) => $p['part_type'], $lhParts);
+        $this->assertContains('MFG', $partTypes);
+        $this->assertContains('BOP', $partTypes);
+        $this->assertContains('STD', $partTypes);
+
+        // 3. API compatibility: mfg_section, bop_section, std_section keys still present
+        $this->assertArrayHasKey('mfg_section', $data);
+        $this->assertArrayHasKey('bop_section', $data);
+        $this->assertArrayHasKey('std_section', $data);
+        $this->assertCount(1, $data['mfg_section']['jigs']);
+        $this->assertCount(1, $data['bop_section']['jigs']);
+        $this->assertCount(1, $data['std_section']['jigs']);
+    }
+
+    public function test_all_types_dashboard_ui_tree_and_part_columns_structure()
+    {
+        $dashboardVuePath = resource_path('js/views/Dashboard.vue');
+        $this->assertFileExists($dashboardVuePath);
+
+        $vueContent = file_get_contents($dashboardVuePath);
+
+        // 1. Unified hierarchy container is rendered when activeHierarchyBomType is 'ALL'
+        $this->assertStringContainsString("v-else-if=\"activeHierarchyBomType === 'ALL'\"", $vueContent);
+        $this->assertStringContainsString('unified-hierarchy-container', $vueContent);
+
+        // 2. Unified hierarchy iterates directly over hierarchyData.jigs (one Jig per node)
+        $this->assertStringContainsString('v-for="jig in hierarchyData.jigs"', $vueContent);
+
+        // 3. Unified hierarchy contains 3 side-by-side columns: MFG, BOP, STD
+        $this->assertStringContainsString('all-types-parts-columns', $vueContent);
+        $this->assertStringContainsString('COLUMN 1: MFG PARTS', $vueContent);
+        $this->assertStringContainsString('COLUMN 2: BOP PARTS', $vueContent);
+        $this->assertStringContainsString('COLUMN 3: STD PARTS', $vueContent);
+
+        // 4. Empty states for each BOM type column
+        $this->assertStringContainsString('No MFG Parts', $vueContent);
+        $this->assertStringContainsString('No BOP Parts', $vueContent);
+        $this->assertStringContainsString('No STD Parts', $vueContent);
+
+        // 5. getUnitPartsByType helper is defined in script
+        $this->assertMatchesRegularExpression('/getUnitPartsByType\s*=\s*\(unit,\s*unitKey,\s*type\)\s*=>/s', $vueContent);
+
+        // 6. Expand all jigs supports ALL mode
+        $this->assertStringContainsString("if (activeHierarchyBomType.value === 'ALL')", $vueContent);
+        $this->assertStringContainsString('expandedJigs.value[`ALL_${j.jig_name}`] = true;', $vueContent);
+        $this->assertStringContainsString('expandedUnits.value[`ALL_${j.jig_name}_${u.unit_no}`] = true;', $vueContent);
+    }
 }
+
 

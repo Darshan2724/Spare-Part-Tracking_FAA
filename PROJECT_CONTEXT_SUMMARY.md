@@ -416,14 +416,20 @@ Every query, web table, API payload, and mobile view traverses the strict 5-leve
 $$\text{Project} \longrightarrow \text{Jig} \longrightarrow \text{Unit} \longrightarrow \text{Standard Part Number} \longrightarrow \text{Side} \ (\text{RH} \mid \text{LH} \mid \text{COMMON})$$
 
 * **Level 1: Project**: Customer assembly contract (e.g. `FA-273`, `FA-279 - Main Floor Framing`).
-* **Level 2: Jig**: Structural tooling fixture frame code (e.g. `169961@`).
+* **Level 2: Jig**: Structural tooling fixture frame code (e.g. `169961@`, `LIMOFD20`). Rendered **once** per physical Jig node in unified views.
   * **Jig Type Classification:**
     * **`SIDE_SPECIFIC`**: Jigs containing parts with LH (Left Hand) and/or RH (Right Hand) variants. Rendered with dual LH/RH side panels.
     * **`COMMON`**: Symmetrical or single tooling fixtures where parts have no LH/RH distinction (BOM Side is blank, empty, `NULL`, `C`, `COM`, or `COMMON`). Rendered with a single Common Tooling section.
   * **Jig Exclusivity Rule:** A Jig must be exclusively `SIDE_SPECIFIC` or `COMMON`, never both. Mixing blank and LH/RH rows in the same Jig is rejected during BOM import.
-* **Level 3: Unit**: Mechanical sub-assembly station (e.g. `Unit 00` to `Unit 13`).
+* **Level 3: Unit**: Mechanical sub-assembly station (e.g. `Unit 00` to `Unit 13`). Rendered **once** per physical Unit inside its Jig.
   * **Common Units (`has_common: true`):** Build a single `sides['COMMON']` branch with zero LH/RH duplication, preserving mathematical conservation without double-counting.
-* **Level 4: Standard Part Number**: Engineering part number with standard trailing zero/revision padding (e.g. `020#R00`, `040#R00`).
+* **Level 4: Three-Way BOM Part Partitioning (All Types View)**:
+  * In the **"All 3 BOM Types" (`ALL`)** view, parts inside an expanded Unit are partitioned into three side-by-side columns:
+    1. **MFG Parts (Manufacturing)**: Fabricated and machined parts (`part_type = 'MFG'`).
+    2. **BOP Parts (Bought Out Parts)**: Commercial purchased items (`part_type = 'BOP'`).
+    3. **STD Parts (Standard Hardware)**: Standard fasteners and hardware (`part_type = 'STD'`).
+  * If a Unit contains no parts of a particular BOM type, a compact empty state is displayed (`No MFG Parts` / `No BOP Parts` / `No STD Parts`).
+  * Contained horizontal scrolling ensures clean responsiveness across screen widths without clipping.
 * **Level 5: Side**: Geometric symmetry—**RH** (Right Hand), **LH** (Left Hand), or **COMMON** (Symmetrical / Single Tooling).
 
 ### 9.2 Cascading Green Status Invariants
