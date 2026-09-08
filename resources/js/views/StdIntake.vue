@@ -264,7 +264,7 @@
                 <th class="text-center" style="width: 80px;">Assembly</th>
                 <th class="text-center" style="width: 80px;">Completed</th>
                 <th style="width: 120px;">Progress</th>
-                <th class="text-center" style="width: 220px;">Quick Movement</th>
+                <th class="text-center" style="min-width: 190px; width: 220px;">Quick Movement</th>
                 <th class="text-center" style="width: 80px;">Breakdown</th>
               </tr>
             </thead>
@@ -387,73 +387,75 @@
 
                   <!-- Action Column (Context-Sensitive STD Transitions) -->
                   <td class="text-center">
-                    <div class="btn-group btn-group-sm flex-wrap gap-1 justify-content-center">
+                    <div class="std-quick-actions" role="group" aria-label="Quick Movement actions">
                       <!-- 1. Pending -> Store -->
                       <button 
                         v-if="part.total_pending > 0" 
-                        class="btn btn-warning btn-sm text-dark fw-semibold" 
+                        class="std-quick-btn std-quick-btn-receive" 
                         title="Intake arrived parts into Store"
+                        aria-label="Intake arrived parts into Store"
                         @click="openTransitionModal(part, 'pending', 'store')"
                       >
-                        <i class="fas fa-boxes me-1"></i> Receive
+                        <i class="fas fa-boxes"></i> Receive
                       </button>
 
                       <!-- 2. Store -> QC -->
                       <button 
                         v-if="part.parts_in_store > 0" 
-                        class="btn btn-sm text-white fw-semibold" 
-                        style="background-color: #0284c7;"
-                        title="Dispatch Store parts to QC Inspection"
+                        class="std-quick-btn std-quick-btn-qc" 
+                        title="Dispatch Store parts to QC inspection"
+                        aria-label="Dispatch Store parts to QC inspection"
                         @click="openTransitionModal(part, 'store', 'qc')"
                       >
-                        <i class="fas fa-clipboard-check me-1"></i> To QC
+                        <i class="fas fa-clipboard-check"></i> QC
                       </button>
 
                       <!-- 3. QC -> Assembly / Paint / Rework -->
                       <button 
                         v-if="part.parts_in_qc > 0" 
-                        class="btn btn-sm text-white fw-semibold" 
-                        style="background-color: #0d9488;"
-                        title="Inspect & Route QC parts (Assembly/Paint/Rework)"
+                        class="std-quick-btn std-quick-btn-qc-inspect" 
+                        title="Open QC Inspection & routing (Rework/Paint/Assembly)"
+                        aria-label="Open QC Inspection and routing"
                         @click="openTransitionModal(part, 'qc', 'assembly')"
                       >
-                        <i class="fas fa-route me-1"></i> QC Route
+                        <i class="fas fa-route"></i> QC Inspection
                       </button>
 
                       <!-- 4. Rework -> QC -->
                       <button 
                         v-if="part.parts_in_rework > 0" 
-                        class="btn btn-sm text-white fw-semibold" 
-                        style="background-color: #ea580c;"
+                        class="std-quick-btn std-quick-btn-rework" 
                         title="Route reworked parts back to QC inspection"
+                        aria-label="Route reworked parts back to QC inspection"
                         @click="openTransitionModal(part, 'rework', 'qc')"
                       >
-                        <i class="fas fa-tools me-1"></i> Rework
+                        <i class="fas fa-tools"></i> Rework
                       </button>
 
                       <!-- 5. Paint -> Assembly -->
                       <button 
                         v-if="part.parts_in_paint > 0" 
-                        class="btn btn-sm text-white fw-semibold" 
-                        style="background-color: #7c3aed;"
+                        class="std-quick-btn std-quick-btn-asm" 
                         title="Move painted parts to Assembly Bay"
+                        aria-label="Move painted parts to Assembly Bay"
                         @click="openTransitionModal(part, 'paint', 'assembly')"
                       >
-                        <i class="fas fa-cogs me-1"></i> To Asm
+                        <i class="fas fa-cogs"></i> ASM
                       </button>
 
                       <!-- 6. Assembly -> Completed -->
                       <button 
                         v-if="part.parts_in_assembly > 0" 
-                        class="btn btn-success btn-sm fw-semibold" 
+                        class="std-quick-btn std-quick-btn-complete" 
                         title="Mark assembled parts as fully completed"
+                        aria-label="Mark assembled parts as fully completed"
                         @click="openTransitionModal(part, 'assembly', 'completed')"
                       >
-                        <i class="fas fa-check-double me-1"></i> Complete
+                        <i class="fas fa-check-double"></i> Complete
                       </button>
 
                       <!-- Completed Tag if all done -->
-                      <span v-if="part.total_pending === 0 && part.parts_in_store === 0 && part.parts_in_qc === 0 && part.parts_in_rework === 0 && part.parts_in_paint === 0 && part.parts_in_assembly === 0 && part.assembly_completed > 0" class="badge bg-success-subtle text-success border border-success px-2 py-1 extra-small">
+                      <span v-if="part.total_pending === 0 && part.parts_in_store === 0 && part.parts_in_qc === 0 && part.parts_in_rework === 0 && part.parts_in_paint === 0 && part.parts_in_assembly === 0 && part.assembly_completed > 0" class="badge bg-success-subtle text-success border border-success px-2 py-0.5 extra-small fw-semibold">
                         <i class="fas fa-check-circle me-1"></i> All Assembled
                       </span>
                     </div>
@@ -881,7 +883,7 @@
               :disabled="submitting || isQcAllocationInvalid"
             >
               <i class="fas fa-check me-1" :class="{ 'fa-spin': submitting }"></i>
-              {{ submitting ? 'Processing...' : 'Confirm QC Route' }}
+              {{ submitting ? 'Processing...' : 'Confirm QC Inspection' }}
             </button>
 
             <!-- When from_state !== 'qc' -->
@@ -1304,5 +1306,86 @@ onMounted(() => {
 }
 .std-table th {
   letter-spacing: 0.03em;
+}
+
+/* Compact Quick Movement Actions */
+.std-quick-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 3px 4px;
+  max-width: 240px;
+  margin: 0 auto;
+}
+
+.std-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  flex: 0 0 auto;
+}
+
+.std-quick-btn i {
+  font-size: 0.68rem;
+  margin-right: 3px;
+}
+
+.std-quick-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+  filter: brightness(0.95);
+}
+
+.std-quick-btn:active {
+  transform: translateY(0);
+}
+
+/* Specific Action Color Schemes */
+.std-quick-btn-receive {
+  background-color: #f59e0b;
+  color: #1f2937;
+  border-color: #d97706;
+}
+
+.std-quick-btn-qc {
+  background-color: #0284c7;
+  color: #ffffff;
+  border-color: #0369a1;
+}
+
+.std-quick-btn-qc-inspect {
+  background-color: #0d9488;
+  color: #ffffff;
+  border-color: #0f766e;
+}
+
+.std-quick-btn-rework {
+  background-color: #ea580c;
+  color: #ffffff;
+  border-color: #c2410c;
+}
+
+.std-quick-btn-asm {
+  background-color: #7c3aed;
+  color: #ffffff;
+  border-color: #6d28d9;
+}
+
+.std-quick-btn-complete {
+  background-color: #059669;
+  color: #ffffff;
+  border-color: #047857;
 }
 </style>
