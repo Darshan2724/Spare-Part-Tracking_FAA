@@ -46,7 +46,7 @@
               <div class="p-2 rounded bg-success bg-opacity-10 border border-success-subtle text-center h-100">
                 <div class="text-success extra-small text-uppercase fw-bold">Total Received</div>
                 <div class="fs-4 fw-bold text-success">{{ summaryStats.total_received }}</div>
-                <div class="extra-small text-success">{{ summaryStats.completion_pct }}% received</div>
+                <div class="extra-small text-success">{{ summaryStats.received_pct }}% received</div>
               </div>
             </div>
 
@@ -284,56 +284,70 @@
 
                   <!-- Progress Bar Column -->
                   <td>
-                    <div class="d-flex align-items-center gap-2">
-                      <div class="progress flex-grow-1" style="height: 6px;">
-                        <div 
-                          class="progress-bar bg-success" 
-                          role="progressbar" 
-                          :style="{ width: part.completion_pct + '%' }"
-                        ></div>
+                    <div class="d-flex flex-column" style="min-width: 90px;">
+                      <div class="d-flex align-items-center gap-2">
+                        <div class="progress flex-grow-1" style="height: 6px; background-color: #e2e8f0;">
+                          <div 
+                            class="progress-bar bg-success" 
+                            role="progressbar" 
+                            :style="{ width: part.completion_pct + '%' }"
+                            :aria-valuenow="part.completion_pct"
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                          ></div>
+                        </div>
+                        <span class="extra-small fw-bold text-muted">{{ part.completion_pct }}%</span>
                       </div>
-                      <span class="extra-small fw-bold text-muted">{{ part.completion_pct }}%</span>
+                      <div class="extra-small text-muted text-nowrap mt-0.5" style="font-size: 0.68rem; line-height: 1;">
+                        {{ part.assembly_completed || 0 }} / {{ part.total_required || 0 }} done
+                      </div>
                     </div>
                   </td>
 
-                  <!-- Action Column -->
+                  <!-- Action Column (Context-Sensitive BOP Transitions) -->
                   <td class="text-center">
-                    <div class="btn-group btn-group-sm">
+                    <!-- All Completed State -->
+                    <span 
+                      v-if="part.total_pending === 0 && part.parts_in_store === 0 && part.parts_in_assembly === 0 && part.assembly_completed > 0" 
+                      class="badge bg-success-subtle text-success border border-success px-2 py-0.5 extra-small fw-semibold"
+                    >
+                      <i class="fas fa-check-circle me-1"></i> All Assembled
+                    </span>
+
+                    <!-- Active Workflow Toolbar -->
+                    <div v-else class="bop-toolbar" role="group" aria-label="Quick Workflow actions">
                       <!-- 1. Receive to Store -->
                       <button 
                         v-if="part.total_pending > 0" 
-                        class="btn btn-warning btn-sm text-dark fw-semibold" 
+                        class="bop-btn-action bop-btn-receive" 
                         title="Intake arrived parts into Store"
+                        aria-label="Intake arrived parts into Store"
                         @click="openTransitionModal(part, 'pending', 'store')"
                       >
-                        <i class="fas fa-boxes me-1"></i> Receive
+                        <i class="fas fa-boxes"></i> Receive
                       </button>
 
                       <!-- 2. Move to Assembly -->
                       <button 
                         v-if="part.parts_in_store > 0" 
-                        class="btn btn-sm text-white fw-semibold" 
-                        style="background-color: #db2777;"
+                        class="bop-btn-action bop-btn-asm" 
                         title="Issue from Store to Assembly Bay"
+                        aria-label="Issue from Store to Assembly Bay"
                         @click="openTransitionModal(part, 'store', 'assembly')"
                       >
-                        <i class="fas fa-cogs me-1"></i> Assembly
+                        <i class="fas fa-cogs"></i> ASM
                       </button>
 
                       <!-- 3. Mark Assembled -->
                       <button 
                         v-if="part.parts_in_assembly > 0" 
-                        class="btn btn-success btn-sm fw-semibold" 
+                        class="bop-btn-action bop-btn-complete" 
                         title="Mark parts as fully assembled"
+                        aria-label="Mark parts as fully assembled"
                         @click="openTransitionModal(part, 'assembly', 'completed')"
                       >
-                        <i class="fas fa-check-double me-1"></i> Complete
+                        <i class="fas fa-check-double"></i> Complete
                       </button>
-
-                      <!-- Completed Tag if all done -->
-                      <span v-if="part.total_pending === 0 && part.parts_in_store === 0 && part.parts_in_assembly === 0 && part.assembly_completed > 0" class="badge bg-success-subtle text-success border border-success px-2 py-1 extra-small">
-                        <i class="fas fa-check-circle me-1"></i> All Assembled
-                      </span>
                     </div>
                   </td>
 
@@ -622,7 +636,8 @@ const summaryStats = computed(() => {
     assembly_completed += (p.assembly_completed || 0);
   }
 
-  const completion_pct = total_required > 0 ? Math.round((total_received / total_required) * 100) : 0;
+  const received_pct = total_required > 0 ? Math.min(100, Math.max(0, Math.round((total_received / total_required) * 100))) : 0;
+  const completion_pct = total_required > 0 ? Math.min(100, Math.max(0, Math.round((assembly_completed / total_required) * 100))) : 0;
 
   return {
     total_required,
@@ -631,6 +646,7 @@ const summaryStats = computed(() => {
     parts_in_store,
     parts_in_assembly,
     assembly_completed,
+    received_pct,
     completion_pct,
   };
 });
@@ -826,5 +842,90 @@ onMounted(() => {
 }
 .bop-table th {
   letter-spacing: 0.03em;
+}
+
+/* Enterprise Workflow Toolbar Container */
+.bop-toolbar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 3px 5px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  gap: 4px;
+}
+
+/* Base Enterprise Action Button with Structural Gray Outline */
+.bop-btn-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 7px;
+  font-size: 0.70rem;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: 4px;
+  border: 1.5px solid #64748b;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.12s ease-in-out;
+  flex: 0 0 auto;
+  user-select: none;
+  text-decoration: none;
+}
+
+.bop-btn-action i {
+  font-size: 0.65rem;
+  margin-right: 3.5px;
+}
+
+.bop-btn-action:hover {
+  transform: translateY(-0.5px);
+  border-color: #334155;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.bop-btn-action:active {
+  transform: translateY(0);
+}
+
+/* Semantic Color Schemes (Restrained Pastel-Tint with High-Contrast Text & Structural Borders) */
+.bop-btn-receive {
+  background-color: #fffbeb;
+  color: #92400e;
+  border-color: #64748b;
+}
+.bop-btn-receive i { color: #d97706; }
+.bop-btn-receive:hover {
+  background-color: #fef3c7;
+  border-color: #334155;
+  color: #78350f;
+}
+
+.bop-btn-asm {
+  background-color: #faf5ff;
+  color: #6b21a8;
+  border-color: #64748b;
+}
+.bop-btn-asm i { color: #7c3aed; }
+.bop-btn-asm:hover {
+  background-color: #f3e8ff;
+  border-color: #334155;
+  color: #581c87;
+}
+
+.bop-btn-complete {
+  background-color: #f0fdf4;
+  color: #166534;
+  border-color: #64748b;
+}
+.bop-btn-complete i { color: #059669; }
+.bop-btn-complete:hover {
+  background-color: #dcfce7;
+  border-color: #334155;
+  color: #14532d;
 }
 </style>

@@ -513,4 +513,107 @@ class StdIntakeAndWorkflowTest extends TestCase
             'project_id' => $this->project->id,
         ])->assertStatus(422);
     }
+
+    /**
+     * Test 8: STD Progress calculation strictly reflects production completion (Completed / Required).
+     */
+    public function test_std_progress_calculation_strictly_reflects_production_completion(): void
+    {
+        $testPartNo = 'PROGRESS-STD-TEST-' . uniqid();
+        $item = BomItem::create([
+            'project_id' => $this->project->id,
+            'standard_part_no' => $testPartNo,
+            'part_type' => 'STD',
+            'supplier_id' => $this->supplier->id,
+            'jig_no' => 'JIG-PRG',
+            'unit_no' => 'Unit 1',
+        ]);
+        BomRequirement::create([
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'required_quantity' => 100,
+        ]);
+
+        // 1. Initial state: 0% Progress
+        $res = $this->getJson('/api/v1/std/parts?project_id=' . $this->project->id);
+        $part = collect($res->json('data.parts'))->firstWhere('standard_part_no', $testPartNo);
+        $this->assertEquals(0, $part['completion_pct']);
+
+        // 2. Receive 100 pcs into Store -> 0% Progress (receipt does not increase progress)
+        $this->postJson('/api/v1/std/transition', [
+            'standard_part_no' => $testPartNo,
+            'from_state' => 'pending',
+            'to_state' => 'store',
+            'quantity' => 100,
+            'project_id' => $this->project->id,
+        ])->assertStatus(200);
+
+        $res = $this->getJson('/api/v1/std/parts?project_id=' . $this->project->id);
+        $part = collect($res->json('data.parts'))->firstWhere('standard_part_no', $testPartNo);
+        $this->assertEquals(100, $part['total_received']);
+        $this->assertEquals(0, $part['completion_pct'], 'Store quantity must not increase progress');
+
+        // 3. Move 100 pcs to QC -> 0% Progress
+        $this->postJson('/api/v1/std/transition', [
+            'standard_part_no' => $testPartNo,
+            'from_state' => 'store',
+            'to_state' => 'qc',
+            'quantity' => 100,
+            'project_id' => $this->project->id,
+        ])->assertStatus(200);
+
+        $res = $this->getJson('/api/v1/std/parts?project_id=' . $this->project->id);
+        $part = collect($res->json('data.parts'))->firstWhere('standard_part_no', $testPartNo);
+        $this->assertEquals(100, $part['parts_in_qc']);
+        $this->assertEquals(0, $part['completion_pct'], 'QC quantity must not increase progress');
+
+        // 4. QC Route: Rework 20, Paint 40, Assembly 40 -> 0% Progress
+        $this->postJson('/api/v1/std/qc-route', [
+            'standard_part_no' => $testPartNo,
+            'rework_quantity' => 20,
+            'paint_quantity' => 40,
+            'assembly_quantity' => 40,
+            'project_id' => $this->project->id,
+        ])->assertStatus(200);
+
+        $res = $this->getJson('/api/v1/std/parts?project_id=' . $this->project->id);
+        $part = collect($res->json('data.parts'))->firstWhere('standard_part_no', $testPartNo);
+        $this->assertEquals(0, $part['completion_pct'], 'Rework/Paint/Assembly in-flight must not increase progress');
+
+        // 5. Complete 40 pcs in Assembly -> 40% Progress
+        $this->postJson('/api/v1/std/transition', [
+            'standard_part_no' => $testPartNo,
+            'from_state' => 'assembly',
+            'to_state' => 'completed',
+            'quantity' => 40,
+            'project_id' => $this->project->id,
+        ])->assertStatus(200);
+
+        $res = $this->getJson('/api/v1/std/parts?project_id=' . $this->project->id);
+        $part = collect($res->json('data.parts'))->firstWhere('standard_part_no', $testPartNo);
+        $this->assertEquals(40, $part['assembly_completed']);
+        $this->assertEquals(40, $part['completion_pct'], '40/100 completed must equal exactly 40%');
+
+        // 6. Move 40 from Paint to Assembly, then Complete -> 80% Progress
+        $this->postJson('/api/v1/std/transition', [
+            'standard_part_no' => $testPartNo,
+            'from_state' => 'paint',
+            'to_state' => 'assembly',
+            'quantity' => 40,
+            'project_id' => $this->project->id,
+        ])->assertStatus(200);
+
+        $this->postJson('/api/v1/std/transition', [
+            'standard_part_no' => $testPartNo,
+            'from_state' => 'assembly',
+            'to_state' => 'completed',
+            'quantity' => 40,
+            'project_id' => $this->project->id,
+        ])->assertStatus(200);
+
+        $res = $this->getJson('/api/v1/std/parts?project_id=' . $this->project->id);
+        $part = collect($res->json('data.parts'))->firstWhere('standard_part_no', $testPartNo);
+        $this->assertEquals(80, $part['assembly_completed']);
+        $this->assertEquals(80, $part['completion_pct'], '80/100 completed must equal 80%');
+    }
 }

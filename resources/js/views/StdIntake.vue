@@ -45,7 +45,7 @@
               <div class="p-2 rounded bg-success bg-opacity-10 border border-success-subtle text-center h-100">
                 <div class="text-success extra-small text-uppercase fw-bold">Total Received</div>
                 <div class="fs-4 fw-bold text-success">{{ summaryStats.total_received }}</div>
-                <div class="extra-small text-success">{{ summaryStats.completion_pct }}% received</div>
+                <div class="extra-small text-success">{{ summaryStats.received_pct }}% received</div>
               </div>
             </div>
 
@@ -373,15 +373,23 @@
 
                   <!-- Progress Bar Column -->
                   <td>
-                    <div class="d-flex align-items-center gap-2">
-                      <div class="progress flex-grow-1" style="height: 6px;">
-                        <div 
-                          class="progress-bar bg-success" 
-                          role="progressbar" 
-                          :style="{ width: part.completion_pct + '%' }"
-                        ></div>
+                    <div class="d-flex flex-column" style="min-width: 90px;">
+                      <div class="d-flex align-items-center gap-2">
+                        <div class="progress flex-grow-1" style="height: 6px; background-color: #e2e8f0;">
+                          <div 
+                            class="progress-bar bg-success" 
+                            role="progressbar" 
+                            :style="{ width: part.completion_pct + '%' }"
+                            :aria-valuenow="part.completion_pct"
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                          ></div>
+                        </div>
+                        <span class="extra-small fw-bold text-muted">{{ part.completion_pct }}%</span>
                       </div>
-                      <span class="extra-small fw-bold text-muted">{{ part.completion_pct }}%</span>
+                      <div class="extra-small text-muted text-nowrap mt-0.5" style="font-size: 0.68rem; line-height: 1;">
+                        {{ part.assembly_completed || 0 }} / {{ part.total_required || 0 }} done
+                      </div>
                     </div>
                   </td>
 
@@ -1114,7 +1122,8 @@ const summaryStats = computed(() => {
     assembly_completed += (p.assembly_completed || 0);
   }
 
-  const completion_pct = total_required > 0 ? Math.round((total_received / total_required) * 100) : 0;
+  const received_pct = total_required > 0 ? Math.min(100, Math.max(0, Math.round((total_received / total_required) * 100))) : 0;
+  const completion_pct = total_required > 0 ? Math.min(100, Math.max(0, Math.round((assembly_completed / total_required) * 100))) : 0;
 
   return {
     total_required,
@@ -1126,6 +1135,7 @@ const summaryStats = computed(() => {
     parts_in_paint,
     parts_in_assembly,
     assembly_completed,
+    received_pct,
     completion_pct,
   };
 });
