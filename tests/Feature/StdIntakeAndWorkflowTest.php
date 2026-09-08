@@ -350,4 +350,167 @@ class StdIntakeAndWorkflowTest extends TestCase
             'quantity' => 5,
         ])->assertStatus(422);
     }
+
+    /**
+     * Test 5: STD QC Route distributes quantity across Rework, Paint, and Assembly in one atomic action.
+     */
+    public function test_std_qc_three_way_routing_distributes_all_destinations_atomically(): void
+    {
+        // 1. Pending -> Store (30 pcs)
+        $this->postJson('/api/v1/std/transition', [
+            'standard_part_no' => $this->stdPartNo1,
+            'from_state' => 'pending',
+            'to_state' => 'store',
+            'quantity' => 30,
+            'project_id' => $this->project->id,
+        ])->assertStatus(200);
+
+        // 2. Store -> QC (30 pcs)
+        $this->postJson('/api/v1/std/transition', [
+            'standard_part_no' => $this->stdPartNo1,
+            'from_state' => 'store',
+            'to_state' => 'qc',
+            'quantity' => 30,
+            'project_id' => $this->project->id,
+        ])->assertStatus(200);
+
+        // 3. 3-Way QC Route: Rework: 5, Paint: 15, Assembly: 10 (Total 30)
+        $routeRes = $this->postJson('/api/v1/std/qc-route', [
+            'standard_part_no' => $this->stdPartNo1,
+            'rework_quantity' => 5,
+            'paint_quantity' => 15,
+            'assembly_quantity' => 10,
+            'project_id' => $this->project->id,
+        ]);
+
+        $routeRes->assertStatus(200);
+        $routeRes->assertJson([
+            'success' => true,
+            'data' => [
+                'standard_part_no' => $this->stdPartNo1,
+                'rework_quantity' => 5,
+                'paint_quantity' => 15,
+                'assembly_quantity' => 10,
+                'total_routed' => 30,
+                'qc_remaining' => 0,
+            ],
+        ]);
+
+        // 4. Verify aggregated parts state
+        $res = $this->getJson('/api/v1/std/parts?project_id=' . $this->project->id);
+        $res->assertStatus(200);
+        $part = collect($res->json('data.parts'))->firstWhere('standard_part_no', $this->stdPartNo1);
+
+        $this->assertEquals(0, $part['parts_in_qc'], 'QC should be fully depleted.');
+        $this->assertEquals(5, $part['parts_in_rework'], 'Rework should receive exactly 5 pcs.');
+        $this->assertEquals(15, $part['parts_in_paint'], 'Paint should receive exactly 15 pcs.');
+        $this->assertEquals(10, $part['parts_in_assembly'], 'Assembly should receive exactly 10 pcs.');
+    }
+
+    /**
+     * Test 6: STD QC partial routing leaves remaining quantity in QC.
+     */
+    public function test_std_qc_partial_routing_leaves_remainder_in_qc(): void
+    {
+        // 1. Pending -> Store (30 pcs)
+        $this->postJson('/api/v1/std/transition', [
+            'standard_part_no' => $this->stdPartNo1,
+            'from_state' => 'pending',
+            'to_state' => 'store',
+            'quantity' => 30,
+            'project_id' => $this->project->id,
+        ])->assertStatus(200);
+
+        // 2. Store -> QC (30 pcs)
+        $this->postJson('/api/v1/std/transition', [
+            'standard_part_no' => $this->stdPartNo1,
+            'from_state' => 'store',
+            'to_state' => 'qc',
+            'quantity' => 30,
+            'project_id' => $this->project->id,
+        ])->assertStatus(200);
+
+        // 3. Partial 3-Way QC Route: Rework: 5, Paint: 10, Assembly: 5 (Total 20, Remainder 10 in QC)
+        $routeRes = $this->postJson('/api/v1/std/qc-route', [
+            'standard_part_no' => $this->stdPartNo1,
+            'rework_quantity' => 5,
+            'paint_quantity' => 10,
+            'assembly_quantity' => 5,
+            'project_id' => $this->project->id,
+        ]);
+
+        $routeRes->assertStatus(200);
+        $routeRes->assertJson([
+            'success' => true,
+            'data' => [
+                'standard_part_no' => $this->stdPartNo1,
+                'rework_quantity' => 5,
+                'paint_quantity' => 10,
+                'assembly_quantity' => 5,
+                'total_routed' => 20,
+                'qc_remaining' => 10,
+            ],
+        ]);
+
+        // 4. Verify aggregated parts state
+        $res = $this->getJson('/api/v1/std/parts?project_id=' . $this->project->id);
+        $res->assertStatus(200);
+        $part = collect($res->json('data.parts'))->firstWhere('standard_part_no', $this->stdPartNo1);
+
+        $this->assertEquals(10, $part['parts_in_qc'], 'QC should retain 10 pcs.');
+        $this->assertEquals(5, $part['parts_in_rework'], 'Rework should receive 5 pcs.');
+        $this->assertEquals(10, $part['parts_in_paint'], 'Paint should receive 10 pcs.');
+        $this->assertEquals(5, $part['parts_in_assembly'], 'Assembly should receive 5 pcs.');
+    }
+
+    /**
+     * Test 7: STD QC Route strictly rejects over-allocation and invalid inputs.
+     */
+    public function test_std_qc_route_rejects_over_allocation_and_invalid_inputs(): void
+    {
+        // 1. Pending -> Store (20 pcs)
+        $this->postJson('/api/v1/std/transition', [
+            'standard_part_no' => $this->stdPartNo1,
+            'from_state' => 'pending',
+            'to_state' => 'store',
+            'quantity' => 20,
+            'project_id' => $this->project->id,
+        ])->assertStatus(200);
+
+        // 2. Store -> QC (20 pcs)
+        $this->postJson('/api/v1/std/transition', [
+            'standard_part_no' => $this->stdPartNo1,
+            'from_state' => 'store',
+            'to_state' => 'qc',
+            'quantity' => 20,
+            'project_id' => $this->project->id,
+        ])->assertStatus(200);
+
+        // Attempt Over-allocation: 10 + 10 + 5 = 25 (Available is 20) -> 422
+        $this->postJson('/api/v1/std/qc-route', [
+            'standard_part_no' => $this->stdPartNo1,
+            'rework_quantity' => 10,
+            'paint_quantity' => 10,
+            'assembly_quantity' => 5,
+            'project_id' => $this->project->id,
+        ])->assertStatus(422);
+
+        // Attempt Total 0 -> 422
+        $this->postJson('/api/v1/std/qc-route', [
+            'standard_part_no' => $this->stdPartNo1,
+            'rework_quantity' => 0,
+            'paint_quantity' => 0,
+            'assembly_quantity' => 0,
+            'project_id' => $this->project->id,
+        ])->assertStatus(422);
+
+        // Attempt Negative Quantity -> 422
+        $this->postJson('/api/v1/std/qc-route', [
+            'standard_part_no' => $this->stdPartNo1,
+            'rework_quantity' => -5,
+            'paint_quantity' => 10,
+            'assembly_quantity' => 5,
+            'project_id' => $this->project->id,
+        ])->assertStatus(422);
+    }
 }

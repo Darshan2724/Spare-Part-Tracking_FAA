@@ -154,4 +154,64 @@ class StdIntakeController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Atomically route available STD QC quantity across Rework, Paint, and Assembly destinations.
+     */
+    public function qcRoute(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'standard_part_no' => 'required|string',
+            'rework_quantity' => 'nullable|integer|min:0',
+            'paint_quantity' => 'nullable|integer|min:0',
+            'assembly_quantity' => 'nullable|integer|min:0',
+            'project_id' => 'nullable|integer',
+            'remarks' => 'nullable|string',
+        ]);
+
+        try {
+            $userId = $request->user()?->id ?? 1;
+
+            $options = [
+                'project_id' => !empty($validated['project_id']) ? (int) $validated['project_id'] : null,
+                'remarks' => $validated['remarks'] ?? null,
+                'user_id' => $userId,
+            ];
+
+            $result = $this->stdIntakeService->routeQcQuantities(
+                partNo: $validated['standard_part_no'],
+                reworkQty: (int) ($validated['rework_quantity'] ?? 0),
+                paintQty: (int) ($validated['paint_quantity'] ?? 0),
+                assemblyQty: (int) ($validated['assembly_quantity'] ?? 0),
+                options: $options
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => $result['message'] ?? 'Successfully routed QC parts.',
+                'data' => $result,
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => collect($e->errors())->flatten()->first() ?: $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (\Throwable $e) {
+            Log::error('StdIntakeController::qcRoute failed: ' . $e->getMessage(), [
+                'request' => $request->all(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to route STD QC parts: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
 }

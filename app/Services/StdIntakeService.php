@@ -1194,4 +1194,322 @@ class StdIntakeService
             ];
         });
     }
+
+    /**
+     * Atomically distribute available STD QC quantity across Rework, Paint, and Assembly destinations.
+     */
+    public function routeQcQuantities(
+        string $partNo,
+        int $reworkQty = 0,
+        int $paintQty = 0,
+        int $assemblyQty = 0,
+        array $options = []
+    ): array {
+        $projectId = !empty($options['project_id']) ? (int)$options['project_id'] : null;
+        $userId = $options['user_id'] ?? 1;
+        $remarks = $options['remarks'] ?? null;
+
+        if ($reworkQty < 0 || $paintQty < 0 || $assemblyQty < 0) {
+            throw ValidationException::withMessages([
+                'quantity' => ['Destination quantities cannot be negative.'],
+            ]);
+        }
+
+        $totalRequested = $reworkQty + $paintQty + $assemblyQty;
+        if ($totalRequested <= 0) {
+            throw ValidationException::withMessages([
+                'quantity' => ['Total quantity to route must be greater than zero.'],
+            ]);
+        }
+
+        return DB::transaction(function () use (
+            $partNo,
+            $reworkQty,
+            $paintQty,
+            $assemblyQty,
+            $totalRequested,
+            $projectId,
+            $userId,
+            $remarks
+        ) {
+            $query = BomItem::query()
+                ->where('part_type', 'STD')
+                ->where('standard_part_no', $partNo);
+
+            if ($projectId) {
+                $query->where('project_id', $projectId);
+            }
+
+            $items = $query->lockForUpdate()->get();
+
+            if ($items->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'standard_part_no' => ["STD part '{$partNo}' was not found."],
+                ]);
+            }
+
+            $bomItemIds = $items->pluck('id')->toArray();
+
+            $receiptItems = ReceiptItem::whereIn('bom_item_id', $bomItemIds)
+                ->where('status', 'qc_received')
+                ->orderBy('bom_item_id', 'asc')
+                ->orderBy('id', 'asc')
+                ->lockForUpdate()
+                ->get();
+
+            $totalAvailable = (int)$receiptItems->sum('received_quantity');
+
+            if ($totalRequested > $totalAvailable) {
+                throw ValidationException::withMessages([
+                    'quantity' => ["Cannot route {$totalRequested} pcs. Only {$totalAvailable} pcs were available in QC."],
+                ]);
+            }
+
+            $remRework = $reworkQty;
+            $remPaint = $paintQty;
+            $remAssembly = $assemblyQty;
+            $allocations = [];
+
+            // 1. Allocate Rework
+            if ($remRework > 0) {
+                foreach ($receiptItems as $rec) {
+                    if ($rec->status !== 'qc_received') continue;
+                    $available = (int)$rec->received_quantity;
+                    if ($available <= 0) continue;
+
+                    $take = min($remRework, $available);
+                    $item = $items->firstWhere('id', $rec->bom_item_id);
+
+                    $insp = QcInspection::create([
+                        'receipt_item_id' => $rec->id,
+                        'bom_item_id' => $rec->bom_item_id,
+                        'side' => $rec->side,
+                        'inspected_quantity' => $take,
+                        'inspector_id' => $userId,
+                        'inspected_by' => $userId,
+                        'inspection_date' => now(),
+                        'approved_quantity' => 0,
+                        'rejected_quantity' => 0,
+                        'rework_quantity' => $take,
+                        'result' => 'rework',
+                        'notes' => $remarks ?: 'STD QC Defect -> Rework',
+                        'remarks' => $remarks ?: 'STD QC Defect -> Rework',
+                        'destination' => null,
+                    ]);
+
+                    ReworkRecord::create([
+                        'qc_inspection_id' => $insp->id,
+                        'bom_item_id' => $rec->bom_item_id,
+                        'side' => $rec->side,
+                        'quantity' => $take,
+                        'status' => 'pending',
+                        'defect_description' => $remarks ?: 'STD Quality Defect',
+                    ]);
+
+                    if ($take < $available) {
+                        $remQty = $available - $take;
+                        $remItem = $rec->replicate();
+                        $remItem->received_quantity = $remQty;
+                        $remItem->status = 'qc_received';
+                        $remItem->save();
+
+                        $rec->received_quantity = $take;
+                        $rec->status = 'qc_rework';
+                        $rec->save();
+                    } else {
+                        $rec->update(['status' => 'qc_rework']);
+                    }
+
+                    WorkflowEvent::create([
+                        'bom_item_id' => $rec->bom_item_id,
+                        'project_id' => $item->project_id,
+                        'user_id' => $userId,
+                        'event_type' => 'qc_routed_rework',
+                        'side' => $rec->side,
+                        'quantity' => $take,
+                        'previous_state' => 'qc_received',
+                        'new_state' => 'rework',
+                        'remarks' => "STD QC -> Rework: {$take} pcs for {$partNo} ({$item->jig_no}/Unit {$item->unit_no}/{$rec->side}).",
+                    ]);
+
+                    $allocations[] = [
+                        'destination' => 'rework',
+                        'bom_item_id' => $rec->bom_item_id,
+                        'unit_no' => $item->unit_no,
+                        'side' => $rec->side,
+                        'quantity' => $take,
+                    ];
+
+                    $remRework -= $take;
+                    if ($remRework <= 0) break;
+                }
+            }
+
+            // 2. Allocate Paint
+            if ($remPaint > 0) {
+                $eligiblePaintRecs = ReceiptItem::whereIn('bom_item_id', $bomItemIds)
+                    ->where('status', 'qc_received')
+                    ->orderBy('bom_item_id', 'asc')
+                    ->orderBy('id', 'asc')
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($eligiblePaintRecs as $rec) {
+                    $available = (int)$rec->received_quantity;
+                    if ($available <= 0) continue;
+
+                    $take = min($remPaint, $available);
+                    $item = $items->firstWhere('id', $rec->bom_item_id);
+
+                    $insp = QcInspection::create([
+                        'receipt_item_id' => $rec->id,
+                        'bom_item_id' => $rec->bom_item_id,
+                        'side' => $rec->side,
+                        'inspected_quantity' => $take,
+                        'inspector_id' => $userId,
+                        'inspected_by' => $userId,
+                        'inspection_date' => now(),
+                        'approved_quantity' => $take,
+                        'rejected_quantity' => 0,
+                        'rework_quantity' => 0,
+                        'result' => 'approved',
+                        'notes' => $remarks ?: 'STD QC Approved for Paint',
+                        'remarks' => $remarks ?: 'STD QC Approved for Paint',
+                        'destination' => 'PAINT',
+                    ]);
+
+                    PaintRecord::create([
+                        'qc_inspection_id' => $insp->id,
+                        'bom_item_id' => $rec->bom_item_id,
+                        'side' => $rec->side,
+                        'quantity' => $take,
+                        'status' => 'pending',
+                    ]);
+
+                    if ($take < $available) {
+                        $remQty = $available - $take;
+                        $remItem = $rec->replicate();
+                        $remItem->received_quantity = $remQty;
+                        $remItem->status = 'qc_received';
+                        $remItem->save();
+
+                        $rec->received_quantity = $take;
+                        $rec->status = 'qc_approved';
+                        $rec->save();
+                    } else {
+                        $rec->update(['status' => 'qc_approved']);
+                    }
+
+                    WorkflowEvent::create([
+                        'bom_item_id' => $rec->bom_item_id,
+                        'project_id' => $item->project_id,
+                        'user_id' => $userId,
+                        'event_type' => 'qc_routed_paint',
+                        'side' => $rec->side,
+                        'quantity' => $take,
+                        'previous_state' => 'qc_received',
+                        'new_state' => 'paint',
+                        'remarks' => "STD QC -> Paint: {$take} pcs for {$partNo} ({$item->jig_no}/Unit {$item->unit_no}/{$rec->side}).",
+                    ]);
+
+                    $allocations[] = [
+                        'destination' => 'paint',
+                        'bom_item_id' => $rec->bom_item_id,
+                        'unit_no' => $item->unit_no,
+                        'side' => $rec->side,
+                        'quantity' => $take,
+                    ];
+
+                    $remPaint -= $take;
+                    if ($remPaint <= 0) break;
+                }
+            }
+
+            // 3. Allocate Assembly
+            if ($remAssembly > 0) {
+                $eligibleAsmRecs = ReceiptItem::whereIn('bom_item_id', $bomItemIds)
+                    ->where('status', 'qc_received')
+                    ->orderBy('bom_item_id', 'asc')
+                    ->orderBy('id', 'asc')
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($eligibleAsmRecs as $rec) {
+                    $available = (int)$rec->received_quantity;
+                    if ($available <= 0) continue;
+
+                    $take = min($remAssembly, $available);
+                    $item = $items->firstWhere('id', $rec->bom_item_id);
+
+                    QcInspection::create([
+                        'receipt_item_id' => $rec->id,
+                        'bom_item_id' => $rec->bom_item_id,
+                        'side' => $rec->side,
+                        'inspected_quantity' => $take,
+                        'inspector_id' => $userId,
+                        'inspected_by' => $userId,
+                        'inspection_date' => now(),
+                        'approved_quantity' => $take,
+                        'rejected_quantity' => 0,
+                        'rework_quantity' => 0,
+                        'result' => 'approved',
+                        'notes' => $remarks ?: 'STD QC Approved for Direct Assembly',
+                        'remarks' => $remarks ?: 'STD QC Approved for Direct Assembly',
+                        'destination' => 'ASSEMBLY',
+                    ]);
+
+                    if ($take < $available) {
+                        $remQty = $available - $take;
+                        $remItem = $rec->replicate();
+                        $remItem->received_quantity = $remQty;
+                        $remItem->status = 'qc_received';
+                        $remItem->save();
+
+                        $rec->received_quantity = $take;
+                        $rec->status = 'qc_approved';
+                        $rec->save();
+                    } else {
+                        $rec->update(['status' => 'qc_approved']);
+                    }
+
+                    WorkflowEvent::create([
+                        'bom_item_id' => $rec->bom_item_id,
+                        'project_id' => $item->project_id,
+                        'user_id' => $userId,
+                        'event_type' => 'qc_routed_assembly',
+                        'side' => $rec->side,
+                        'quantity' => $take,
+                        'previous_state' => 'qc_received',
+                        'new_state' => 'assembly',
+                        'remarks' => "STD QC -> Assembly: {$take} pcs for {$partNo} ({$item->jig_no}/Unit {$item->unit_no}/{$rec->side}).",
+                    ]);
+
+                    $allocations[] = [
+                        'destination' => 'assembly',
+                        'bom_item_id' => $rec->bom_item_id,
+                        'unit_no' => $item->unit_no,
+                        'side' => $rec->side,
+                        'quantity' => $take,
+                    ];
+
+                    $remAssembly -= $take;
+                    if ($remAssembly <= 0) break;
+                }
+            }
+
+            $remainingInQc = max(0, $totalAvailable - $totalRequested);
+
+            return [
+                'success' => true,
+                'standard_part_no' => $partNo,
+                'rework_quantity' => $reworkQty,
+                'paint_quantity' => $paintQty,
+                'assembly_quantity' => $assemblyQty,
+                'total_routed' => $totalRequested,
+                'qc_remaining' => $remainingInQc,
+                'allocations' => $allocations,
+                'message' => "Successfully routed {$totalRequested} pcs of {$partNo} (Rework: {$reworkQty}, Paint: {$paintQty}, Assembly: {$assemblyQty}).",
+            ];
+        });
+    }
 }

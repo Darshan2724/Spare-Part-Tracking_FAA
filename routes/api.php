@@ -240,6 +240,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::get('/parts', [StdIntakeController::class, 'index']);
             Route::get('/parts/{partNo}/breakdown', [StdIntakeController::class, 'breakdown']);
             Route::post('/transition', [StdIntakeController::class, 'transition']);
+            Route::post('/qc-route', [StdIntakeController::class, 'qcRoute']);
         });
     });
 });

@@ -425,10 +425,10 @@
                         v-if="part.parts_in_rework > 0" 
                         class="btn btn-sm text-white fw-semibold" 
                         style="background-color: #ea580c;"
-                        title="Complete rework and return to QC inspection"
+                        title="Route reworked parts back to QC inspection"
                         @click="openTransitionModal(part, 'rework', 'qc')"
                       >
-                        <i class="fas fa-tools me-1"></i> Fix Done
+                        <i class="fas fa-tools me-1"></i> Rework
                       </button>
 
                       <!-- 5. Paint -> Assembly -->
@@ -593,27 +593,218 @@
                 <h5 class="fw-bold font-monospace text-dark mt-1 mb-0">{{ selectedPart.standard_part_no }}</h5>
               </div>
 
-              <!-- FROM -> TO SELECTION -->
-              <div class="row g-2 mb-3">
-                <div class="col-6">
-                  <label class="form-label extra-small fw-bold text-muted text-uppercase mb-1">Source Department</label>
-                  <select v-model="transitionForm.from_state" class="form-select form-select-sm" @change="onSourceStateChange">
-                    <option value="pending">Pending Intake ({{ selectedPart.total_pending || 0 }})</option>
-                    <option value="store">Store Bay ({{ selectedPart.parts_in_store || 0 }})</option>
-                    <option value="qc">QC Bay ({{ selectedPart.parts_in_qc || 0 }})</option>
-                    <option value="rework">Rework Shop ({{ selectedPart.parts_in_rework || 0 }})</option>
-                    <option value="paint">Paint Shop ({{ selectedPart.parts_in_paint || 0 }})</option>
-                    <option value="assembly">Assembly Bay ({{ selectedPart.parts_in_assembly || 0 }})</option>
-                  </select>
+              <!-- SOURCE SELECTION -->
+              <div class="mb-3">
+                <label class="form-label extra-small fw-bold text-muted text-uppercase mb-1">Source Department</label>
+                <select v-model="transitionForm.from_state" class="form-select form-select-sm" @change="onSourceStateChange">
+                  <option value="pending">Pending Intake ({{ selectedPart.total_pending || 0 }})</option>
+                  <option value="store">Store Bay ({{ selectedPart.parts_in_store || 0 }})</option>
+                  <option value="qc">QC Bay ({{ selectedPart.parts_in_qc || 0 }})</option>
+                  <option value="rework">Rework Shop ({{ selectedPart.parts_in_rework || 0 }})</option>
+                  <option value="paint">Paint Shop ({{ selectedPart.parts_in_paint || 0 }})</option>
+                  <option value="assembly">Assembly Bay ({{ selectedPart.parts_in_assembly || 0 }})</option>
+                </select>
+              </div>
+
+              <!-- IF QC BAY: 3-WAY DESTINATION ALLOCATION (REWORK, PAINT, ASSEMBLY) -->
+              <div v-if="transitionForm.from_state === 'qc'" class="mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <label class="form-label extra-small fw-bold text-muted text-uppercase mb-0">
+                    <i class="fas fa-sitemap me-1 text-teal"></i> Route to Destinations
+                  </label>
+                  <button 
+                    type="button" 
+                    class="btn btn-outline-secondary btn-sm py-0 px-2 extra-small"
+                    @click="clearQcAllocations"
+                    :disabled="totalQcAllocated === 0"
+                  >
+                    <i class="fas fa-eraser me-1"></i> Clear All
+                  </button>
                 </div>
-                <div class="col-6">
+
+                <!-- 1. REWORK DESTINATION -->
+                <div class="card border mb-2 shadow-none" style="border-left: 4px solid #ea580c !important;">
+                  <div class="card-body p-2.5">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <span class="fw-bold fs-7 text-dark">
+                        <i class="fas fa-tools me-1" style="color: #ea580c;"></i> Rework Shop
+                      </span>
+                      <span class="extra-small text-muted">Quality defect loop</span>
+                    </div>
+                    <div class="input-group input-group-sm">
+                      <span class="input-group-text bg-white extra-small fw-semibold text-muted">Rework Qty</span>
+                      <button 
+                        class="btn btn-outline-secondary" 
+                        type="button" 
+                        @click="stepQcQty('rework', -1)"
+                        :disabled="qcRouteForm.rework_quantity <= 0"
+                      >
+                        <i class="fas fa-minus"></i>
+                      </button>
+                      <input 
+                        type="number" 
+                        v-model.number="qcRouteForm.rework_quantity" 
+                        min="0" 
+                        :max="maxAvailableQuantity" 
+                        class="form-control text-center fw-bold fs-6" 
+                        placeholder="0"
+                      />
+                      <button 
+                        class="btn btn-outline-secondary" 
+                        type="button" 
+                        @click="stepQcQty('rework', 1)"
+                        :disabled="totalQcAllocated >= maxAvailableQuantity"
+                      >
+                        <i class="fas fa-plus"></i>
+                      </button>
+                      <button 
+                        class="btn btn-sm fw-bold text-white" 
+                        style="background-color: #ea580c;"
+                        type="button" 
+                        @click="setQcMax('rework')"
+                      >
+                        Max
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 2. PAINT DESTINATION -->
+                <div class="card border mb-2 shadow-none" style="border-left: 4px solid #7c3aed !important;">
+                  <div class="card-body p-2.5">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <span class="fw-bold fs-7 text-dark">
+                        <i class="fas fa-paint-roller me-1" style="color: #7c3aed;"></i> Paint Shop
+                      </span>
+                      <span class="extra-small text-muted">Surface coating</span>
+                    </div>
+                    <div class="input-group input-group-sm">
+                      <span class="input-group-text bg-white extra-small fw-semibold text-muted">Paint Qty</span>
+                      <button 
+                        class="btn btn-outline-secondary" 
+                        type="button" 
+                        @click="stepQcQty('paint', -1)"
+                        :disabled="qcRouteForm.paint_quantity <= 0"
+                      >
+                        <i class="fas fa-minus"></i>
+                      </button>
+                      <input 
+                        type="number" 
+                        v-model.number="qcRouteForm.paint_quantity" 
+                        min="0" 
+                        :max="maxAvailableQuantity" 
+                        class="form-control text-center fw-bold fs-6" 
+                        placeholder="0"
+                      />
+                      <button 
+                        class="btn btn-outline-secondary" 
+                        type="button" 
+                        @click="stepQcQty('paint', 1)"
+                        :disabled="totalQcAllocated >= maxAvailableQuantity"
+                      >
+                        <i class="fas fa-plus"></i>
+                      </button>
+                      <button 
+                        class="btn btn-sm fw-bold text-white" 
+                        style="background-color: #7c3aed;"
+                        type="button" 
+                        @click="setQcMax('paint')"
+                      >
+                        Max
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 3. ASSEMBLY DESTINATION -->
+                <div class="card border mb-2 shadow-none" style="border-left: 4px solid #db2777 !important;">
+                  <div class="card-body p-2.5">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <span class="fw-bold fs-7 text-dark">
+                        <i class="fas fa-cogs me-1" style="color: #db2777;"></i> Direct Assembly
+                      </span>
+                      <span class="extra-small text-muted">Bypass paint to assembly</span>
+                    </div>
+                    <div class="input-group input-group-sm">
+                      <span class="input-group-text bg-white extra-small fw-semibold text-muted">Assembly Qty</span>
+                      <button 
+                        class="btn btn-outline-secondary" 
+                        type="button" 
+                        @click="stepQcQty('assembly', -1)"
+                        :disabled="qcRouteForm.assembly_quantity <= 0"
+                      >
+                        <i class="fas fa-minus"></i>
+                      </button>
+                      <input 
+                        type="number" 
+                        v-model.number="qcRouteForm.assembly_quantity" 
+                        min="0" 
+                        :max="maxAvailableQuantity" 
+                        class="form-control text-center fw-bold fs-6" 
+                        placeholder="0"
+                      />
+                      <button 
+                        class="btn btn-outline-secondary" 
+                        type="button" 
+                        @click="stepQcQty('assembly', 1)"
+                        :disabled="totalQcAllocated >= maxAvailableQuantity"
+                      >
+                        <i class="fas fa-plus"></i>
+                      </button>
+                      <button 
+                        class="btn btn-sm fw-bold text-white" 
+                        style="background-color: #db2777;"
+                        type="button" 
+                        @click="setQcMax('assembly')"
+                      >
+                        Max
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- ALLOCATION SUMMARY BAR -->
+                <div 
+                  class="p-2.5 rounded border mt-2" 
+                  :class="totalQcAllocated > maxAvailableQuantity ? 'bg-danger-subtle border-danger' : 'bg-light border-secondary-subtle'"
+                >
+                  <div class="d-flex justify-content-between align-items-center fs-7">
+                    <div>
+                      <span class="text-muted me-1">Available in QC:</span>
+                      <strong class="text-dark">{{ maxAvailableQuantity }}</strong>
+                    </div>
+                    <div>
+                      <span class="text-muted me-1">Allocated:</span>
+                      <strong :class="totalQcAllocated > maxAvailableQuantity ? 'text-danger' : 'text-primary'">
+                        {{ totalQcAllocated }}
+                      </strong>
+                    </div>
+                    <div>
+                      <span class="text-muted me-1">Remaining in QC:</span>
+                      <strong :class="remainingQcAvailable < 0 ? 'text-danger' : 'text-success'">
+                        {{ remainingQcAvailable }}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div v-if="totalQcAllocated > maxAvailableQuantity" class="extra-small text-danger fw-bold mt-1">
+                    <i class="fas fa-exclamation-triangle me-1"></i>
+                    Over-allocation: Total entered ({{ totalQcAllocated }}) exceeds available QC quantity ({{ maxAvailableQuantity }}).
+                  </div>
+                  <div v-else-if="totalQcAllocated > 0 && remainingQcAvailable > 0" class="extra-small text-muted mt-1">
+                    <i class="fas fa-info-circle me-1 text-info"></i>
+                    Partial route: {{ remainingQcAvailable }} pcs will remain in QC Inspection.
+                  </div>
+                </div>
+              </div>
+
+              <!-- IF NON-QC: STANDARD SINGLE TARGET DEPARTMENT & QUANTITY INPUT -->
+              <div v-else>
+                <div class="mb-3">
                   <label class="form-label extra-small fw-bold text-muted text-uppercase mb-1">Target Department</label>
                   <select v-model="transitionForm.to_state" class="form-select form-select-sm">
                     <option v-if="transitionForm.from_state === 'pending'" value="store">Store Bay</option>
                     <option v-if="transitionForm.from_state === 'store'" value="qc">QC Bay</option>
-                    <option v-if="transitionForm.from_state === 'qc'" value="assembly">Direct Assembly</option>
-                    <option v-if="transitionForm.from_state === 'qc'" value="paint">Paint Shop</option>
-                    <option v-if="transitionForm.from_state === 'qc'" value="rework">Rework Shop</option>
                     <option v-if="transitionForm.from_state === 'rework'" value="qc">QC Inspection</option>
                     <option v-if="transitionForm.from_state === 'rework'" value="paint">Paint Shop</option>
                     <option v-if="transitionForm.from_state === 'rework'" value="assembly">Direct Assembly</option>
@@ -621,58 +812,58 @@
                     <option v-if="transitionForm.from_state === 'assembly'" value="completed">Completed</option>
                   </select>
                 </div>
-              </div>
 
-              <!-- QUANTITY INPUT WITH STEPPERS -->
-              <div class="mb-3">
-                <label class="form-label fw-bold d-flex justify-content-between align-items-center">
-                  <span><i class="fas fa-cubes me-1 text-teal"></i> Quantity to Move</span>
-                  <span class="badge bg-light text-dark border">Available: {{ maxAvailableQuantity }}</span>
-                </label>
+                <!-- QUANTITY INPUT WITH STEPPERS -->
+                <div class="mb-3">
+                  <label class="form-label fw-bold d-flex justify-content-between align-items-center">
+                    <span><i class="fas fa-cubes me-1 text-teal"></i> Quantity to Move</span>
+                    <span class="badge bg-light text-dark border">Available: {{ maxAvailableQuantity }}</span>
+                  </label>
 
-                <div class="input-group input-group-lg">
-                  <button 
-                    class="btn btn-outline-secondary" 
-                    type="button" 
-                    @click="stepQuantity(-1)"
-                    :disabled="transitionForm.quantity <= 1"
-                  >
-                    <i class="fas fa-minus"></i>
-                  </button>
+                  <div class="input-group input-group-lg">
+                    <button 
+                      class="btn btn-outline-secondary" 
+                      type="button" 
+                      @click="stepQuantity(-1)"
+                      :disabled="transitionForm.quantity <= 1"
+                    >
+                      <i class="fas fa-minus"></i>
+                    </button>
 
-                  <input 
-                    type="number" 
-                    v-model.number="transitionForm.quantity" 
-                    min="1" 
-                    :max="maxAvailableQuantity" 
-                    class="form-control text-center fw-bold fs-4" 
-                    placeholder="Enter quantity"
-                  />
+                    <input 
+                      type="number" 
+                      v-model.number="transitionForm.quantity" 
+                      min="1" 
+                      :max="maxAvailableQuantity" 
+                      class="form-control text-center fw-bold fs-4" 
+                      placeholder="Enter quantity"
+                    />
 
-                  <button 
-                    class="btn btn-outline-secondary" 
-                    type="button" 
-                    @click="stepQuantity(1)"
-                    :disabled="transitionForm.quantity >= maxAvailableQuantity"
-                  >
-                    <i class="fas fa-plus"></i>
-                  </button>
+                    <button 
+                      class="btn btn-outline-secondary" 
+                      type="button" 
+                      @click="stepQuantity(1)"
+                      :disabled="transitionForm.quantity >= maxAvailableQuantity"
+                    >
+                      <i class="fas fa-plus"></i>
+                    </button>
 
-                  <button 
-                    class="btn btn-teal text-white fw-bold" 
-                    type="button" 
-                    @click="transitionForm.quantity = maxAvailableQuantity"
-                  >
-                    Max
-                  </button>
-                </div>
-                <div class="form-text extra-small text-muted mt-1">
-                  Quantity will be automatically allocated across target projects/units in FIFO order.
+                    <button 
+                      class="btn btn-teal text-white fw-bold" 
+                      type="button" 
+                      @click="transitionForm.quantity = maxAvailableQuantity"
+                    >
+                      Max
+                    </button>
+                  </div>
+                  <div class="form-text extra-small text-muted mt-1">
+                    Quantity will be automatically allocated across target projects/units in FIFO order.
+                  </div>
                 </div>
               </div>
 
               <!-- PROJECT RESTRICTION (OPTIONAL) -->
-              <div v-if="selectedProjectId" class="alert alert-info py-2 px-3 extra-small mb-0">
+              <div v-if="selectedProjectId" class="alert alert-info py-2 px-3 extra-small mb-0 mt-2">
                 <i class="fas fa-info-circle me-1"></i> Allocation will be constrained to the selected project filter.
               </div>
             </div>
@@ -680,7 +871,22 @@
 
           <div class="modal-footer bg-light">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+
+            <!-- When from_state === 'qc' -->
             <button 
+              v-if="transitionForm.from_state === 'qc'"
+              type="button" 
+              class="btn btn-teal text-white fw-bold" 
+              @click="submitQcRoute" 
+              :disabled="submitting || isQcAllocationInvalid"
+            >
+              <i class="fas fa-check me-1" :class="{ 'fa-spin': submitting }"></i>
+              {{ submitting ? 'Processing...' : 'Confirm QC Route' }}
+            </button>
+
+            <!-- When from_state !== 'qc' -->
+            <button 
+              v-else
               type="button" 
               class="btn btn-teal text-white fw-bold" 
               @click="submitTransition" 
@@ -727,6 +933,55 @@ const transitionForm = ref({
   to_state: 'store',
   quantity: 1,
 });
+
+const qcRouteForm = ref({
+  rework_quantity: 0,
+  paint_quantity: 0,
+  assembly_quantity: 0,
+});
+
+const totalQcAllocated = computed(() => {
+  const r = parseInt(qcRouteForm.value.rework_quantity) || 0;
+  const p = parseInt(qcRouteForm.value.paint_quantity) || 0;
+  const a = parseInt(qcRouteForm.value.assembly_quantity) || 0;
+  return r + p + a;
+});
+
+const remainingQcAvailable = computed(() => {
+  return maxAvailableQuantity.value - totalQcAllocated.value;
+});
+
+const isQcAllocationInvalid = computed(() => {
+  const r = parseInt(qcRouteForm.value.rework_quantity) || 0;
+  const p = parseInt(qcRouteForm.value.paint_quantity) || 0;
+  const a = parseInt(qcRouteForm.value.assembly_quantity) || 0;
+  if (r < 0 || p < 0 || a < 0) return true;
+  if (totalQcAllocated.value <= 0) return true;
+  if (totalQcAllocated.value > maxAvailableQuantity.value) return true;
+  return false;
+});
+
+function stepQcQty(dest, delta) {
+  const key = dest + '_quantity';
+  const current = parseInt(qcRouteForm.value[key]) || 0;
+  const next = current + delta;
+  if (next < 0) return;
+  if (delta > 0 && totalQcAllocated.value >= maxAvailableQuantity.value) return;
+  qcRouteForm.value[key] = next;
+}
+
+function setQcMax(dest) {
+  const key = dest + '_quantity';
+  const otherSum = totalQcAllocated.value - (parseInt(qcRouteForm.value[key]) || 0);
+  const remaining = Math.max(0, maxAvailableQuantity.value - otherSum);
+  qcRouteForm.value[key] = remaining;
+}
+
+function clearQcAllocations() {
+  qcRouteForm.value.rework_quantity = 0;
+  qcRouteForm.value.paint_quantity = 0;
+  qcRouteForm.value.assembly_quantity = 0;
+}
 
 // Fetch STD parts list from backend
 async function fetchStdData() {
@@ -884,6 +1139,12 @@ function openTransitionModal(part, fromState, toState) {
     quantity: 1,
   };
 
+  qcRouteForm.value = {
+    rework_quantity: 0,
+    paint_quantity: 0,
+    assembly_quantity: 0,
+  };
+
   const max = getMaxQty(part, fromState);
   transitionForm.value.quantity = Math.max(1, Math.min(1, max));
 
@@ -901,6 +1162,12 @@ function onSourceStateChange() {
   else if (from === 'rework') transitionForm.value.to_state = 'qc';
   else if (from === 'paint') transitionForm.value.to_state = 'assembly';
   else if (from === 'assembly') transitionForm.value.to_state = 'completed';
+
+  qcRouteForm.value = {
+    rework_quantity: 0,
+    paint_quantity: 0,
+    assembly_quantity: 0,
+  };
 
   const max = getMaxQty(selectedPart.value, from);
   transitionForm.value.quantity = Math.max(1, Math.min(1, max));
@@ -929,7 +1196,7 @@ function stepQuantity(delta) {
   }
 }
 
-// Submit transition
+// Submit transition (Non-QC source)
 async function submitTransition() {
   if (transitionForm.value.quantity <= 0 || transitionForm.value.quantity > maxAvailableQuantity.value) {
     errorMessage.value = 'Invalid quantity specified.';
@@ -961,6 +1228,43 @@ async function submitTransition() {
     }
   } catch (err) {
     errorMessage.value = err.response?.data?.message || 'Failed to transition parts.';
+  } finally {
+    submitting.value = false;
+  }
+}
+
+// Submit QC Route (3-way distribution from QC source)
+async function submitQcRoute() {
+  if (isQcAllocationInvalid.value) {
+    errorMessage.value = 'Invalid QC routing allocation.';
+    return;
+  }
+
+  submitting.value = true;
+  errorMessage.value = '';
+  successMessage.value = '';
+
+  try {
+    const payload = {
+      standard_part_no: transitionForm.value.standard_part_no,
+      rework_quantity: parseInt(qcRouteForm.value.rework_quantity) || 0,
+      paint_quantity: parseInt(qcRouteForm.value.paint_quantity) || 0,
+      assembly_quantity: parseInt(qcRouteForm.value.assembly_quantity) || 0,
+      project_id: selectedProjectId.value || null,
+    };
+
+    const res = await axios.post('/api/v1/std/qc-route', payload);
+    if (res.data?.success) {
+      successMessage.value = res.data.message || 'QC routing successful.';
+      modalInstance?.hide();
+
+      await fetchStdData();
+      if (expandedPartNo.value === transitionForm.value.standard_part_no) {
+        toggleBreakdown(transitionForm.value.standard_part_no);
+      }
+    }
+  } catch (err) {
+    errorMessage.value = err.response?.data?.message || 'Failed to route QC parts.';
   } finally {
     submitting.value = false;
   }
