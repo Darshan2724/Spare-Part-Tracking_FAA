@@ -15,9 +15,6 @@
                   <span class="badge bg-teal text-white fw-bold px-2 py-1">STD INTAKE</span>
                   <h3 class="fw-bold mb-0 text-dark">Standard Hardware (STD) Desk</h3>
                 </div>
-                <p class="text-muted mb-0 small mt-1">
-                  Website-only aggregated intake &amp; department inventory tracking for fasteners, hardware, and standard components across all projects.
-                </p>
               </div>
             </div>
 
@@ -25,9 +22,6 @@
               <button class="btn btn-outline-secondary btn-sm" @click="fetchStdData" :disabled="loading">
                 <i class="fas fa-sync me-1" :class="{ 'fa-spin': loading }"></i> Refresh
               </button>
-              <router-link to="/" class="btn btn-outline-primary btn-sm">
-                <i class="fas fa-chart-line me-1"></i> Dashboard
-              </router-link>
             </div>
           </div>
 
@@ -123,7 +117,7 @@
       <div class="card border-0 shadow-sm mb-3">
         <div class="card-body p-3 bg-white rounded">
           <div class="row g-3 align-items-center">
-            <div class="col-md-5 col-lg-4">
+            <div class="col-md-7 col-lg-7">
               <label class="form-label small fw-bold text-muted mb-1">
                 <i class="fas fa-search me-1 text-teal"></i> Search Standard Part No / Size
               </label>
@@ -140,7 +134,7 @@
               </div>
             </div>
 
-            <div class="col-md-4 col-lg-3">
+            <div class="col-md-5 col-lg-5">
               <label class="form-label small fw-bold text-muted mb-1">
                 <i class="fas fa-project-diagram me-1 text-primary"></i> Project Filter
               </label>
@@ -150,83 +144,6 @@
                   {{ proj.name || proj.project_code }} ({{ proj.project_code }})
                 </option>
               </select>
-            </div>
-
-            <div class="col-md-12 col-lg-5">
-              <label class="form-label small fw-bold text-muted mb-1">
-                <i class="fas fa-filter me-1 text-info"></i> Department Status Filter
-              </label>
-              <div class="btn-group btn-group-sm w-100 flex-wrap" role="group">
-                <button 
-                  type="button" 
-                  class="btn" 
-                  :class="activeFilterStatus === 'all' ? 'btn-dark' : 'btn-outline-secondary'"
-                  @click="activeFilterStatus = 'all'"
-                >
-                  All ({{ parts.length }})
-                </button>
-                <button 
-                  type="button" 
-                  class="btn" 
-                  :class="activeFilterStatus === 'pending' ? 'btn-warning text-dark' : 'btn-outline-secondary'"
-                  @click="activeFilterStatus = 'pending'"
-                >
-                  Pending ({{ countByStatus('pending') }})
-                </button>
-                <button 
-                  type="button" 
-                  class="btn" 
-                  :class="activeFilterStatus === 'store' ? 'btn-amber text-white' : 'btn-outline-secondary'"
-                  :style="activeFilterStatus === 'store' ? { backgroundColor: '#b45309' } : {}"
-                  @click="activeFilterStatus = 'store'"
-                >
-                  Store ({{ countByStatus('store') }})
-                </button>
-                <button 
-                  type="button" 
-                  class="btn" 
-                  :class="activeFilterStatus === 'qc' ? 'btn-info text-white' : 'btn-outline-secondary'"
-                  :style="activeFilterStatus === 'qc' ? { backgroundColor: '#0284c7' } : {}"
-                  @click="activeFilterStatus = 'qc'"
-                >
-                  QC ({{ countByStatus('qc') }})
-                </button>
-                <button 
-                  type="button" 
-                  class="btn" 
-                  :class="activeFilterStatus === 'rework' ? 'btn-orange text-white' : 'btn-outline-secondary'"
-                  :style="activeFilterStatus === 'rework' ? { backgroundColor: '#ea580c' } : {}"
-                  @click="activeFilterStatus = 'rework'"
-                >
-                  Rework ({{ countByStatus('rework') }})
-                </button>
-                <button 
-                  type="button" 
-                  class="btn" 
-                  :class="activeFilterStatus === 'paint' ? 'btn-purple text-white' : 'btn-outline-secondary'"
-                  :style="activeFilterStatus === 'paint' ? { backgroundColor: '#7c3aed' } : {}"
-                  @click="activeFilterStatus = 'paint'"
-                >
-                  Paint ({{ countByStatus('paint') }})
-                </button>
-                <button 
-                  type="button" 
-                  class="btn" 
-                  :class="activeFilterStatus === 'assembly' ? 'btn-pink text-white' : 'btn-outline-secondary'"
-                  :style="activeFilterStatus === 'assembly' ? { backgroundColor: '#db2777' } : {}"
-                  @click="activeFilterStatus = 'assembly'"
-                >
-                  Assembly ({{ countByStatus('assembly') }})
-                </button>
-                <button 
-                  type="button" 
-                  class="btn" 
-                  :class="activeFilterStatus === 'completed' ? 'btn-success' : 'btn-outline-secondary'"
-                  @click="activeFilterStatus = 'completed'"
-                >
-                  Done ({{ countByStatus('completed') }})
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -241,9 +158,9 @@
               STD Aggregated Hardware Inventory ({{ filteredParts.length }} Parts)
             </h5>
             <span v-if="selectedProjectId" class="badge bg-primary">Project Filter Active</span>
-          </div>
-          <div class="small text-muted">
-            Click <strong class="text-primary"><i class="fas fa-chevron-down"></i> Breakdown</strong> to view project/jig/unit allocations.
+            <span v-if="activeFilterStatus !== 'all'" class="badge bg-secondary cursor-pointer" @click="activeFilterStatus = 'all'" title="Click to clear filter">
+              Filtered: {{ activeFilterStatus }} &times;
+            </span>
           </div>
         </div>
 
