@@ -952,11 +952,28 @@
 
               <!-- Jig Metrics Pills & Completion Bar -->
               <div class="d-flex align-items-center gap-2 flex-wrap">
-                <div class="d-flex align-items-center gap-1 extra-small">
-                  <span class="badge bg-light text-dark border px-1.5 py-0.5" title="Total Required">Req: <strong>{{ jig.total_required }}</strong></span>
-                  <span class="badge bg-success-subtle text-success border border-success-subtle px-1.5 py-0.5" title="Total Received">Rec: <strong>{{ jig.total_received }}</strong></span>
-                  <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-1.5 py-0.5" title="Total Pending">Pend: <strong>{{ jig.total_pending }}</strong></span>
-                  <span class="badge bg-purple text-white px-1.5 py-0.5" title="Assembled Parts">Asm: <strong>{{ jig.metrics?.assembly_completed || 0 }}</strong></span>
+                <div class="d-flex align-items-center gap-1 flex-wrap">
+                  <span class="badge bg-light text-dark border px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Total Required Parts">
+                    <i class="fas fa-list-ol me-1 text-secondary" style="font-size: 0.72rem;"></i>Req: <strong class="ms-0.5">{{ jig.total_required }}</strong>
+                  </span>
+                  <span class="badge bg-success-subtle text-success border border-success-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Total Received Parts">
+                    <i class="fas fa-boxes me-1 text-success" style="font-size: 0.72rem;"></i>Rec: <strong class="ms-0.5">{{ jig.total_received }}</strong>
+                  </span>
+                  <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Total Pending Parts">
+                    <i class="fas fa-truck-loading me-1 text-danger" style="font-size: 0.72rem;"></i>Pend: <strong class="ms-0.5">{{ jig.total_pending }}</strong>
+                  </span>
+                  <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Parts in Store Bay">
+                    <i class="fas fa-warehouse me-1 text-warning" style="font-size: 0.72rem;"></i>Store: <strong class="ms-0.5">{{ jig.metrics?.parts_in_store || 0 }}</strong>
+                  </span>
+                  <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Parts in QC (Arrival & Inspection)">
+                    <i class="fas fa-clipboard-check me-1 text-info" style="font-size: 0.72rem;"></i>QC: <strong class="ms-0.5">{{ jig.metrics?.parts_in_qc ?? ((jig.metrics?.qc_pending_arrival || 0) + (jig.metrics?.qc_pending_inspection || 0)) }}</strong>
+                  </span>
+                  <span class="badge border px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem; background-color: #fff7ed; color: #c2410c; border-color: #fed7aa !important;" title="Parts in Rework Queue">
+                    <i class="fas fa-tools me-1" style="font-size: 0.72rem; color: #ea580c;"></i>Rew: <strong class="ms-0.5">{{ jig.metrics?.parts_in_rework ?? (jig.metrics?.rework_pending || 0) }}</strong>
+                  </span>
+                  <span class="badge bg-purple text-white px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Completed Assembly Parts">
+                    <i class="fas fa-cogs me-1 text-white" style="font-size: 0.72rem;"></i>Asm: <strong class="ms-0.5">{{ jig.metrics?.assembly_completed || 0 }}</strong>
+                  </span>
                 </div>
 
                 <div class="d-flex align-items-center gap-1.5" style="min-width: 100px;">
@@ -983,12 +1000,21 @@
                   class="card border-0 shadow-sm bg-white overflow-hidden"
                   :class="{ 'border border-2 border-success': unit.is_complete }"
                 >
-                  <!-- UNIT HEADER (Level 3) -->
+                  <!-- UNIT HEADER (Level 2) -->
                   <div 
-                    class="card-header py-2 px-2.5 d-flex flex-wrap justify-content-between align-items-center gap-2"
+                    class="card-header py-2 px-2.5 d-flex flex-wrap justify-content-between align-items-center gap-2 cursor-pointer select-none"
                     :style="{ backgroundColor: unit.is_complete ? '#f0fdf4' : '#f8fafc' }"
+                    @click="toggleUnitExpand(`ALL_${jig.jig_name}_${unit.unit_no}`)"
                   >
                     <div class="d-flex align-items-center gap-1.5 flex-wrap">
+                      <button 
+                        type="button"
+                        class="btn btn-xs btn-light border rounded-circle p-0 d-flex align-items-center justify-content-center me-1" 
+                        style="width: 22px; height: 22px;"
+                        @click.stop="toggleUnitExpand(`ALL_${jig.jig_name}_${unit.unit_no}`)"
+                      >
+                        <i class="fas" :class="expandedUnits[`ALL_${jig.jig_name}_${unit.unit_no}`] ? 'fa-chevron-down text-primary' : 'fa-chevron-right text-muted'" style="font-size: 0.6rem;"></i>
+                      </button>
                       <i class="fas fa-cube" :class="unit.is_complete ? 'text-success' : 'text-primary'" style="font-size: 0.8rem;"></i>
                       <span class="fw-bold text-dark fs-7">{{ unit.unit_no }}</span>
                       <span v-if="unit.ecn_present || unit.is_ecn_present || (unit.ecn_count > 0)" class="badge shadow-xs" style="font-size: 0.62rem; font-weight: 700; background-color: #f59e0b; color: #ffffff; padding: 1px 4px; border-radius: 3px;" title="Contains ECN parts">
@@ -1015,20 +1041,11 @@
                           {{ unit.completion_pct || 0 }}%
                         </span>
                       </div>
-
-                      <button 
-                        @click="toggleUnitExpand(`ALL_${jig.jig_name}_${unit.unit_no}`)" 
-                        class="btn btn-xs py-0.5 px-1.5"
-                        :class="expandedUnits[`ALL_${jig.jig_name}_${unit.unit_no}`] ? 'btn-primary' : 'btn-outline-primary'"
-                      >
-                        <i class="fas" :class="expandedUnits[`ALL_${jig.jig_name}_${unit.unit_no}`] ? 'fa-table me-1' : 'fa-list me-1'"></i>
-                        {{ expandedUnits[`ALL_${jig.jig_name}_${unit.unit_no}`] ? 'Hide' : 'Parts' }}
-                      </button>
                     </div>
                   </div>
 
-                  <!-- UNIT BODY: LEVEL 4 & 5 -->
-                  <div class="card-body p-2.5">
+                  <!-- UNIT BODY: Rendered ONLY when Unit is expanded (Level 2 open) -->
+                  <div v-if="expandedUnits[`ALL_${jig.jig_name}_${unit.unit_no}`]" class="card-body p-2.5">
                     <!-- COMMON FIXTURE CARD -->
                     <div v-if="unit.has_common || unit.sides?.COMMON" class="row g-2">
                       <div class="col-12">
@@ -1211,8 +1228,25 @@
                       </div>
                     </div>
 
-                    <!-- LEVEL 4/5: THREE-WAY BOM PART SECTIONS (Rendered when Unit is expanded) -->
-                    <div v-if="expandedUnits[`ALL_${jig.jig_name}_${unit.unit_no}`]" class="mt-2.5 pt-2.5 border-top">
+                    <!-- EXPLICIT LEVEL 3 ACTION: VIEW PARTS BUTTON -->
+                    <div class="d-flex justify-content-between align-items-center mt-2.5 pt-2 border-top">
+                      <div class="d-flex align-items-center gap-1.5 extra-small text-muted">
+                        <i class="fas fa-layer-group text-primary"></i>
+                        <span class="fw-semibold">Unit Parts Breakdown (MFG | BOP | STD)</span>
+                      </div>
+                      <button 
+                        type="button"
+                        @click="toggleUnitParts(`ALL_${jig.jig_name}_${unit.unit_no}`)"
+                        class="btn btn-xs py-1 px-2.5 d-flex align-items-center gap-1.5 shadow-xs"
+                        :class="expandedUnitParts[`ALL_${jig.jig_name}_${unit.unit_no}`] ? 'btn-primary text-white' : 'btn-outline-primary'"
+                      >
+                        <i class="fas" :class="expandedUnitParts[`ALL_${jig.jig_name}_${unit.unit_no}`] ? 'fa-eye-slash' : 'fa-list-ul'"></i>
+                        <span class="fw-bold">{{ expandedUnitParts[`ALL_${jig.jig_name}_${unit.unit_no}`] ? 'Hide Parts' : 'View Parts' }}</span>
+                      </button>
+                    </div>
+
+                    <!-- LEVEL 3: THREE-WAY BOM PART SECTIONS (Rendered when View Parts is toggled) -->
+                    <div v-if="expandedUnitParts[`ALL_${jig.jig_name}_${unit.unit_no}`]" class="mt-2.5 pt-2 border-top">
                       <!-- Table Filter Tabs & Search -->
                       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                         <!-- Common Only Unit Tab -->
@@ -1293,9 +1327,7 @@
                               <thead style="background-color: #0f172a !important; color: #ffffff !important; position: sticky; top: 0; z-index: 2;">
                                 <tr>
                                   <th style="width: 25px; color: #fff; background-color: #0f172a; padding: 3px 4px;">#</th>
-                                  <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 5px;">PART NUMBER</th>
-                                  <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 5px;">ITEM NO</th>
-                                  <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 5px;">SUPPLIER</th>
+                                  <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 6px;">PART NUMBER</th>
                                   <th style="color: #fff; background-color: #0f172a; padding: 3px 4px;">SIDE</th>
                                   <th style="color: #fff; background-color: #0f172a; padding: 3px 4px;">REQ</th>
                                   <th style="color: #fff; background-color: #0f172a; padding: 3px 4px;">REC</th>
@@ -1307,8 +1339,6 @@
                                 <tr v-for="(part, pIdx) in getUnitPartsByType(unit, `ALL_${jig.jig_name}_${unit.unit_no}`, 'MFG')" :key="part.id || pIdx">
                                   <td class="text-muted extra-small py-1 px-1">{{ pIdx + 1 }}</td>
                                   <td class="text-start py-1 px-1.5 fw-bold text-dark">{{ part.standard_part_no }}</td>
-                                  <td class="text-start text-muted extra-small py-1 px-1">{{ part.item_no || '—' }}</td>
-                                  <td class="text-start text-muted extra-small py-1 px-1">{{ part.supplier || '—' }}</td>
                                   <td class="py-1 px-1">
                                     <span class="badge" :class="part.side === 'LH' ? 'bg-primary-subtle text-primary' : (part.side === 'RH' ? 'bg-warning-subtle text-warning-emphasis' : 'bg-secondary-subtle text-secondary')" style="font-size: 0.62rem; padding: 1px 3px;">
                                       {{ part.side }}
@@ -1348,9 +1378,7 @@
                               <thead style="background-color: #0f172a !important; color: #ffffff !important; position: sticky; top: 0; z-index: 2;">
                                 <tr>
                                   <th style="width: 25px; color: #fff; background-color: #0f172a; padding: 3px 4px;">#</th>
-                                  <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 5px;">PART NUMBER</th>
-                                  <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 5px;">ITEM NO</th>
-                                  <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 5px;">SUPPLIER</th>
+                                  <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 6px;">PART NUMBER</th>
                                   <th style="color: #fff; background-color: #0f172a; padding: 3px 4px;">SIDE</th>
                                   <th style="color: #fff; background-color: #0f172a; padding: 3px 4px;">REQ</th>
                                   <th style="color: #fff; background-color: #0f172a; padding: 3px 4px;">REC</th>
@@ -1362,8 +1390,6 @@
                                 <tr v-for="(part, pIdx) in getUnitPartsByType(unit, `ALL_${jig.jig_name}_${unit.unit_no}`, 'BOP')" :key="part.id || pIdx">
                                   <td class="text-muted extra-small py-1 px-1">{{ pIdx + 1 }}</td>
                                   <td class="text-start py-1 px-1.5 fw-bold text-dark">{{ part.standard_part_no }}</td>
-                                  <td class="text-start text-muted extra-small py-1 px-1">{{ part.item_no || '—' }}</td>
-                                  <td class="text-start text-muted extra-small py-1 px-1">{{ part.supplier || '—' }}</td>
                                   <td class="py-1 px-1">
                                     <span class="badge" :class="part.side === 'LH' ? 'bg-primary-subtle text-primary' : (part.side === 'RH' ? 'bg-warning-subtle text-warning-emphasis' : 'bg-secondary-subtle text-secondary')" style="font-size: 0.62rem; padding: 1px 3px;">
                                       {{ part.side }}
@@ -1403,9 +1429,7 @@
                               <thead style="background-color: #0f172a !important; color: #ffffff !important; position: sticky; top: 0; z-index: 2;">
                                 <tr>
                                   <th style="width: 25px; color: #fff; background-color: #0f172a; padding: 3px 4px;">#</th>
-                                  <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 5px;">PART NUMBER</th>
-                                  <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 5px;">ITEM NO</th>
-                                  <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 5px;">SUPPLIER</th>
+                                  <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 6px;">PART NUMBER</th>
                                   <th style="color: #fff; background-color: #0f172a; padding: 3px 4px;">SIDE</th>
                                   <th style="color: #fff; background-color: #0f172a; padding: 3px 4px;">REQ</th>
                                   <th style="color: #fff; background-color: #0f172a; padding: 3px 4px;">REC</th>
@@ -1417,8 +1441,6 @@
                                 <tr v-for="(part, pIdx) in getUnitPartsByType(unit, `ALL_${jig.jig_name}_${unit.unit_no}`, 'STD')" :key="part.id || pIdx">
                                   <td class="text-muted extra-small py-1 px-1">{{ pIdx + 1 }}</td>
                                   <td class="text-start py-1 px-1.5 fw-bold text-dark">{{ part.standard_part_no }}</td>
-                                  <td class="text-start text-muted extra-small py-1 px-1">{{ part.item_no || '—' }}</td>
-                                  <td class="text-start text-muted extra-small py-1 px-1">{{ part.supplier || '—' }}</td>
                                   <td class="py-1 px-1">
                                     <span class="badge" :class="part.side === 'LH' ? 'bg-primary-subtle text-primary' : (part.side === 'RH' ? 'bg-warning-subtle text-warning-emphasis' : 'bg-secondary-subtle text-secondary')" style="font-size: 0.62rem; padding: 1px 3px;">
                                       {{ part.side }}
@@ -1521,11 +1543,28 @@
 
                     <!-- Jig Metrics Pills & Completion Bar -->
                     <div class="d-flex align-items-center gap-2 flex-wrap">
-                      <div class="d-flex align-items-center gap-1 extra-small">
-                        <span class="badge bg-light text-dark border px-1.5 py-0.5" title="Total Required">Req: <strong>{{ jig.total_required }}</strong></span>
-                        <span class="badge bg-success-subtle text-success border border-success-subtle px-1.5 py-0.5" title="Total Received">Rec: <strong>{{ jig.total_received }}</strong></span>
-                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-1.5 py-0.5" title="Total Pending">Pend: <strong>{{ jig.total_pending }}</strong></span>
-                        <span class="badge bg-purple text-white px-1.5 py-0.5" title="Assembled Parts">Asm: <strong>{{ jig.metrics?.assembly_completed || 0 }}</strong></span>
+                      <div class="d-flex align-items-center gap-1 flex-wrap">
+                        <span class="badge bg-light text-dark border px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Total Required Parts">
+                          <i class="fas fa-list-ol me-1 text-secondary" style="font-size: 0.72rem;"></i>Req: <strong class="ms-0.5">{{ jig.total_required }}</strong>
+                        </span>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Total Received Parts">
+                          <i class="fas fa-boxes me-1 text-success" style="font-size: 0.72rem;"></i>Rec: <strong class="ms-0.5">{{ jig.total_received }}</strong>
+                        </span>
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Total Pending Parts">
+                          <i class="fas fa-truck-loading me-1 text-danger" style="font-size: 0.72rem;"></i>Pend: <strong class="ms-0.5">{{ jig.total_pending }}</strong>
+                        </span>
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Parts in Store Bay">
+                          <i class="fas fa-warehouse me-1 text-warning" style="font-size: 0.72rem;"></i>Store: <strong class="ms-0.5">{{ jig.metrics?.parts_in_store || 0 }}</strong>
+                        </span>
+                        <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Parts in QC (Arrival & Inspection)">
+                          <i class="fas fa-clipboard-check me-1 text-info" style="font-size: 0.72rem;"></i>QC: <strong class="ms-0.5">{{ jig.metrics?.parts_in_qc ?? ((jig.metrics?.qc_pending_arrival || 0) + (jig.metrics?.qc_pending_inspection || 0)) }}</strong>
+                        </span>
+                        <span class="badge border px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem; background-color: #fff7ed; color: #c2410c; border-color: #fed7aa !important;" title="Parts in Rework Queue">
+                          <i class="fas fa-tools me-1" style="font-size: 0.72rem; color: #ea580c;"></i>Rew: <strong class="ms-0.5">{{ jig.metrics?.parts_in_rework ?? (jig.metrics?.rework_pending || 0) }}</strong>
+                        </span>
+                        <span class="badge bg-purple text-white px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Completed Assembly Parts">
+                          <i class="fas fa-cogs me-1 text-white" style="font-size: 0.72rem;"></i>Asm: <strong class="ms-0.5">{{ jig.metrics?.assembly_completed || 0 }}</strong>
+                        </span>
                       </div>
 
                       <div class="d-flex align-items-center gap-1.5" style="min-width: 100px;">
@@ -1552,12 +1591,21 @@
                         class="card border-0 shadow-sm bg-white overflow-hidden"
                         :class="{ 'border border-2 border-success': unit.is_complete }"
                       >
-                        <!-- UNIT HEADER (Level 3) -->
+                        <!-- UNIT HEADER (Level 2) -->
                         <div 
-                          class="card-header py-2 px-2.5 d-flex flex-wrap justify-content-between align-items-center gap-2"
+                          class="card-header py-2 px-2.5 d-flex flex-wrap justify-content-between align-items-center gap-2 cursor-pointer select-none"
                           :style="{ backgroundColor: unit.is_complete ? '#f0fdf4' : '#f8fafc' }"
+                          @click="toggleUnitExpand(`${section.key}_${jig.jig_name}_${unit.unit_no}`)"
                         >
                           <div class="d-flex align-items-center gap-1.5 flex-wrap">
+                            <button 
+                              type="button"
+                              class="btn btn-xs btn-light border rounded-circle p-0 d-flex align-items-center justify-content-center me-1" 
+                              style="width: 22px; height: 22px;"
+                              @click.stop="toggleUnitExpand(`${section.key}_${jig.jig_name}_${unit.unit_no}`)"
+                            >
+                              <i class="fas" :class="expandedUnits[`${section.key}_${jig.jig_name}_${unit.unit_no}`] ? 'fa-chevron-down text-primary' : 'fa-chevron-right text-muted'" style="font-size: 0.6rem;"></i>
+                            </button>
                             <i class="fas fa-cube" :class="unit.is_complete ? 'text-success' : 'text-primary'" style="font-size: 0.8rem;"></i>
                             <span class="fw-bold text-dark fs-7">{{ unit.unit_no }}</span>
                             <span v-if="unit.ecn_present || unit.is_ecn_present || (unit.ecn_count > 0)" class="badge shadow-xs" style="font-size: 0.62rem; font-weight: 700; background-color: #f59e0b; color: #ffffff; padding: 1px 4px; border-radius: 3px;" title="Contains ECN parts">
@@ -1584,20 +1632,11 @@
                                 {{ unit.completion_pct || 0 }}%
                               </span>
                             </div>
-
-                            <button 
-                              @click="toggleUnitExpand(`${section.key}_${jig.jig_name}_${unit.unit_no}`)" 
-                              class="btn btn-xs py-0.5 px-1.5"
-                              :class="expandedUnits[`${section.key}_${jig.jig_name}_${unit.unit_no}`] ? 'btn-primary' : 'btn-outline-primary'"
-                            >
-                              <i class="fas" :class="expandedUnits[`${section.key}_${jig.jig_name}_${unit.unit_no}`] ? 'fa-table me-1' : 'fa-list me-1'"></i>
-                              {{ expandedUnits[`${section.key}_${jig.jig_name}_${unit.unit_no}`] ? 'Hide' : 'Parts' }}
-                            </button>
                           </div>
                         </div>
 
-                        <!-- UNIT BODY: LEVEL 4 & 5 -->
-                        <div class="card-body p-2.5">
+                        <!-- UNIT BODY: LEVEL 2 OPEN -->
+                        <div v-if="expandedUnits[`${section.key}_${jig.jig_name}_${unit.unit_no}`]" class="card-body p-2.5">
                           <!-- COMMON JIG / UNIT SINGLE CARD -->
                           <div v-if="unit.has_common || unit.sides?.COMMON" class="row g-2">
                             <div class="col-12">
@@ -1851,8 +1890,6 @@
                                   <tr>
                                     <th style="width: 35px; color: #fff; background-color: #0f172a; padding: 4px 6px;">#</th>
                                     <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 4px 6px;">PART NUMBER</th>
-                                    <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 4px 6px;">ITEM NO</th>
-                                    <th style="color: #fff; background-color: #0f172a; text-align: left; padding: 4px 6px;">SUPPLIER</th>
                                     <th style="color: #fff; background-color: #0f172a; padding: 4px 6px;">SIDE</th>
                                     <th style="color: #fff; background-color: #0f172a; padding: 4px 6px;">REQ</th>
                                     <th style="color: #fff; background-color: #0f172a; padding: 4px 6px;">REC</th>
@@ -1880,8 +1917,6 @@
                                         <span class="fw-bold text-dark" style="font-size: 0.78rem;">{{ part.standard_part_no }}</span>
                                       </div>
                                     </td>
-                                    <td class="text-start text-muted extra-small py-1 px-1.5">{{ part.item_no || '—' }}</td>
-                                    <td class="text-start text-muted extra-small py-1 px-1.5">{{ part.supplier || '—' }}</td>
                                     <td class="py-1 px-1.5">
                                       <span class="badge" :class="part.side === 'LH' ? 'bg-primary-subtle text-primary' : (part.side === 'RH' ? 'bg-warning-subtle text-warning-emphasis' : 'bg-secondary-subtle text-secondary')" style="font-size: 0.65rem; padding: 1px 4px;">
                                         {{ part.side }}
@@ -1901,7 +1936,7 @@
                                     </td>
                                   </tr>
                                   <tr v-if="!getFilteredUnitParts(unit, `${section.key}_${jig.jig_name}_${unit.unit_no}`).length">
-                                    <td colspan="9" class="text-center py-3 text-muted">No parts match the selected filter.</td>
+                                    <td colspan="7" class="text-center py-3 text-muted">No parts match the selected filter.</td>
                                   </tr>
                                 </tbody>
                               </table>
@@ -2553,6 +2588,7 @@ const activeProjectsList = ref([]);
 const completedProjectsList = ref([]);
 const expandedJigs = ref({});
 const expandedUnits = ref({});
+const expandedUnitParts = ref({});
 const unitPartSearch = ref({});
 const unitSideTab = ref({});
 const unitPartPage = ref({});
@@ -2680,6 +2716,7 @@ const setBomViewType = (type) => {
   }
   expandedJigs.value = {};
   expandedUnits.value = {};
+  expandedUnitParts.value = {};
   unitSideTab.value = {};
   unitPartSearch.value = {};
   unitPartPage.value = {};
@@ -2698,6 +2735,7 @@ const resetFilters = () => {
   activeHierarchyBomType.value = 'ALL';
   expandedJigs.value = {};
   expandedUnits.value = {};
+  expandedUnitParts.value = {};
   unitPartSearch.value = {};
   unitSideTab.value = {};
   unitPartPage.value = {};
@@ -2714,6 +2752,7 @@ const setHierarchyBomType = (type) => {
   }
   expandedJigs.value = {};
   expandedUnits.value = {};
+  expandedUnitParts.value = {};
   fetchProjectHierarchy(true);
 };
 
@@ -2770,6 +2809,7 @@ const onProjectFilterChange = () => {
   activeHierarchyBomType.value = activeBomTypeTab.value;
   expandedJigs.value = {};
   expandedUnits.value = {};
+  expandedUnitParts.value = {};
   unitPartSearch.value = {};
   unitSideTab.value = {};
   unitPartPage.value = {};
@@ -2787,6 +2827,7 @@ const expandAllJigs = () => {
       expandedJigs.value[`ALL_${j.jig_name}`] = true;
       (j.units || []).forEach(u => {
         expandedUnits.value[`ALL_${j.jig_name}_${u.unit_no}`] = true;
+        expandedUnitParts.value[`ALL_${j.jig_name}_${u.unit_no}`] = true;
       });
     });
   } else {
@@ -2796,6 +2837,7 @@ const expandAllJigs = () => {
         expandedJigs.value[`${sec.key}_${j.jig_name}`] = true;
         (j.units || []).forEach(u => {
           expandedUnits.value[`${sec.key}_${j.jig_name}_${u.unit_no}`] = true;
+          expandedUnitParts.value[`${sec.key}_${j.jig_name}_${u.unit_no}`] = true;
         });
       });
     });
@@ -2805,10 +2847,15 @@ const expandAllJigs = () => {
 const collapseAllJigs = () => {
   expandedJigs.value = {};
   expandedUnits.value = {};
+  expandedUnitParts.value = {};
 };
 
 const toggleUnitExpand = (unitKey) => {
   expandedUnits.value[unitKey] = !expandedUnits.value[unitKey];
+};
+
+const toggleUnitParts = (unitKey) => {
+  expandedUnitParts.value[unitKey] = !expandedUnitParts.value[unitKey];
 };
 
 const setUnitSideTab = (unitKey, tab) => {
@@ -2887,6 +2934,8 @@ const getUnitPartsTotalPages = (unit, unitKey) => {
 const getStatusBadgeClass = (status) => {
   switch (status) {
     case 'Done':
+    case 'Completed':
+    case 'Assembled':
       return 'bg-success text-white';
     case 'Assembly':
       return 'bg-pink text-white';
@@ -2897,6 +2946,7 @@ const getStatusBadgeClass = (status) => {
     case 'QC':
       return 'bg-info text-dark';
     case 'QC (Rejected)':
+    case 'QC Rejected':
       return 'bg-danger text-white';
     case 'Store':
       return 'bg-warning text-dark';
@@ -3297,9 +3347,9 @@ onUnmounted(() => {
 
 .all-types-parts-columns {
   display: flex;
-  gap: 0.75rem;
+  gap: 0.85rem;
   overflow-x: auto;
-  padding-bottom: 0.5rem;
+  padding: 0.25rem 0.15rem 0.5rem 0.15rem;
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 #f8fafc;
 }
@@ -3324,9 +3374,17 @@ onUnmounted(() => {
 
 .bom-type-column {
   flex: 1 1 0;
-  min-width: 310px;
+  min-width: 320px;
   max-width: 100%;
   display: flex;
   flex-direction: column;
+  border: 1.5px solid #0f172a !important;
+  border-radius: 6px;
+  background-color: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.bom-type-column .bom-type-column-header {
+  border-bottom: 1.5px solid #0f172a !important;
 }
 </style>

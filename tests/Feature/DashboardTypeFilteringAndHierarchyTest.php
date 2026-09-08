@@ -676,10 +676,10 @@ class DashboardTypeFilteringAndHierarchyTest extends TestCase
         $unifiedJig = array_values($jigOccurrences)[0];
         $this->assertEquals(35, $unifiedJig['total_required']); // 10 + 5 + 20
 
-        // 2. Units inside JIG-COMMON-01 must contain Unit 1 exactly once
+        // 2. Units inside JIG-COMMON-01 must contain Unit 01 (normalized) exactly once
         $this->assertArrayHasKey('units', $unifiedJig);
-        $unitOccurrences = array_filter($unifiedJig['units'], fn($u) => $u['unit_no'] === 'Unit 1');
-        $this->assertCount(1, $unitOccurrences, 'Unit 1 must appear exactly once inside JIG-COMMON-01');
+        $unitOccurrences = array_filter($unifiedJig['units'], fn($u) => in_array($u['unit_no'], ['Unit 1', 'Unit 01']));
+        $this->assertCount(1, $unitOccurrences, 'Unit 1 / Unit 01 must appear exactly once inside JIG-COMMON-01');
 
         $unifiedUnit = array_values($unitOccurrences)[0];
         $this->assertArrayHasKey('sides', $unifiedUnit);
@@ -732,6 +732,256 @@ class DashboardTypeFilteringAndHierarchyTest extends TestCase
         $this->assertStringContainsString("if (activeHierarchyBomType.value === 'ALL')", $vueContent);
         $this->assertStringContainsString('expandedJigs.value[`ALL_${j.jig_name}`] = true;', $vueContent);
         $this->assertStringContainsString('expandedUnits.value[`ALL_${j.jig_name}_${u.unit_no}`] = true;', $vueContent);
+
+        // 7. Clear black structural borders are applied to bom-type-column
+        $this->assertStringContainsString('border: 1.5px solid #0f172a !important;', $vueContent);
+    }
+
+    public function test_mfg_parts_remain_visible_across_all_downstream_workflow_states_and_unit_normalization()
+    {
+        $admin = $this->getAdminUser();
+        $project = Project::create([
+            'name' => 'Downstream Workflow Test Project',
+            'project_code' => 'TEST-PROJ-DOWNSTREAM',
+            'description' => 'Test MFG part visibility in Paint, Assembly, Completed',
+            'status' => 'active',
+        ]);
+
+        // Create MFG parts in unit '04' in various states
+        $states = [
+            ['part_no' => 'PART-PENDING', 'state' => 'pending'],
+            ['part_no' => 'PART-STORE', 'state' => 'store'],
+            ['part_no' => 'PART-QC', 'state' => 'qc'],
+            ['part_no' => 'PART-REWORK', 'state' => 'rework'],
+            ['part_no' => 'PART-PAINT', 'state' => 'paint'],
+            ['part_no' => 'PART-ASSEMBLY', 'state' => 'assembly'],
+            ['part_no' => 'PART-COMPLETED', 'state' => 'completed'],
+        ];
+
+        $receiptBatch = \App\Models\Receipt::create([
+            'project_id' => $project->id,
+            'received_by' => $admin->id,
+            'receipt_number' => 'REC-TEST-DOWNSTREAM',
+        ]);
+
+        foreach ($states as $s) {
+            $mfgItem = BomItem::create([
+                'project_id' => $project->id,
+                'jig_no' => 'JIG-TEST-01',
+                'unit_no' => '04', // Raw 2-digit zero padded
+                'standard_part_no' => $s['part_no'],
+                'part_type' => 'MFG',
+            ]);
+            BomRequirement::create(['bom_item_id' => $mfgItem->id, 'side' => 'COMMON', 'required_quantity' => 1]);
+
+            if ($s['state'] !== 'pending') {
+                $recItem = \App\Models\ReceiptItem::create([
+                    'receipt_id' => $receiptBatch->id,
+                    'bom_item_id' => $mfgItem->id,
+                    'side' => 'COMMON',
+                    'received_quantity' => 1,
+                    'status' => match ($s['state']) {
+                        'store' => 'received',
+                        'qc' => 'qc_received',
+                        default => 'qc_approved',
+                    },
+                ]);
+
+                if ($s['state'] === 'rework') {
+                    $qc = \App\Models\QcInspection::create([
+                        'bom_item_id' => $mfgItem->id,
+                        'receipt_item_id' => $recItem->id,
+                        'side' => 'COMMON',
+                        'result' => 'rework',
+                        'inspected_quantity' => 1,
+                        'approved_quantity' => 0,
+                        'rework_quantity' => 1,
+                        'rejected_quantity' => 0,
+                        'inspected_by' => $admin->id,
+                    ]);
+                    \App\Models\ReworkRecord::create([
+                        'bom_item_id' => $mfgItem->id,
+                        'qc_inspection_id' => $qc->id,
+                        'side' => 'COMMON',
+                        'quantity' => 1,
+                        'status' => 'pending',
+                    ]);
+                } elseif (in_array($s['state'], ['paint', 'assembly', 'completed'])) {
+                    $qc = \App\Models\QcInspection::create([
+                        'bom_item_id' => $mfgItem->id,
+                        'receipt_item_id' => $recItem->id,
+                        'side' => 'COMMON',
+                        'result' => 'approved',
+                        'inspected_quantity' => 1,
+                        'approved_quantity' => 1,
+                        'rework_quantity' => 0,
+                        'rejected_quantity' => 0,
+                        'destination' => 'PAINT',
+                        'inspected_by' => $admin->id,
+                    ]);
+
+                    if ($s['state'] === 'paint') {
+                        \App\Models\PaintRecord::create([
+                            'bom_item_id' => $mfgItem->id,
+                            'qc_inspection_id' => $qc->id,
+                            'side' => 'COMMON',
+                            'quantity' => 1,
+                            'status' => 'in_progress',
+                        ]);
+                    } elseif ($s['state'] === 'assembly') {
+                        $paint = \App\Models\PaintRecord::create([
+                            'bom_item_id' => $mfgItem->id,
+                            'qc_inspection_id' => $qc->id,
+                            'side' => 'COMMON',
+                            'quantity' => 1,
+                            'status' => 'completed',
+                        ]);
+                        \App\Models\AssemblyRecord::create([
+                            'bom_item_id' => $mfgItem->id,
+                            'paint_record_id' => $paint->id,
+                            'qc_inspection_id' => $qc->id,
+                            'side' => 'COMMON',
+                            'quantity' => 1,
+                            'status' => 'in_progress',
+                        ]);
+                    } elseif ($s['state'] === 'completed') {
+                        $paint = \App\Models\PaintRecord::create([
+                            'bom_item_id' => $mfgItem->id,
+                            'qc_inspection_id' => $qc->id,
+                            'side' => 'COMMON',
+                            'quantity' => 1,
+                            'status' => 'assembled',
+                        ]);
+                        \App\Models\AssemblyRecord::create([
+                            'bom_item_id' => $mfgItem->id,
+                            'paint_record_id' => $paint->id,
+                            'qc_inspection_id' => $qc->id,
+                            'side' => 'COMMON',
+                            'quantity' => 1,
+                            'status' => 'completed',
+                        ]);
+                    }
+                }
+            }
+        }
+
+        // Create BOP & STD items in raw unit '4' (single-digit) in same Jig
+        $bopItem = BomItem::create([
+            'project_id' => $project->id,
+            'jig_no' => 'JIG-TEST-01',
+            'unit_no' => '4', // Single digit to test unit normalization
+            'standard_part_no' => 'BOP-SENSOR-01',
+            'part_type' => 'BOP',
+        ]);
+        BomRequirement::create(['bom_item_id' => $bopItem->id, 'side' => 'COMMON', 'required_quantity' => 2]);
+
+        $stdItem = BomItem::create([
+            'project_id' => $project->id,
+            'jig_no' => 'JIG-TEST-01',
+            'unit_no' => '4', // Single digit
+            'standard_part_no' => 'STD-BOLT-01',
+            'part_type' => 'STD',
+        ]);
+        BomRequirement::create(['bom_item_id' => $stdItem->id, 'side' => 'COMMON', 'required_quantity' => 10]);
+
+        // Request project hierarchy
+        $res = $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/v1/dashboard/project-hierarchy?project_id=' . $project->id);
+
+        $res->assertStatus(200);
+        $data = $res->json();
+
+        // 1. Jig JIG-TEST-01 must have exactly 1 unit node ('Unit 04')
+        $jig = $data['jigs'][0];
+        $this->assertEquals('JIG-TEST-01', $jig['jig_name']);
+        $this->assertCount(1, $jig['units'], 'Units with raw 04 and 4 must normalize into a single Unit 04');
+        $this->assertEquals('Unit 04', $jig['units'][0]['unit_no']);
+
+        // 2. Unit 04 parts must contain ALL 7 MFG parts + 1 BOP + 1 STD = 9 parts total
+        $unit = $jig['units'][0];
+        $commonParts = $unit['sides']['COMMON']['parts'];
+        $this->assertCount(9, $commonParts);
+
+        // 3. Verify status badges for each MFG part
+        $partsByNo = collect($commonParts)->keyBy('standard_part_no');
+        $this->assertEquals('Pending', $partsByNo['PART-PENDING']['status_badge']);
+        $this->assertEquals('QC', $partsByNo['PART-STORE']['status_badge']); // Store intake is in QC Arrival queue
+        $this->assertEquals('QC', $partsByNo['PART-QC']['status_badge']);
+        $this->assertEquals('Rework', $partsByNo['PART-REWORK']['status_badge']);
+        $this->assertEquals('Paint', $partsByNo['PART-PAINT']['status_badge']);
+        $this->assertEquals('Assembly', $partsByNo['PART-ASSEMBLY']['status_badge']);
+        $this->assertEquals('Completed', $partsByNo['PART-COMPLETED']['status_badge']);
+
+        // 4. Verify part_type partitioning: 7 MFG, 1 BOP, 1 STD
+        $mfgParts = array_filter($commonParts, fn($p) => $p['part_type'] === 'MFG');
+        $bopParts = array_filter($commonParts, fn($p) => $p['part_type'] === 'BOP');
+        $stdParts = array_filter($commonParts, fn($p) => $p['part_type'] === 'STD');
+        $this->assertCount(7, $mfgParts);
+        $this->assertCount(1, $bopParts);
+        $this->assertCount(1, $stdParts);
+    }
+
+    public function test_jig_card_status_metrics_and_frontend_table_column_structure()
+    {
+        $admin = $this->getAdminUser();
+
+        $project = Project::create([
+            'name' => 'Jig Status Metrics Test Project',
+            'project_code' => 'JIG-STAT-' . uniqid(),
+            'status' => 'active',
+        ]);
+
+        $item = BomItem::create([
+            'project_id' => $project->id,
+            'jig_no' => 'JIG-ST-01',
+            'unit_no' => 'Unit 01',
+            'item_no' => 'ITEM-REF-101',
+            'supplier_name_raw' => 'Vendor Alpha',
+            'standard_part_no' => 'MFG-ST-01',
+            'part_type' => 'MFG',
+        ]);
+        BomRequirement::create([
+            'bom_item_id' => $item->id,
+            'side' => 'COMMON',
+            'required_quantity' => 20,
+        ]);
+
+        $res = $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/v1/dashboard/project-hierarchy?project_id=' . $project->id);
+
+        $res->assertStatus(200);
+        $data = $res->json();
+        $this->assertNotEmpty($data['jigs']);
+        $jig = $data['jigs'][0];
+
+        // 1. Authoritative Jig metrics available
+        $this->assertArrayHasKey('metrics', $jig);
+        $this->assertArrayHasKey('parts_in_store', $jig['metrics']);
+        $this->assertArrayHasKey('qc_pending_arrival', $jig['metrics']);
+        $this->assertArrayHasKey('qc_pending_inspection', $jig['metrics']);
+        $this->assertArrayHasKey('rework_pending', $jig['metrics']);
+        $this->assertArrayHasKey('assembly_completed', $jig['metrics']);
+
+        // 2. Underlying Item No and Supplier data remain intact
+        $this->assertEquals('ITEM-REF-101', $item->fresh()->item_no);
+        $this->assertEquals('Vendor Alpha', $item->fresh()->supplier_name_raw);
+
+        // 3. Frontend Dashboard.vue template checks
+        $vueFile = resource_path('js/views/Dashboard.vue');
+        $this->assertFileExists($vueFile);
+        $vueContent = file_get_contents($vueFile);
+
+        // Jig card status badges present
+        $this->assertStringContainsString('title="Parts in Store Bay"', $vueContent);
+        $this->assertStringContainsString('title="Parts in QC (Arrival & Inspection)"', $vueContent);
+        $this->assertStringContainsString('title="Parts in Rework Queue"', $vueContent);
+        $this->assertStringContainsString('fa-warehouse', $vueContent);
+        $this->assertStringContainsString('fa-clipboard-check', $vueContent);
+        $this->assertStringContainsString('fa-tools', $vueContent);
+
+        // MFG/BOP/STD tables do not contain ITEM NO / SUPPLIER in table headers
+        $this->assertStringNotContainsString('<th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 5px;">ITEM NO</th>', $vueContent);
+        $this->assertStringNotContainsString('<th style="color: #fff; background-color: #0f172a; text-align: left; padding: 3px 5px;">SUPPLIER</th>', $vueContent);
     }
 }
 

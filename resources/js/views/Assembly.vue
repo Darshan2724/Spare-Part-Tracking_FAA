@@ -461,7 +461,7 @@
                               </div>
                             </td>
                           </tr>
-                          <tr v-if="!(selectedUnitSide === 'LH' ? selectedUnitLhParts : selectedUnitRhParts).length">
+                          <tr v-if="!activeUnitSideParts.length">
                             <td colspan="4" class="text-center py-4 text-muted">No {{ selectedUnitSide }} assembly parts in this unit.</td>
                           </tr>
                         </tbody>

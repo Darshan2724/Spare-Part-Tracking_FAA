@@ -6,7 +6,7 @@ Document: PROJECT_CONTEXT_SUMMARY.md
 Status: Canonical Project Context & Universal AI Knowledge Base
 Last Updated: September 07, 2026
 Last Updated By: Antigravity
-Version: 2.7.0
+Version: 2.10.0
 Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment)
 ```
 
@@ -140,7 +140,7 @@ The platform eliminates paper tally sheets, fragmented spreadsheets, and uncoord
 | **Supplier Master & Excel Import** | **STABLE** | Production | Multi-phone numbers (`supplier_phones`), safe deletion protection for active assignments. |
 | **Management Dashboard & KPI Drilldown** | **STABLE** | Production | 11 canonical KPI drilldown datasets, Excel/PDF streaming exports. |
 | **Mobile Floor App (Expo EAS OTA)** | **STABLE** | Production | Shorthand IP normalizer (`100.30`, `9.200`), auto-port `:8080`, quantity steppers. |
-| **Automated Test Suite** | **STABLE** | Testing/CI | **158 passed feature tests (2,410 assertions)** with 0 failures. |
+| **Automated Test Suite** | **STABLE** | Testing/CI | **216 passed feature tests (2,533 assertions)** with 0 failures. |
 
 ### 2.2 Production Environment vs Experimental
 * **Production Environment:** On-Premise Windows 11 Desktop server running Docker Compose (`192.168.9.200:8080`). Active production projects: `FA-273` and `FA-279`.
@@ -1015,6 +1015,9 @@ To guarantee production stability, all repository contributions strictly adhere 
 15. **Incident: Mobile 100.30 Network Error & Regular Store-to-QC Arrival Visibility**
     * *Root Cause:* Shorthand `100.30` was missing port `:8080`. In `HierarchyService.php`, `$qcPendingArrival` omitted status `'received'`.
     * *Resolution:* Enhanced `normalizeServerHost()` to auto-append `:8080` and updated `$qcPendingArrival` to query `whereIn('status', ['received', 'sent_to_qc'])`.
+16. **Incident: Unit Number Padding Discrepancy Across BOM Types & 3-Panel Black Border Visual Separation**
+    * *Root Cause:* Raw BOM Excel files formatted unit numbers differently (MFG used 2-digit zero-padded strings like `"04"`, while BOP/STD used single digits like `"4"`). `HierarchyService.php` grouped on raw strings, creating duplicate un-unified unit nodes (e.g. `Unit 4` containing only BOP/STD parts and showing `0 Parts / No MFG Parts`).
+    * *Resolution:* Standardized numeric unit normalization in `HierarchyService.php` (`sprintf('%02d', (int)$cleanUnit)` $\rightarrow$ `Unit 04`), unifying all BOM types under single nodes. Added 1.5px solid `#0f172a` black structural borders and responsive spacing around the 3 BOM panels in `Dashboard.vue`.
 
 ---
 
@@ -1022,7 +1025,7 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Issue | Severity | Affected Area | Known Root Cause | Status | Last Updated |
 |---|---|---|---|---|---|
-| None | N/A | None | All 15 historical anomalies resolved and backed by 158 automated feature tests. | **ALL FIXED (0 Open Issues)** | September 04, 2026 |
+| None | N/A | None | All 16 historical anomalies resolved and backed by 216 automated feature tests. | **ALL FIXED (0 Open Issues)** | September 07, 2026 |
 
 ---
 
@@ -1030,6 +1033,9 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Date | Change Summary | Files / Modules Affected | Database Schema Changes | Behavioral Impact | Testing Status |
 |---|---|---|---|---|---|
+| **2026-09-07** | Dashboard Jig Card Status Icons (Store, QC, Rework) & BOM Part Table Column Streamlining | `Dashboard.vue`, `HierarchyService.php`, `DashboardTypeFilteringAndHierarchyTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (UI & Metric Enhancement) | Adds Store, QC, and Rework status badges with crisp icons to all Jig cards; slightly enlarges all Jig status badges for readability without card bloat; removes unnecessary Item No and Supplier columns from MFG, BOP, and STD Part tables | Passing (217 tests, 2552 assertions) |
+| **2026-09-07** | Unit Number Normalization Across BOM Types & 3-Panel Black Structural Border Separation | `HierarchyService.php`, `Dashboard.vue`, `DashboardTypeFilteringAndHierarchyTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Canonical service normalization & CSS enhancement) | Unifies all BOM types under canonical 2-digit zero-padded unit nodes (resolves `0 Parts / No MFG Parts` when MFG parts are in Paint or downstream states); adds crisp 1.5px black structural borders around MFG/BOP/STD panels | Passing (216 tests, 2533 assertions) |
+| **2026-09-07** | Dashboard Hierarchy 3-Level Nesting, FA-273 Completed Assembly Visibility Fix & Corrupted BOP/STD Data Cleanup | `Dashboard.vue`, `Assembly.vue`, `HierarchyService.php`, `CleanupCorruptedMobileBopStd.php`, `MobileIntakeEnforcementTest.php` | None (Transactional cleanup with JSON backup snapshot) | Level 1/2/3 nested hierarchy in "All 3 BOM Types" view (Jig -> Unit -> 3 columns: MFG\|BOP\|STD); fixes assembly_completed status array in HierarchyService and Common side in Assembly.vue; safely cleaned up 9 corrupted non-MFG receipt records in FA-273 with backup snapshot | Passing (215 tests, 2517 assertions) |
 | **2026-09-07** | Permanent Mobile Intake Strict MFG-Only Enforcement & Systemwide Performance Architecture | `StoreController.php`, `HierarchyService.php`, `DashboardController.php`, `routes/api.php`, `mobile/client.js`, `mobile/App.js`, `2026_09_07_120000_add_performance_and_fk_indexes.php` | Added composite indexes on `receipts`, `receipt_items`, `bom_items`, `qc_inspections`, `workflow_events` | Enforces 100% MFG-only mobile intake with 422 rejections for non-MFG; single-pass in-memory hierarchy partitioning (75% faster project hierarchy, 84% less query time, 65% fewer queries); fixes part_description search bug; read-only audit command `audit:mobile-bop` | Passing (201 tests, 2426 assertions) |
 | **2026-09-04** | Project Hierarchy Drill-Down Permanent Fix (MFG/BOP/STD Single-Type Views & Level 5 Parts Table) | `DashboardController.php`, `Dashboard.vue`, `DashboardTypeFilteringAndHierarchyTest.php` | None (Canonical API contract refinement) | Guarantees mfg_section, bop_section, std_section keys across all views; eliminates circular JSON; synchronizes toolbar state; enables Level 5 parts table in single-type panels | Passing (182 tests, 2300 assertions) |
 | **2026-09-04** | Dashboard MFG/BOP/STD Filter + Aggregated Project Health + Option B Three-Section Hierarchy Refinement | `DashboardController.php`, `QuantityCalculationService.php`, `Dashboard.vue`, `DashboardTypeFilteringAndHierarchyTest.php` | None (Backward-compatible API & state calculation) | Top projects & health distribution weighted aggregate, single-type isolation, Option B three-type compact hierarchy with scoped expansion, 9-KPI standardized BOP/STD | Passing (181 tests, 2249 assertions) |
