@@ -265,59 +265,95 @@ class HierarchyService
                 $recQty = min($rawRecQty, $reqQty); // Canonical: capped so required = received + pending
                 $pendingQty = max(0, $reqQty - $recQty);
 
-                // QC Stats
-                $qcAppPaint = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && ($q->destination === 'PAINT' || empty($q->destination)))->sum('approved_quantity');
-                $qcAppDirectAssembly = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && $q->destination === 'ASSEMBLY')->sum('approved_quantity');
-                $qcApp = $qcAppPaint + $qcAppDirectAssembly;
-                $qcRej = (int) $qcForSide->sum('rejected_quantity');
-                $qcRew = (int) $qcForSide->sum('rework_quantity');
+                if ($item->part_type === 'BOP') {
+                    // BOP follows: Pending -> Store -> Assembly -> Completed (No QC/Rework/Paint)
+                    $qcAppPaint = 0;
+                    $qcAppDirectAssembly = 0;
+                    $qcApp = 0;
+                    $qcRej = 0;
+                    $qcRew = 0;
+                    $rewComp = 0;
+                    $rewActive = 0;
+                    $paintComp = 0;
+                    $paintActive = 0;
+                    $asmComp = (int) $assemblyForSide->where('status', 'completed')->sum('quantity');
+                    $asmReady = (int) $recForSide->where('status', 'in_assembly')->sum('received_quantity');
+                    $validReceived = $recForSide->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES)->sum('received_quantity');
+                    $storeResident = (int) $recForSide->whereIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
+                    $qcPendingArrival = 0;
+                    $totalQcArrived = 0;
+                    $qcPendingInspection = 0;
+                    $qcResident = 0;
 
-                // Rework Stats
-                $rewComp = (int) $reworkForSide->whereIn('status', ['completed', 'returned_to_qc'])->sum('quantity');
-                $rewActive = max(0, $qcRew - $rewComp);
-
-                // Paint Stats - Include all painted records (completed or assembled) so paint never re-acquires assembled parts
-                $paintComp = (int) $paintForSide->whereIn('status', ['completed', 'assembled'])->sum('quantity');
-                $paintActive = max(0, $qcAppPaint - $paintComp);
-
-                // Assembly Stats
-                $asmComp = (int) $assemblyForSide->where('status', 'completed')->sum('quantity');
-                $asmReached = $paintComp + $qcAppDirectAssembly;
-                $asmReady = max(0, $asmReached - $asmComp);
-
-                // Location Residencies
-                $validReceived = $recForSide->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES)->sum('received_quantity');
-                $storeResident = (int) $recForSide->whereIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
-                $qcPendingArrival = (int) $recForSide->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
-                $totalQcArrived = (int) $recForSide->whereIn('status', ['qc_received', 'qc_approved', 'qc_rejected', 'qc_rework', 'qc_inspected'])->sum('received_quantity');
-                $qcPendingInspection = max(0, ($totalQcArrived + $rewComp) - ($qcApp + $qcRej + $qcRew));
-                $qcResident = $qcPendingArrival + $qcPendingInspection;
-
-                // Department Specific Status Badges
-                if ($asmComp >= $reqQty && $reqQty > 0) {
-                    $statusBadge = 'Completed';
-                    $statusColor = 'success';
-                } elseif ($asmReady > 0) {
-                    $statusBadge = 'Assembly';
-                    $statusColor = 'pink';
-                } elseif ($paintActive > 0) {
-                    $statusBadge = 'Paint';
-                    $statusColor = 'purple';
-                } elseif ($rewActive > 0) {
-                    $statusBadge = 'Rework';
-                    $statusColor = 'warning';
-                } elseif ($qcResident > 0) {
-                    $statusBadge = 'QC';
-                    $statusColor = 'info';
-                } elseif ($qcRej > 0) {
-                    $statusBadge = 'QC Rejected';
-                    $statusColor = 'danger';
-                } elseif ($storeResident > 0) {
-                    $statusBadge = 'Store';
-                    $statusColor = 'warning';
+                    // Department Specific Status Badges for BOP
+                    if ($asmComp >= $reqQty && $reqQty > 0) {
+                        $statusBadge = 'Completed';
+                        $statusColor = 'success';
+                    } elseif ($asmReady > 0) {
+                        $statusBadge = 'Assembly';
+                        $statusColor = 'pink';
+                    } elseif ($storeResident > 0) {
+                        $statusBadge = 'Store';
+                        $statusColor = 'warning';
+                    } else {
+                        $statusBadge = 'Pending';
+                        $statusColor = 'secondary';
+                    }
                 } else {
-                    $statusBadge = 'Pending';
-                    $statusColor = 'secondary';
+                    // QC Stats
+                    $qcAppPaint = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && ($q->destination === 'PAINT' || empty($q->destination)))->sum('approved_quantity');
+                    $qcAppDirectAssembly = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && $q->destination === 'ASSEMBLY')->sum('approved_quantity');
+                    $qcApp = $qcAppPaint + $qcAppDirectAssembly;
+                    $qcRej = (int) $qcForSide->sum('rejected_quantity');
+                    $qcRew = (int) $qcForSide->sum('rework_quantity');
+
+                    // Rework Stats
+                    $rewComp = (int) $reworkForSide->whereIn('status', ['completed', 'returned_to_qc'])->sum('quantity');
+                    $rewActive = max(0, $qcRew - $rewComp);
+
+                    // Paint Stats - Include all painted records (completed or assembled) so paint never re-acquires assembled parts
+                    $paintComp = (int) $paintForSide->whereIn('status', ['completed', 'assembled'])->sum('quantity');
+                    $paintActive = max(0, $qcAppPaint - $paintComp);
+
+                    // Assembly Stats
+                    $asmComp = (int) $assemblyForSide->where('status', 'completed')->sum('quantity');
+                    $asmReached = $paintComp + $qcAppDirectAssembly;
+                    $asmReady = max(0, $asmReached - $asmComp);
+
+                    // Location Residencies
+                    $validReceived = $recForSide->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES)->sum('received_quantity');
+                    $storeResident = (int) $recForSide->whereIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
+                    $qcPendingArrival = (int) $recForSide->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
+                    $totalQcArrived = (int) $recForSide->whereIn('status', ['qc_received', 'qc_approved', 'qc_rejected', 'qc_rework', 'qc_inspected'])->sum('received_quantity');
+                    $qcPendingInspection = max(0, ($totalQcArrived + $rewComp) - ($qcApp + $qcRej + $qcRew));
+                    $qcResident = $qcPendingArrival + $qcPendingInspection;
+
+                    // Department Specific Status Badges
+                    if ($asmComp >= $reqQty && $reqQty > 0) {
+                        $statusBadge = 'Completed';
+                        $statusColor = 'success';
+                    } elseif ($asmReady > 0) {
+                        $statusBadge = 'Assembly';
+                        $statusColor = 'pink';
+                    } elseif ($paintActive > 0) {
+                        $statusBadge = 'Paint';
+                        $statusColor = 'purple';
+                    } elseif ($rewActive > 0) {
+                        $statusBadge = 'Rework';
+                        $statusColor = 'warning';
+                    } elseif ($qcResident > 0) {
+                        $statusBadge = 'QC';
+                        $statusColor = 'info';
+                    } elseif ($qcRej > 0) {
+                        $statusBadge = 'QC Rejected';
+                        $statusColor = 'danger';
+                    } elseif ($storeResident > 0) {
+                        $statusBadge = 'Store';
+                        $statusColor = 'warning';
+                    } else {
+                        $statusBadge = 'Pending';
+                        $statusColor = 'secondary';
+                    }
                 }
 
                 // Revert Options computation for this department and side

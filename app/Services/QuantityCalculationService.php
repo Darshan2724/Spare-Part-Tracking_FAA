@@ -30,6 +30,7 @@ class QuantityCalculationService
         'qc_rejected',
         'qc_inspected',
         'paint_completed',
+        'in_assembly',
         'assembly_completed',
         'returned_to_store'
     ];
@@ -252,34 +253,51 @@ class QuantityCalculationService
                     $excessQty = max(0, $rawRecQty - $reqQty);   // Physical over-delivery
                     $pendingQty = max(0, $reqQty - $effectiveRecQty);
 
-                    // QC Inspection stats for this side
-                    $qcAppPaint = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && ($q->destination === 'PAINT' || empty($q->destination)))->sum('approved_quantity');
-                    $qcAppDirectAssembly = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && $q->destination === 'ASSEMBLY')->sum('approved_quantity');
-                    $qcApp = $qcAppPaint + $qcAppDirectAssembly;
-                    $qcRej = (int) $qcForSide->sum('rejected_quantity');
-                    $qcRew = (int) $qcForSide->sum('rework_quantity');
+                    if ($item->part_type === 'BOP') {
+                        // BOP follows: Pending -> Store -> Assembly -> Completed (No QC/Rework/Paint)
+                        $asmComp = (int) $asmForSide->where('status', 'completed')->sum('quantity');
+                        $asmReady = (int) $recForSide->where('status', 'in_assembly')->sum('received_quantity');
+                        $storeResident = (int) $recForSide->whereIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
 
-                    // Rework stats for this side
-                    $rewComp = (int) $reworkForSide->whereIn('status', ['completed', 'returned_to_qc'])->sum('quantity');
-                    $rewActive = max(0, $qcRew - $rewComp);
+                        $qcApp = 0;
+                        $qcRej = 0;
+                        $qcRew = 0;
+                        $rewComp = 0;
+                        $rewActive = 0;
+                        $paintComp = 0;
+                        $paintActive = 0;
+                        $qcResident = 0;
+                    } else {
+                        // QC Inspection stats for this side
+                        $qcAppPaint = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && ($q->destination === 'PAINT' || empty($q->destination)))->sum('approved_quantity');
+                        $qcAppDirectAssembly = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && $q->destination === 'ASSEMBLY')->sum('approved_quantity');
+                        $qcApp = $qcAppPaint + $qcAppDirectAssembly;
+                        $qcRej = (int) $qcForSide->sum('rejected_quantity');
+                        $qcRew = (int) $qcForSide->sum('rework_quantity');
 
-                    // Paint stats for this side - include both completed and assembled so Paint never re-acquires assembled parts
-                    $paintComp = (int) $paintForSide->whereIn('status', ['completed', 'assembled'])->sum('quantity');
-                    $paintActive = max(0, $qcAppPaint - $paintComp);
+                        // Rework stats for this side
+                        $rewComp = (int) $reworkForSide->whereIn('status', ['completed', 'returned_to_qc'])->sum('quantity');
+                        $rewActive = max(0, $qcRew - $rewComp);
 
-                    // Assembly stats for this side (Active assembly vs Assembly completed)
-                    $asmComp = (int) $asmForSide->where('status', 'completed')->sum('quantity');
-                    $asmReached = $paintComp + $qcAppDirectAssembly;
-                    $asmReady = max(0, $asmReached - $asmComp);
+                        // Paint stats for this side - include both completed and assembled so Paint never re-acquires assembled parts
+                        $paintComp = (int) $paintForSide->whereIn('status', ['completed', 'assembled'])->sum('quantity');
+                        $paintActive = max(0, $qcAppPaint - $paintComp);
 
-                    // Dispatched to QC (valid quantity that left store for QC)
-                    $qcDispatchedFromReceipts = (int) $recForSide->whereNotIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
-                    $qcTotalAccounted = $qcApp + $qcRej + $qcRew;
-                    $sentToQc = min($effectiveRecQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
+                        // Assembly stats for this side (Active assembly vs Assembly completed)
+                        $asmComp = (int) $asmForSide->where('status', 'completed')->sum('quantity');
+                        $asmReached = $paintComp + $qcAppDirectAssembly;
+                        $directAsmReady = (int) $recForSide->where('status', 'in_assembly')->sum('received_quantity');
+                        $asmReady = max(0, $asmReached - $asmComp) + $directAsmReady;
 
-                    // State Transition Ledger (Section 12: Zero-sum conservation)
-                    $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
-                    $storeResident = max(0, $effectiveRecQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReady + $asmComp));
+                        // Dispatched to QC (valid quantity that left store for QC)
+                        $qcDispatchedFromReceipts = (int) $recForSide->whereNotIn('status', ['received', 'returned_to_store', 'in_assembly'])->sum('received_quantity');
+                        $qcTotalAccounted = $qcApp + $qcRej + $qcRew;
+                        $sentToQc = min($effectiveRecQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
+
+                        // State Transition Ledger (Section 12: Zero-sum conservation)
+                        $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
+                        $storeResident = max(0, $effectiveRecQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReady + $asmComp));
+                    }
 
                     // Canonical BOM balance counters
                     $metrics['total_required'] += $reqQty;

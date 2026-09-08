@@ -383,21 +383,22 @@
       </div>
 
       <!-- ========================================================================= -->
-      <!-- GROUP 2: BOUGHT OUT PARTS (BOP) - 9 KPI CARDS (Warm Amber / Gold Accent)  -->
+      <!-- GROUP 2: BOUGHT OUT PARTS (BOP) - 6 KPI CARDS (Warm Amber / Gold Accent)  -->
       <!-- ========================================================================= -->
       <div v-if="activeBomTypeTab === 'ALL' || activeBomTypeTab === 'BOP'" class="mb-4">
         <!-- BOP Group Header -->
         <div class="d-flex align-items-center justify-content-between mb-2">
           <div class="d-flex align-items-center gap-2">
             <span class="badge bg-warning text-dark px-2 py-1 fs-7"><i class="fas fa-shopping-cart me-1"></i>BOP</span>
-            <h6 class="fw-bold mb-0 text-dark">BOP</h6>
+            <h6 class="fw-bold mb-0 text-dark">BOP (Bought Out Parts)</h6>
+            <span class="badge bg-light text-muted border px-2 py-0 extra-small">Store &rarr; Direct Assembly</span>
           </div>
-          <small class="text-muted">Total Required: <strong>{{ metrics.bop?.total_required ?? 0 }} pcs</strong> &bull; Received: <strong class="text-success">{{ metrics.bop?.total_received ?? 0 }} pcs</strong></small>
+          <small class="text-muted">Total Required: <strong>{{ metrics.bop?.total_required ?? metrics.bop?.total_parts ?? 0 }} pcs</strong> &bull; Received: <strong class="text-success">{{ metrics.bop?.total_received ?? metrics.bop?.total_parts_received ?? 0 }} pcs</strong></small>
         </div>
 
         <div class="row g-2">
           <!-- 1. Total Parts -->
-          <div class="col-6 col-sm-4 col-md-3 col-xl">
+          <div class="col-6 col-sm-4 col-md-4 col-lg-2">
             <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #d97706;" @click="openKpiDrilldown('total_parts', 'BOP - Total Parts (Bought Out Requirements)', 'all', 'BOP')">
               <div class="card-body p-2 d-flex justify-content-between align-items-center">
                 <div>
@@ -413,7 +414,7 @@
           </div>
 
           <!-- 2. Total Parts Received -->
-          <div class="col-6 col-sm-4 col-md-3 col-xl">
+          <div class="col-6 col-sm-4 col-md-4 col-lg-2">
             <div class="card border-0 shadow-sm bg-success text-white h-100 kpi-card-interactive" @click="openKpiDrilldown('total_parts_received', 'BOP - Total Parts Received', 'all', 'BOP')">
               <div class="card-body p-2 d-flex justify-content-between align-items-center">
                 <div>
@@ -429,7 +430,7 @@
           </div>
 
           <!-- 3. Parts Pending -->
-          <div class="col-6 col-sm-4 col-md-3 col-xl">
+          <div class="col-6 col-sm-4 col-md-4 col-lg-2">
             <div class="card border-0 shadow-sm bg-dark text-white h-100 kpi-card-interactive" @click="openKpiDrilldown('parts_pending', 'BOP - Parts Pending Receipt', 'all', 'BOP')">
               <div class="card-body p-2 d-flex justify-content-between align-items-center">
                 <div>
@@ -445,7 +446,7 @@
           </div>
 
           <!-- 4. Store -->
-          <div class="col-6 col-sm-4 col-md-3 col-xl">
+          <div class="col-6 col-sm-4 col-md-4 col-lg-2">
             <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #b45309;" @click="openKpiDrilldown('store', 'BOP - Store Bay Inventory', 'all', 'BOP')">
               <div class="card-body p-2 d-flex justify-content-between align-items-center">
                 <div>
@@ -460,59 +461,8 @@
             </div>
           </div>
 
-          <!-- 5. QC (with separate Rejected secondary badge) -->
-          <div class="col-6 col-sm-4 col-md-3 col-xl">
-            <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #0284c7;" @click="openKpiDrilldown('qc', 'BOP - QC Bay Parts', 'all', 'BOP')">
-              <div class="card-body p-2 d-flex justify-content-between align-items-center">
-                <div>
-                  <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
-                    <span>QC</span>
-                    <span class="badge rounded-pill bg-light text-dark ms-1 px-1 py-0" style="font-size: 0.65rem; font-weight: 600;" title="Click to view Rejected parts in QC" @click.stop="openKpiDrilldown('qc', 'BOP - QC Rejected Parts', 'rejected', 'BOP')">
-                      Rejected: {{ metrics.bop?.qc_rejected || 0 }}
-                    </span>
-                    <i class="fas fa-search-plus extra-small opacity-75"></i>
-                  </div>
-                  <h3 class="fw-bold mb-0 fs-4">{{ metrics.bop?.parts_in_qc || 0 }}</h3>
-                </div>
-                <i class="fas fa-clipboard-check text-white-50 fs-5"></i>
-              </div>
-            </div>
-          </div>
-
-          <!-- 6. Rework -->
-          <div class="col-6 col-sm-4 col-md-3 col-xl">
-            <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #ea580c;" @click="openKpiDrilldown('rework', 'BOP - Active Rework Queue', 'all', 'BOP')">
-              <div class="card-body p-2 d-flex justify-content-between align-items-center">
-                <div>
-                  <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
-                    <span>Rework</span>
-                    <i class="fas fa-search-plus extra-small opacity-75"></i>
-                  </div>
-                  <h3 class="fw-bold mb-0 fs-4">{{ metrics.bop?.parts_in_rework || 0 }}</h3>
-                </div>
-                <i class="fas fa-tools text-white-50 fs-5"></i>
-              </div>
-            </div>
-          </div>
-
-          <!-- 7. Paint -->
-          <div class="col-6 col-sm-4 col-md-3 col-xl">
-            <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #7c3aed;" @click="openKpiDrilldown('paint', 'BOP - Paint Shop Parts', 'all', 'BOP')">
-              <div class="card-body p-2 d-flex justify-content-between align-items-center">
-                <div>
-                  <div class="text-white-50 text-uppercase fw-bold d-flex align-items-center gap-1" style="font-size: 0.72rem;">
-                    <span>Paint</span>
-                    <i class="fas fa-search-plus extra-small opacity-75"></i>
-                  </div>
-                  <h3 class="fw-bold mb-0 fs-4">{{ metrics.bop?.parts_in_paint || 0 }}</h3>
-                </div>
-                <i class="fas fa-paint-roller text-white-50 fs-5"></i>
-              </div>
-            </div>
-          </div>
-
-          <!-- 8. Assembly -->
-          <div class="col-6 col-sm-4 col-md-3 col-xl">
+          <!-- 5. Assembly -->
+          <div class="col-6 col-sm-4 col-md-4 col-lg-2">
             <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #db2777;" @click="openKpiDrilldown('assembly', 'BOP - Assembly Bay Parts', 'all', 'BOP')">
               <div class="card-body p-2 d-flex justify-content-between align-items-center">
                 <div>
@@ -527,8 +477,8 @@
             </div>
           </div>
 
-          <!-- 9. Assembly Completed -->
-          <div class="col-6 col-sm-4 col-md-3 col-xl">
+          <!-- 6. Assembly Completed -->
+          <div class="col-6 col-sm-4 col-md-4 col-lg-2">
             <div class="card border-0 shadow-sm text-white h-100 kpi-card-interactive" style="background-color: #059669;" @click="openKpiDrilldown('assembly', 'BOP - Assembly Completed Parts', 'completed', 'BOP')">
               <div class="card-body p-2 d-flex justify-content-between align-items-center">
                 <div>

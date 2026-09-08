@@ -6,7 +6,7 @@ Document: PROJECT_CONTEXT_SUMMARY.md
 Status: Canonical Project Context & Universal AI Knowledge Base
 Last Updated: September 08, 2026
 Last Updated By: Antigravity
-Version: 2.10.0
+Version: 2.10.1
 Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment)
 ```
 
@@ -494,6 +494,7 @@ When an ECN is imported or created for a project that was previously marked `Com
 
 ## 12. Department Workflow `[VERIFIED]`
 
+### 12.1 Manufacturing (MFG) & Standard Hardware (STD) Workflow
 ```
 [Pending Supplier Intake] ──> [Store Bay] ──> [QC Arrival] ──> [QC Inspection]
                                                                       │
@@ -512,6 +513,18 @@ When an ECN is imported or created for a project that was previously marked `Com
                                                                                                                    ▼
                                                                                                         [Assembly Completed]
 ```
+
+### 12.2 Bought Out Parts (BOP) Realigned Workflow
+BOP parts follow a strictly streamlined direct production workflow with **zero QC, Rework, or Paint** stages:
+```
+[Pending Supplier Intake] ──> [Store Bay] ──> [Assembly Bay] ──> [Assembly Completed]
+```
+* **BOP 6-Card KPI Architecture:** `Total Parts`, `Total Received`, `Parts Pending`, `Store`, `Assembly`, `Assembly Completed`.
+* **Zero Residencies:** In `QuantityCalculationService` and `HierarchyService`, BOP parts always have 0 resident quantities in QC, Rework, and Paint.
+* **Website-Only Aggregated Intake (`/bop` & `/std`):**
+  - BOP and STD parts are grouped by `standard_part_no` across all projects/units into consolidated rows matching shop-floor inventory sheets.
+  - Transactions allocate quantities deterministically via FIFO across contributing project/jig/unit records.
+  - Mobile intake remains strictly restricted to MFG items only.
 
 ---
 
@@ -1045,8 +1058,10 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Date | Change Summary | Files / Modules Affected | Database Schema Changes | Behavioral Impact | Testing Status |
 |---|---|---|---|---|---|
+| **2026-09-08** | BOP & STD Stable List Ordering, STD Rework Shop Integration, STD State Machine Enforcement & Neutral Nav Styling | `StdIntake.vue`, `BopIntake.vue`, `StdIntakeService.php`, `BopIntakeService.php`, `App.vue`, `StdIntakeAndWorkflowTest.php`, `BopIntakeAndWorkflowTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (UI, Workflow State Machine & Sorting Enhancement) | Fixes BOP and STD part tables to maintain 100% deterministic, immutable row order (`standard_part_no ASC`) across all state transitions; fully integrates Rework Shop into STD summary banner, main inventory table, unit breakdown subtable, filter pills, and workflow modals; removes premature Assembly/Complete actions from STD intake and enforces strict `Pending -> Store -> QC -> Rework/Paint/Assembly -> Completed` state machine; removes hardcoded colored nav styling from BOP/STD sidebar icons for clean, cohesive aesthetics | Passing (232 tests, 2678 assertions) |
 | **2026-09-07** | Dashboard Jig Card Status Icons (Store, QC, Rework) & BOM Part Table Column Streamlining | `Dashboard.vue`, `HierarchyService.php`, `DashboardTypeFilteringAndHierarchyTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (UI & Metric Enhancement) | Adds Store, QC, and Rework status badges with crisp icons to all Jig cards; slightly enlarges all Jig status badges for readability without card bloat; removes unnecessary Item No and Supplier columns from MFG, BOP, and STD Part tables | Passing (217 tests, 2552 assertions) |
 | **2026-09-07** | Unit Number Normalization Across BOM Types & 3-Panel Black Structural Border Separation | `HierarchyService.php`, `Dashboard.vue`, `DashboardTypeFilteringAndHierarchyTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Canonical service normalization & CSS enhancement) | Unifies all BOM types under canonical 2-digit zero-padded unit nodes (resolves `0 Parts / No MFG Parts` when MFG parts are in Paint or downstream states); adds crisp 1.5px black structural borders around MFG/BOP/STD panels | Passing (216 tests, 2533 assertions) |
+| **2026-09-08** | Website-Only Aggregated BOP & STD Intake Redesign, 6-Card BOP KPIs, Persistent Navigation Tabs | `BopIntakeService.php`, `StdIntakeService.php`, `BopIntakeController.php`, `StdIntakeController.php`, `QuantityCalculationService.php`, `HierarchyService.php`, `Dashboard.vue`, `BopIntake.vue`, `StdIntake.vue`, `App.vue`, `router/index.js`, `2026_09_08_000001_add_in_assembly_to_receipt_items_status.php` | Added `'in_assembly'` status to PostgreSQL check constraint on `receipt_items` | Realigned BOP KPI group to strictly 6 cards (Total Parts, Total Received, Parts Pending, Store, Assembly, Completed; zero QC/Rework/Paint residencies); adds persistent BOP and STD intake tabs below ECN in website sidebar navigation; built aggregated part-level intake pages grouped by Standard Part No across projects/units with department bifurcations, FIFO transactional quantity allocation, and unit-wise traceability; strictly isolates mobile intake to MFG only | Passing (228 tests, 2624 assertions) |
 | **2026-09-07** | Dashboard Hierarchy 3-Level Nesting, FA-273 Completed Assembly Visibility Fix & Corrupted BOP/STD Data Cleanup | `Dashboard.vue`, `Assembly.vue`, `HierarchyService.php`, `CleanupCorruptedMobileBopStd.php`, `MobileIntakeEnforcementTest.php` | None (Transactional cleanup with JSON backup snapshot) | Level 1/2/3 nested hierarchy in "All 3 BOM Types" view (Jig -> Unit -> 3 columns: MFG\|BOP\|STD); fixes assembly_completed status array in HierarchyService and Common side in Assembly.vue; safely cleaned up 9 corrupted non-MFG receipt records in FA-273 with backup snapshot | Passing (215 tests, 2517 assertions) |
 | **2026-09-07** | Permanent Mobile Intake Strict MFG-Only Enforcement & Systemwide Performance Architecture | `StoreController.php`, `HierarchyService.php`, `DashboardController.php`, `routes/api.php`, `mobile/client.js`, `mobile/App.js`, `2026_09_07_120000_add_performance_and_fk_indexes.php` | Added composite indexes on `receipts`, `receipt_items`, `bom_items`, `qc_inspections`, `workflow_events` | Enforces 100% MFG-only mobile intake with 422 rejections for non-MFG; single-pass in-memory hierarchy partitioning (75% faster project hierarchy, 84% less query time, 65% fewer queries); fixes part_description search bug; read-only audit command `audit:mobile-bop` | Passing (201 tests, 2426 assertions) |
 | **2026-09-04** | Project Hierarchy Drill-Down Permanent Fix (MFG/BOP/STD Single-Type Views & Level 5 Parts Table) | `DashboardController.php`, `Dashboard.vue`, `DashboardTypeFilteringAndHierarchyTest.php` | None (Canonical API contract refinement) | Guarantees mfg_section, bop_section, std_section keys across all views; eliminates circular JSON; synchronizes toolbar state; enables Level 5 parts table in single-type panels | Passing (182 tests, 2300 assertions) |
