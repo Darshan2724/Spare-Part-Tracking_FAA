@@ -1398,7 +1398,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #cbd5e1;
   border-radius: 6px;
   padding: 3px 5px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
@@ -1415,11 +1415,11 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 3.5px;
   width: 100%;
 }
 
-/* Base Enterprise Action Button */
+/* Base Enterprise Action Button with Structural Gray Outline */
 .std-btn-action {
   display: inline-flex;
   align-items: center;
@@ -1430,7 +1430,7 @@ onMounted(() => {
   font-weight: 600;
   line-height: 1;
   border-radius: 4px;
-  border: 1px solid transparent;
+  border: 1.5px solid #64748b;
   white-space: nowrap;
   cursor: pointer;
   transition: all 0.12s ease-in-out;
@@ -1446,83 +1446,84 @@ onMounted(() => {
 
 .std-btn-action:hover {
   transform: translateY(-0.5px);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  border-color: #334155;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
 .std-btn-action:active {
   transform: translateY(0);
 }
 
-/* Semantic Color Schemes (Restrained Pastel-Tint with High-Contrast Text) */
+/* Semantic Color Schemes (Restrained Pastel-Tint with High-Contrast Text & Structural Borders) */
 .std-btn-receive {
   background-color: #fffbeb;
   color: #92400e;
-  border-color: #fde68a;
+  border-color: #64748b;
 }
 .std-btn-receive i { color: #d97706; }
 .std-btn-receive:hover {
   background-color: #fef3c7;
-  border-color: #f59e0b;
+  border-color: #334155;
   color: #78350f;
 }
 
 .std-btn-qc {
   background-color: #f0f9ff;
   color: #0369a1;
-  border-color: #bae6fd;
+  border-color: #64748b;
 }
 .std-btn-qc i { color: #0284c7; }
 .std-btn-qc:hover {
   background-color: #e0f2fe;
-  border-color: #0284c7;
+  border-color: #334155;
   color: #075985;
 }
 
 .std-btn-qc-inspect {
   background-color: #f0fdfa;
   color: #0f766e;
-  border-color: #99f6e4;
+  border-color: #64748b;
 }
 .std-btn-qc-inspect i { color: #0d9488; }
 .std-btn-qc-inspect:hover {
   background-color: #ccfbf1;
-  border-color: #0d9488;
+  border-color: #334155;
   color: #115e59;
 }
 
 .std-btn-rework {
   background-color: #fff7ed;
   color: #c2410c;
-  border-color: #fed7aa;
+  border-color: #64748b;
 }
 .std-btn-rework i { color: #ea580c; }
 .std-btn-rework:hover {
   background-color: #ffedd5;
-  border-color: #ea580c;
+  border-color: #334155;
   color: #9a3412;
 }
 
 .std-btn-asm {
   background-color: #faf5ff;
   color: #6b21a8;
-  border-color: #e9d5ff;
+  border-color: #64748b;
 }
 .std-btn-asm i { color: #7c3aed; }
 .std-btn-asm:hover {
   background-color: #f3e8ff;
-  border-color: #7c3aed;
+  border-color: #334155;
   color: #581c87;
 }
 
 .std-btn-complete {
   background-color: #f0fdf4;
   color: #166534;
-  border-color: #bbf7d0;
+  border-color: #64748b;
 }
 .std-btn-complete i { color: #059669; }
 .std-btn-complete:hover {
   background-color: #dcfce7;
-  border-color: #059669;
+  border-color: #334155;
   color: #14532d;
 }
 </style>
