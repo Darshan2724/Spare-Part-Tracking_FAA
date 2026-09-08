@@ -201,18 +201,18 @@
           <table class="table table-hover align-middle mb-0 bop-table">
             <thead class="table-dark">
               <tr class="text-nowrap" style="font-size: 0.82rem;">
-                <th style="width: 40px;">#</th>
-                <th>Standard Part No</th>
-                <th>Size / Spec</th>
-                <th class="text-center" style="width: 90px;">Req (Qty)</th>
-                <th class="text-center" style="width: 90px;">Rec (Qty)</th>
-                <th class="text-center" style="width: 100px;">Pending Intake</th>
-                <th class="text-center" style="width: 90px;">Store Bay</th>
-                <th class="text-center" style="width: 90px;">Assembly</th>
-                <th class="text-center" style="width: 90px;">Completed</th>
-                <th style="width: 130px;">Progress</th>
-                <th class="text-center" style="width: 180px;">Quick Workflow Action</th>
-                <th class="text-center" style="width: 100px;">Breakdown</th>
+                <th style="width: 35px;">#</th>
+                <th style="min-width: 160px;">Standard Part No</th>
+                <th style="min-width: 90px; max-width: 130px;">Size / Spec</th>
+                <th class="text-center" style="width: 65px;">Req</th>
+                <th class="text-center" style="width: 65px;">Rec</th>
+                <th class="text-center" style="width: 75px;">Pending</th>
+                <th class="text-center" style="width: 70px;">Store</th>
+                <th class="text-center" style="width: 75px;">Assembly</th>
+                <th class="text-center" style="width: 75px;">Completed</th>
+                <th style="width: 110px;">Progress</th>
+                <th class="text-center" style="min-width: 215px; width: 225px;">Quick Movement</th>
+                <th class="text-center" style="width: 75px;">Breakdown</th>
               </tr>
             </thead>
             <tbody>
@@ -230,7 +230,7 @@
                       <span class="badge bg-light text-secondary border">{{ part.distinct_units }} Units</span>
                     </div>
                   </td>
-                  <td class="small text-muted text-truncate" style="max-width: 180px;" :title="part.size || 'N/A'">
+                  <td class="small text-muted text-truncate" style="max-width: 130px;" :title="part.size || 'N/A'">
                     {{ part.size || '—' }}
                   </td>
                   <td class="text-center fw-bold">{{ part.total_required }}</td>
@@ -852,9 +852,9 @@ onMounted(() => {
   background-color: #f8fafc;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
-  padding: 3px 5px;
+  padding: 2.5px 4px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-  gap: 4px;
+  gap: 3.5px;
 }
 
 /* Base Enterprise Action Button with Structural Gray Outline */
@@ -863,8 +863,8 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   height: 24px;
-  padding: 0 7px;
-  font-size: 0.70rem;
+  padding: 0 6px;
+  font-size: 0.69rem;
   font-weight: 600;
   line-height: 1;
   border-radius: 4px;
