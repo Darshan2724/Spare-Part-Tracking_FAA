@@ -4,7 +4,7 @@
 Project: SpareTrack (Industrial Spare Parts Tracking & Workflow Execution System)
 Document: PROJECT_CONTEXT_SUMMARY.md
 Status: Canonical Project Context & Universal AI Knowledge Base
-Last Updated: September 07, 2026
+Last Updated: September 08, 2026
 Last Updated By: Antigravity
 Version: 2.10.0
 Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment)
@@ -140,7 +140,7 @@ The platform eliminates paper tally sheets, fragmented spreadsheets, and uncoord
 | **Supplier Master & Excel Import** | **STABLE** | Production | Multi-phone numbers (`supplier_phones`), safe deletion protection for active assignments. |
 | **Management Dashboard & KPI Drilldown** | **STABLE** | Production | 11 canonical KPI drilldown datasets, Excel/PDF streaming exports. |
 | **Mobile Floor App (Expo EAS OTA)** | **STABLE** | Production | Shorthand IP normalizer (`100.30`, `9.200`), auto-port `:8080`, quantity steppers. |
-| **Automated Test Suite** | **STABLE** | Testing/CI | **216 passed feature tests (2,533 assertions)** with 0 failures. |
+| **Automated Test Suite** | **STABLE** | Testing/CI | **217 passed feature tests (2,552 assertions)** with 0 failures. |
 
 ### 2.2 Production Environment vs Experimental
 * **Production Environment:** On-Premise Windows 11 Desktop server running Docker Compose (`192.168.9.200:8080`). Active production projects: `FA-273` and `FA-279`.
@@ -417,17 +417,27 @@ $$\text{Project} \longrightarrow \text{Jig} \longrightarrow \text{Unit} \longrig
 
 * **Level 1: Project**: Customer assembly contract (e.g. `FA-273`, `FA-279 - Main Floor Framing`).
 * **Level 2: Jig**: Structural tooling fixture frame code (e.g. `169961@`, `LIMOFD20`). Rendered **once** per physical Jig node in unified views.
+  * **Jig Card Status Indicators**: Every Jig card header displays 7 authoritative workflow status badges with crisp icons:
+    - **`Req` (Required)**: `fas fa-list-ol` — Total parts required (`jig.total_required`).
+    - **`Rec` (Received)**: `fas fa-boxes` — Total parts physically received in Store (`jig.total_received`).
+    - **`Pend` (Pending)**: `fas fa-truck-loading` — Total parts pending receipt (`jig.total_pending`).
+    - **`Store` (Store Bay)**: `fas fa-warehouse` — Parts currently resident in Store Bay inventory (`jig.metrics.parts_in_store`).
+    - **`QC` (Quality Control)**: `fas fa-clipboard-check` — Parts in QC physical arrival or inspection (`jig.metrics.parts_in_qc`).
+    - **`Rew` (Rework)**: `fas fa-tools` — Parts in active defect rework queue (`jig.metrics.parts_in_rework`).
+    - **`Asm` (Assembly)**: `fas fa-cogs` — Completed assembled parts (`jig.metrics.assembly_completed`).
   * **Jig Type Classification:**
     * **`SIDE_SPECIFIC`**: Jigs containing parts with LH (Left Hand) and/or RH (Right Hand) variants. Rendered with dual LH/RH side panels.
     * **`COMMON`**: Symmetrical or single tooling fixtures where parts have no LH/RH distinction (BOM Side is blank, empty, `NULL`, `C`, `COM`, or `COMMON`). Rendered with a single Common Tooling section.
   * **Jig Exclusivity Rule:** A Jig must be exclusively `SIDE_SPECIFIC` or `COMMON`, never both. Mixing blank and LH/RH rows in the same Jig is rejected during BOM import.
 * **Level 3: Unit**: Mechanical sub-assembly station (e.g. `Unit 00` to `Unit 13`). Rendered **once** per physical Unit inside its Jig.
+  * **Unit Number Normalization:** Raw unit inputs (`"04"`, `"4"`, `"Unit 4"`, `"Unit 04"`) are canonically normalized to 2-digit zero-padded unit numbers (`"Unit 04"`) across all BOM types (`MFG`, `BOP`, `STD`) and ECN records. This guarantees that MFG, BOP, STD, and ECN parts for the same physical unit always merge into a single unified Unit node with full visibility across downstream states (`Pending`, `Store`, `QC`, `Rework`, `Paint`, `Assembly`, `Completed`).
   * **Common Units (`has_common: true`):** Build a single `sides['COMMON']` branch with zero LH/RH duplication, preserving mathematical conservation without double-counting.
 * **Level 4: Three-Way BOM Part Partitioning (All Types View)**:
   * In the **"All 3 BOM Types" (`ALL`)** view, parts inside an expanded Unit are partitioned into three side-by-side columns:
     1. **MFG Parts (Manufacturing)**: Fabricated and machined parts (`part_type = 'MFG'`).
     2. **BOP Parts (Bought Out Parts)**: Commercial purchased items (`part_type = 'BOP'`).
     3. **STD Parts (Standard Hardware)**: Standard fasteners and hardware (`part_type = 'STD'`).
+  * **Streamlined Column Structure:** Table headers and data rows display only the essential workflow columns: `#` (index), `PART NUMBER`, `SIDE`, `REQ`, `REC`, `PEND`, and `STATUS`. The unnecessary `ITEM NO` and `SUPPLIER` presentation columns are omitted to maximize horizontal space and readability for part numbers, while underlying database fields and search filtering remain intact.
   * If a Unit contains no parts of a particular BOM type, a compact empty state is displayed (`No MFG Parts` / `No BOP Parts` / `No STD Parts`).
   * Contained horizontal scrolling ensures clean responsiveness across screen widths without clipping.
 * **Level 5: Side**: Geometric symmetry—**RH** (Right Hand), **LH** (Left Hand), or **COMMON** (Symmetrical / Single Tooling).
@@ -709,6 +719,8 @@ To eliminate congestion and prevent conflating custom fabricated parts with off-
 ## 25. Website Architecture `[VERIFIED]`
 
 * **Visual Alignment:** Built with Vue 3 and Bootstrap 5.3 following the visual design language of **WebErpMesv2** (clean topbar, collapsible dark sidebar, high-density data tables, status pill badges, modal drilldowns).
+* **Jig Status Badge Group:** Displays 7 concise, color-coded badges (`Req`, `Rec`, `Pend`, `Store`, `QC`, `Rew`, `Asm`) with FontAwesome icons, hover tooltips, and horizontal alignment alongside the completion percentage bar without card bloat.
+* **Streamlined Part Tables:** MFG, BOP, and STD Part tables display streamlined workflow columns (`#`, `PART NUMBER`, `SIDE`, `REQ`, `REC`, `PEND`, `STATUS`) with generous space allocated to part numbers and 1.5px black structural borders separating BOM type columns.
 * **Universal Export Engine (`app/Services/ExportService.php`):**
   - **Part Number Format:** Formats unique part identifier as a continuous string:
     $$\text{Part Number} = \text{Jig No} + \text{Unit No} + \text{Part No} + (\text{R} \mid \text{L}) \quad (\text{e.g. } 169961@00020\#R00R)$$
