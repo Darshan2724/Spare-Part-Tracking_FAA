@@ -264,7 +264,7 @@
                 <th class="text-center" style="width: 80px;">Assembly</th>
                 <th class="text-center" style="width: 80px;">Completed</th>
                 <th style="width: 120px;">Progress</th>
-                <th class="text-center" style="min-width: 190px; width: 220px;">Quick Movement</th>
+                <th class="text-center" style="min-width: 210px; width: 240px;">Quick Movement</th>
                 <th class="text-center" style="width: 80px;">Breakdown</th>
               </tr>
             </thead>
@@ -387,77 +387,148 @@
 
                   <!-- Action Column (Context-Sensitive STD Transitions) -->
                   <td class="text-center">
-                    <div class="std-quick-actions" role="group" aria-label="Quick Movement actions">
-                      <!-- 1. Pending -> Store -->
-                      <button 
-                        v-if="part.total_pending > 0" 
-                        class="std-quick-btn std-quick-btn-receive" 
-                        title="Intake arrived parts into Store"
-                        aria-label="Intake arrived parts into Store"
-                        @click="openTransitionModal(part, 'pending', 'store')"
-                      >
-                        <i class="fas fa-boxes"></i> Receive
-                      </button>
+                    <!-- All Completed State -->
+                    <span 
+                      v-if="part.total_pending === 0 && part.parts_in_store === 0 && part.parts_in_qc === 0 && part.parts_in_rework === 0 && part.parts_in_paint === 0 && part.parts_in_assembly === 0 && part.assembly_completed > 0" 
+                      class="badge bg-success-subtle text-success border border-success px-2 py-0.5 extra-small fw-semibold"
+                    >
+                      <i class="fas fa-check-circle me-1"></i> All Assembled
+                    </span>
 
-                      <!-- 2. Store -> QC -->
-                      <button 
-                        v-if="part.parts_in_store > 0" 
-                        class="std-quick-btn std-quick-btn-qc" 
-                        title="Dispatch Store parts to QC inspection"
-                        aria-label="Dispatch Store parts to QC inspection"
-                        @click="openTransitionModal(part, 'store', 'qc')"
-                      >
-                        <i class="fas fa-clipboard-check"></i> QC
-                      </button>
+                    <!-- Active Workflow Toolbar -->
+                    <div v-else class="std-toolbar" :class="{ 'std-toolbar-grid': getActiveActionCount(part) > 3 }" role="group" aria-label="Quick Movement actions">
+                      
+                      <!-- Single-Row Mode (When <= 3 actions active) -->
+                      <template v-if="getActiveActionCount(part) <= 3">
+                        <button 
+                          v-if="part.total_pending > 0" 
+                          class="std-btn-action std-btn-receive" 
+                          title="Intake arrived parts into Store"
+                          aria-label="Intake arrived parts into Store"
+                          @click="openTransitionModal(part, 'pending', 'store')"
+                        >
+                          <i class="fas fa-boxes"></i> Receive
+                        </button>
 
-                      <!-- 3. QC -> Assembly / Paint / Rework -->
-                      <button 
-                        v-if="part.parts_in_qc > 0" 
-                        class="std-quick-btn std-quick-btn-qc-inspect" 
-                        title="Open QC Inspection & routing (Rework/Paint/Assembly)"
-                        aria-label="Open QC Inspection and routing"
-                        @click="openTransitionModal(part, 'qc', 'assembly')"
-                      >
-                        <i class="fas fa-route"></i> QC Inspection
-                      </button>
+                        <button 
+                          v-if="part.parts_in_store > 0" 
+                          class="std-btn-action std-btn-qc" 
+                          title="Dispatch Store parts to QC inspection"
+                          aria-label="Dispatch Store parts to QC inspection"
+                          @click="openTransitionModal(part, 'store', 'qc')"
+                        >
+                          <i class="fas fa-clipboard-check"></i> QC
+                        </button>
 
-                      <!-- 4. Rework -> QC -->
-                      <button 
-                        v-if="part.parts_in_rework > 0" 
-                        class="std-quick-btn std-quick-btn-rework" 
-                        title="Route reworked parts back to QC inspection"
-                        aria-label="Route reworked parts back to QC inspection"
-                        @click="openTransitionModal(part, 'rework', 'qc')"
-                      >
-                        <i class="fas fa-tools"></i> Rework
-                      </button>
+                        <button 
+                          v-if="part.parts_in_qc > 0" 
+                          class="std-btn-action std-btn-qc-inspect" 
+                          title="Open QC Inspection & routing (Rework/Paint/Assembly)"
+                          aria-label="Open QC Inspection and routing"
+                          @click="openTransitionModal(part, 'qc', 'assembly')"
+                        >
+                          <i class="fas fa-route"></i> QC Inspection
+                        </button>
 
-                      <!-- 5. Paint -> Assembly -->
-                      <button 
-                        v-if="part.parts_in_paint > 0" 
-                        class="std-quick-btn std-quick-btn-asm" 
-                        title="Move painted parts to Assembly Bay"
-                        aria-label="Move painted parts to Assembly Bay"
-                        @click="openTransitionModal(part, 'paint', 'assembly')"
-                      >
-                        <i class="fas fa-cogs"></i> ASM
-                      </button>
+                        <button 
+                          v-if="part.parts_in_rework > 0" 
+                          class="std-btn-action std-btn-rework" 
+                          title="Route reworked parts back to QC inspection"
+                          aria-label="Route reworked parts back to QC inspection"
+                          @click="openTransitionModal(part, 'rework', 'qc')"
+                        >
+                          <i class="fas fa-tools"></i> Rework
+                        </button>
 
-                      <!-- 6. Assembly -> Completed -->
-                      <button 
-                        v-if="part.parts_in_assembly > 0" 
-                        class="std-quick-btn std-quick-btn-complete" 
-                        title="Mark assembled parts as fully completed"
-                        aria-label="Mark assembled parts as fully completed"
-                        @click="openTransitionModal(part, 'assembly', 'completed')"
-                      >
-                        <i class="fas fa-check-double"></i> Complete
-                      </button>
+                        <button 
+                          v-if="part.parts_in_paint > 0" 
+                          class="std-btn-action std-btn-asm" 
+                          title="Move painted parts to Assembly Bay"
+                          aria-label="Move painted parts to Assembly Bay"
+                          @click="openTransitionModal(part, 'paint', 'assembly')"
+                        >
+                          <i class="fas fa-cogs"></i> ASM
+                        </button>
 
-                      <!-- Completed Tag if all done -->
-                      <span v-if="part.total_pending === 0 && part.parts_in_store === 0 && part.parts_in_qc === 0 && part.parts_in_rework === 0 && part.parts_in_paint === 0 && part.parts_in_assembly === 0 && part.assembly_completed > 0" class="badge bg-success-subtle text-success border border-success px-2 py-0.5 extra-small fw-semibold">
-                        <i class="fas fa-check-circle me-1"></i> All Assembled
-                      </span>
+                        <button 
+                          v-if="part.parts_in_assembly > 0" 
+                          class="std-btn-action std-btn-complete" 
+                          title="Mark assembled parts as fully completed"
+                          aria-label="Mark assembled parts as fully completed"
+                          @click="openTransitionModal(part, 'assembly', 'completed')"
+                        >
+                          <i class="fas fa-check-double"></i> Complete
+                        </button>
+                      </template>
+
+                      <!-- Two-Row Deliberate Grid Mode (When > 3 actions active) -->
+                      <template v-else>
+                        <!-- Row 1: Inbound & Quality Inspection -->
+                        <div class="std-toolbar-row">
+                          <button 
+                            v-if="part.total_pending > 0" 
+                            class="std-btn-action std-btn-receive" 
+                            title="Intake arrived parts into Store"
+                            aria-label="Intake arrived parts into Store"
+                            @click="openTransitionModal(part, 'pending', 'store')"
+                          >
+                            <i class="fas fa-boxes"></i> Receive
+                          </button>
+
+                          <button 
+                            v-if="part.parts_in_store > 0" 
+                            class="std-btn-action std-btn-qc" 
+                            title="Dispatch Store parts to QC inspection"
+                            aria-label="Dispatch Store parts to QC inspection"
+                            @click="openTransitionModal(part, 'store', 'qc')"
+                          >
+                            <i class="fas fa-clipboard-check"></i> QC
+                          </button>
+
+                          <button 
+                            v-if="part.parts_in_qc > 0" 
+                            class="std-btn-action std-btn-qc-inspect" 
+                            title="Open QC Inspection & routing (Rework/Paint/Assembly)"
+                            aria-label="Open QC Inspection and routing"
+                            @click="openTransitionModal(part, 'qc', 'assembly')"
+                          >
+                            <i class="fas fa-route"></i> QC Inspection
+                          </button>
+                        </div>
+
+                        <!-- Row 2: Correction & Downstream Production -->
+                        <div class="std-toolbar-row">
+                          <button 
+                            v-if="part.parts_in_rework > 0" 
+                            class="std-btn-action std-btn-rework" 
+                            title="Route reworked parts back to QC inspection"
+                            aria-label="Route reworked parts back to QC inspection"
+                            @click="openTransitionModal(part, 'rework', 'qc')"
+                          >
+                            <i class="fas fa-tools"></i> Rework
+                          </button>
+
+                          <button 
+                            v-if="part.parts_in_paint > 0" 
+                            class="std-btn-action std-btn-asm" 
+                            title="Move painted parts to Assembly Bay"
+                            aria-label="Move painted parts to Assembly Bay"
+                            @click="openTransitionModal(part, 'paint', 'assembly')"
+                          >
+                            <i class="fas fa-cogs"></i> ASM
+                          </button>
+
+                          <button 
+                            v-if="part.parts_in_assembly > 0" 
+                            class="std-btn-action std-btn-complete" 
+                            title="Mark assembled parts as fully completed"
+                            aria-label="Mark assembled parts as fully completed"
+                            @click="openTransitionModal(part, 'assembly', 'completed')"
+                          >
+                            <i class="fas fa-check-double"></i> Complete
+                          </button>
+                        </div>
+                      </template>
                     </div>
                   </td>
 
@@ -985,6 +1056,19 @@ function clearQcAllocations() {
   qcRouteForm.value.assembly_quantity = 0;
 }
 
+// Helper to count active actions for a part
+function getActiveActionCount(part) {
+  if (!part) return 0;
+  let count = 0;
+  if ((part.total_pending || 0) > 0) count++;
+  if ((part.parts_in_store || 0) > 0) count++;
+  if ((part.parts_in_qc || 0) > 0) count++;
+  if ((part.parts_in_rework || 0) > 0) count++;
+  if ((part.parts_in_paint || 0) > 0) count++;
+  if ((part.parts_in_assembly || 0) > 0) count++;
+  return count;
+}
+
 // Fetch STD parts list from backend
 async function fetchStdData() {
   loading.value = true;
@@ -1308,84 +1392,137 @@ onMounted(() => {
   letter-spacing: 0.03em;
 }
 
-/* Compact Quick Movement Actions */
-.std-quick-actions {
+/* Enterprise Workflow Toolbar Container */
+.std-toolbar {
   display: inline-flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 3px 4px;
-  max-width: 240px;
-  margin: 0 auto;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 3px 5px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  gap: 4px;
 }
 
-.std-quick-btn {
+.std-toolbar-grid {
+  flex-direction: column;
+  gap: 3px;
+  max-width: 240px;
+}
+
+.std-toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+}
+
+/* Base Enterprise Action Button */
+.std-btn-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px 7px;
-  font-size: 0.72rem;
+  height: 24px;
+  padding: 0 7px;
+  font-size: 0.70rem;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1;
   border-radius: 4px;
   border: 1px solid transparent;
   white-space: nowrap;
-  text-decoration: none;
   cursor: pointer;
-  transition: all 0.15s ease-in-out;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transition: all 0.12s ease-in-out;
   flex: 0 0 auto;
+  user-select: none;
+  text-decoration: none;
 }
 
-.std-quick-btn i {
-  font-size: 0.68rem;
-  margin-right: 3px;
+.std-btn-action i {
+  font-size: 0.65rem;
+  margin-right: 3.5px;
 }
 
-.std-quick-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
-  filter: brightness(0.95);
+.std-btn-action:hover {
+  transform: translateY(-0.5px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-.std-quick-btn:active {
+.std-btn-action:active {
   transform: translateY(0);
 }
 
-/* Specific Action Color Schemes */
-.std-quick-btn-receive {
-  background-color: #f59e0b;
-  color: #1f2937;
-  border-color: #d97706;
+/* Semantic Color Schemes (Restrained Pastel-Tint with High-Contrast Text) */
+.std-btn-receive {
+  background-color: #fffbeb;
+  color: #92400e;
+  border-color: #fde68a;
+}
+.std-btn-receive i { color: #d97706; }
+.std-btn-receive:hover {
+  background-color: #fef3c7;
+  border-color: #f59e0b;
+  color: #78350f;
 }
 
-.std-quick-btn-qc {
-  background-color: #0284c7;
-  color: #ffffff;
-  border-color: #0369a1;
+.std-btn-qc {
+  background-color: #f0f9ff;
+  color: #0369a1;
+  border-color: #bae6fd;
+}
+.std-btn-qc i { color: #0284c7; }
+.std-btn-qc:hover {
+  background-color: #e0f2fe;
+  border-color: #0284c7;
+  color: #075985;
 }
 
-.std-quick-btn-qc-inspect {
-  background-color: #0d9488;
-  color: #ffffff;
-  border-color: #0f766e;
+.std-btn-qc-inspect {
+  background-color: #f0fdfa;
+  color: #0f766e;
+  border-color: #99f6e4;
+}
+.std-btn-qc-inspect i { color: #0d9488; }
+.std-btn-qc-inspect:hover {
+  background-color: #ccfbf1;
+  border-color: #0d9488;
+  color: #115e59;
 }
 
-.std-quick-btn-rework {
-  background-color: #ea580c;
-  color: #ffffff;
-  border-color: #c2410c;
+.std-btn-rework {
+  background-color: #fff7ed;
+  color: #c2410c;
+  border-color: #fed7aa;
+}
+.std-btn-rework i { color: #ea580c; }
+.std-btn-rework:hover {
+  background-color: #ffedd5;
+  border-color: #ea580c;
+  color: #9a3412;
 }
 
-.std-quick-btn-asm {
-  background-color: #7c3aed;
-  color: #ffffff;
-  border-color: #6d28d9;
+.std-btn-asm {
+  background-color: #faf5ff;
+  color: #6b21a8;
+  border-color: #e9d5ff;
+}
+.std-btn-asm i { color: #7c3aed; }
+.std-btn-asm:hover {
+  background-color: #f3e8ff;
+  border-color: #7c3aed;
+  color: #581c87;
 }
 
-.std-quick-btn-complete {
-  background-color: #059669;
-  color: #ffffff;
-  border-color: #047857;
+.std-btn-complete {
+  background-color: #f0fdf4;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+.std-btn-complete i { color: #059669; }
+.std-btn-complete:hover {
+  background-color: #dcfce7;
+  border-color: #059669;
+  color: #14532d;
 }
 </style>
