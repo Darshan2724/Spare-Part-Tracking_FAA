@@ -215,8 +215,10 @@ class HierarchyService
 
             // Read JIG and Unit directly from the authoritative FA-279 BOM fields
             $jigName = !empty($item->jig_no) ? strtoupper(trim($item->jig_no)) : 'GENERAL';
-            $rawUnit = !empty($item->unit_no) ? trim($item->unit_no) : '00';
-            $unitNo = str_starts_with(strtoupper($rawUnit), 'UNIT') ? $rawUnit : ('Unit ' . $rawUnit);
+            $rawUnit = !empty($item->unit_no) ? trim((string)$item->unit_no) : '00';
+            $cleanUnit = trim(str_ireplace('unit', '', $rawUnit));
+            $paddedUnit = is_numeric($cleanUnit) ? sprintf('%02d', (int)$cleanUnit) : $cleanUnit;
+            $unitNo = 'Unit ' . $paddedUnit;
 
             $itemReceipts = $receiptItemsGrouped->get($item->id, collect());
             $itemQcInspections = $qcInspectionsGrouped->get($item->id, collect());
@@ -284,7 +286,7 @@ class HierarchyService
                 $asmReady = max(0, $asmReached - $asmComp);
 
                 // Location Residencies
-                $validReceived = $recForSide->whereIn('status', ['received', 'sent_to_qc', 'qc_received', 'qc_approved', 'qc_rejected', 'qc_rework', 'qc_inspected', 'returned_to_store'])->sum('received_quantity');
+                $validReceived = $recForSide->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES)->sum('received_quantity');
                 $storeResident = (int) $recForSide->whereIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
                 $qcPendingArrival = (int) $recForSide->whereIn('status', ['received', 'sent_to_qc'])->sum('received_quantity');
                 $totalQcArrived = (int) $recForSide->whereIn('status', ['qc_received', 'qc_approved', 'qc_rejected', 'qc_rework', 'qc_inspected'])->sum('received_quantity');
@@ -293,7 +295,7 @@ class HierarchyService
 
                 // Department Specific Status Badges
                 if ($asmComp >= $reqQty && $reqQty > 0) {
-                    $statusBadge = 'Assembled';
+                    $statusBadge = 'Completed';
                     $statusColor = 'success';
                 } elseif ($asmReady > 0) {
                     $statusBadge = 'Assembly';
@@ -590,7 +592,7 @@ class HierarchyService
 
             // Check if any variant of this unit already exists in $jigsTree[$jKey]['units']
             $existingKey = null;
-            foreach ([$uRaw, $cleanNo, 'Unit ' . $cleanNo, 'Unit ' . $paddedNo, $unitDisplay] as $candidate) {
+            foreach ([$unitDisplay, $uRaw, $cleanNo, 'Unit ' . $cleanNo, 'Unit ' . $paddedNo] as $candidate) {
                 if (isset($jigsTree[$jKey]['units'][$candidate])) {
                     $existingKey = $candidate;
                     break;
@@ -598,7 +600,7 @@ class HierarchyService
             }
 
             if ($existingKey === null) {
-                $targetKey = $uRaw !== '' ? $uRaw : $unitDisplay;
+                $targetKey = $unitDisplay;
                 $jigsTree[$jKey]['units'][$targetKey] = [
                     'unit_no' => $targetKey,
                     'jig_name' => $jKey,
@@ -737,7 +739,7 @@ class HierarchyService
                         $qcResident = $qcPendingArrival + $qcPendingInspection;
 
                         $ecnStatusBadge = match ($er->current_state) {
-                            'ASSEMBLY_COMPLETED' => 'Assembled',
+                            'ASSEMBLY_COMPLETED' => 'Completed',
                             'ASSEMBLY' => 'Assembly',
                             'PAINT' => 'Paint',
                             'REWORK' => 'Rework',
@@ -1101,7 +1103,7 @@ class HierarchyService
                     $qcResident = $qcPendingArrival + $qcPendingInspection;
 
                     $ecnStatusBadge = match ($er->current_state) {
-                        'ASSEMBLY_COMPLETED' => 'Assembled',
+                        'ASSEMBLY_COMPLETED' => 'Completed',
                         'ASSEMBLY' => 'Assembly',
                         'PAINT' => 'Paint',
                         'REWORK' => 'Rework',
@@ -1793,16 +1795,21 @@ class HierarchyService
             'total_required' => 0,
             'total_received' => 0,
             'total_pending' => 0,
+            'parts_in_store' => 0,
+            'parts_in_qc' => 0,
             'qc_pending_arrival' => 0,
             'qc_pending_inspection' => 0,
             'qc_approved' => 0,
             'qc_rejected' => 0,
             'qc_rework' => 0,
+            'parts_in_rework' => 0,
             'rework_pending' => 0,
             'rework_in_progress' => 0,
             'rework_completed' => 0,
+            'parts_in_paint' => 0,
             'paint_ready' => 0,
             'paint_completed' => 0,
+            'parts_in_assembly' => 0,
             'assembly_ready' => 0,
             'assembly_completed' => 0,
         ];

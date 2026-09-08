@@ -68,6 +68,7 @@ docker/data/
 # ==============================
 /storage/app/public/qc_attachments/
 /storage/app/public/bom_imports/
+/storage/app/backups/
 
 # ==============================
 # Test & temp
