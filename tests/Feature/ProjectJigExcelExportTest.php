@@ -50,7 +50,7 @@ class ProjectJigExcelExportTest extends TestCase
         $user = $this->getAdminUser();
         $this->actingAs($user, 'sanctum');
 
-        $project = Project::where('status', 'active')->first() ?? Project::first();
+        $project = Project::where('status', 'active')->has('bomItems')->first() ?? Project::first();
         $this->assertNotNull($project, 'At least one project should exist.');
 
         $response = $this->getJson('/api/v1/export/project-jigs?project_id=' . $project->id);
@@ -83,44 +83,67 @@ class ProjectJigExcelExportTest extends TestCase
             
             $sheet = $spreadsheet->getActiveSheet();
             
-            // Validate row 5 headers
+            // Validate row 1 is the Jig Name banner (e.g. non-empty string)
+            $jigBanner1 = $sheet->getCell('A1')->getValue();
+            $this->assertNotEmpty($jigBanner1, 'Row 1 should be the Jig Name banner on top.');
+
+            // Validate row 2 headers matching reference layout
             $expectedHeaders = [
-                'A5' => 'Fix No.',
-                'B5' => 'Design Release Date',
-                'C5' => 'Supplier Name',
-                'D5' => 'Mfg Receipt Date',
-                'E5' => 'Total',
-                'F5' => 'Received',
-                'G5' => 'Pending',
-                'H5' => 'Quality',
-                'I5' => 'Rework',
-                'J5' => 'Paintshop',
-                'K5' => 'Assembly',
-                'L5' => 'ECN',
+                'A2' => 'Fix No.',
+                'B2' => 'Design Release date',
+                'C2' => 'Supplier Name',
+                'D2' => 'Mfg Receipt Date',
+                'E2' => 'Total',
+                'F2' => 'Received',
+                'G2' => 'Pending',
+                'H2' => 'Quality',
+                'I2' => 'Rework',
+                'J2' => 'Paintshop',
+                'K2' => 'Assembly',
+                'L2' => 'ECN',
             ];
 
             foreach ($expectedHeaders as $cell => $expectedText) {
                 $this->assertEquals($expectedText, $sheet->getCell($cell)->getValue(), "Header mismatch at {$cell}");
             }
 
-            // Find last row (which should be TOTAL row)
+            // Find all TOTAL rows and verify per-Jig arithmetic
             $highestRow = $sheet->getHighestRow();
-            $this->assertGreaterThanOrEqual(6, $highestRow, 'Should have at least 1 data row or TOTAL row.');
+            $totalRowsFound = 0;
+            $currentRow = 1;
 
-            $totalCellVal = $sheet->getCell("A{$highestRow}")->getValue();
-            $this->assertEquals('TOTAL', $totalCellVal, 'Final row must be labeled TOTAL.');
+            while ($currentRow <= $highestRow) {
+                // Find next TOTAL row
+                if ($sheet->getCell("A{$currentRow}")->getValue() === 'TOTAL') {
+                    $totalRowsFound++;
+                    $totalRow = $currentRow;
 
-            // Verify TOTAL row values equal sum of columns
-            $cols = ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
-            foreach ($cols as $col) {
-                $colSum = 0;
-                for ($r = 6; $r < $highestRow; $r++) {
-                    $val = (int) $sheet->getCell("{$col}{$r}")->getValue();
-                    $colSum += $val;
+                    // Trace upward to find the start of this Jig's data rows
+                    $r = $totalRow - 1;
+                    $dataRows = [];
+                    while ($r >= 1 && $sheet->getCell("A{$r}")->getValue() !== 'Fix No.') {
+                        $val = $sheet->getCell("A{$r}")->getValue();
+                        if (!empty($val) && $val !== 'TOTAL') {
+                            $dataRows[] = $r;
+                        }
+                        $r--;
+                    }
+
+                    // Verify per-Jig column sums for E..L
+                    $cols = ['E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
+                    foreach ($cols as $col) {
+                        $expectedSum = 0;
+                        foreach ($dataRows as $dr) {
+                            $expectedSum += (int) $sheet->getCell("{$col}{$dr}")->getValue();
+                        }
+                        $actualSum = (int) $sheet->getCell("{$col}{$totalRow}")->getValue();
+                        $this->assertEquals($expectedSum, $actualSum, "TOTAL mismatch at row {$totalRow} column {$col}");
+                    }
                 }
-                $totalRowVal = (int) $sheet->getCell("{$col}{$highestRow}")->getValue();
-                $this->assertEquals($colSum, $totalRowVal, "TOTAL sum mismatch for column {$col}");
+                $currentRow++;
             }
+
+            $this->assertGreaterThanOrEqual(1, $totalRowsFound, 'Should find at least 1 Jig TOTAL row.');
         } finally {
             if (file_exists($tempFile)) {
                 unlink($tempFile);

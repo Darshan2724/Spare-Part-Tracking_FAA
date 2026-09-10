@@ -9,6 +9,7 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Models\Project;
 use App\Models\BomItem;
@@ -302,7 +303,7 @@ class ExportService
         $hierarchy = $this->hierarchyService->getDepartmentHierarchy('manager', $project->id, $filters);
         $jigs = $hierarchy['jigs'] ?? [];
 
-        // Preload suppliers by Jig (zero N+1 queries)
+        // Preload suppliers by Jig and (Jig, Side) - Zero N+1 queries
         $assignedSuppliers = SupplierAssignment::query()
             ->where('project_id', $project->id)
             ->where('status', 'active')
@@ -311,14 +312,40 @@ class ExportService
             ->groupBy(fn($a) => strtoupper(trim((string)$a->jig_no)));
 
         $bomSuppliers = BomItem::query()
-            ->where('project_id', $project->id)
-            ->whereNotNull('jig_no')
+            ->join('bom_requirements', 'bom_requirements.bom_item_id', '=', 'bom_items.id')
+            ->where('bom_items.project_id', $project->id)
+            ->whereNotNull('bom_items.jig_no')
             ->with('supplier')
-            ->get(['id', 'jig_no', 'supplier_id', 'supplier_name_raw', 'import_batch_id', 'created_at'])
-            ->groupBy(fn($i) => strtoupper(trim((string)$i->jig_no)));
+            ->get(['bom_items.id', 'bom_items.jig_no', 'bom_requirements.side', 'bom_items.supplier_id', 'bom_items.supplier_name_raw']);
 
-        // Preload latest receipt dates by Jig
-        $receiptDates = ReceiptItem::query()
+        $bomSuppliersByJigSide = $bomSuppliers->groupBy(function ($i) {
+            $j = strtoupper(trim((string)$i->jig_no));
+            $s = strtoupper(trim((string)$i->side));
+            return "{$j}|{$s}";
+        });
+
+        $bomSuppliersByJig = $bomSuppliers->groupBy(fn($i) => strtoupper(trim((string)$i->jig_no)));
+
+        // Preload latest receipt dates by (Jig, Side) and Jig
+        $receiptDatesByJigSide = ReceiptItem::query()
+            ->join('bom_items', 'bom_items.id', '=', 'receipt_items.bom_item_id')
+            ->leftJoin('receipts', 'receipts.id', '=', 'receipt_items.receipt_id')
+            ->where('bom_items.project_id', $project->id)
+            ->whereIn('receipt_items.status', QuantityCalculationService::VALID_RECEIPT_STATUSES)
+            ->select(
+                'bom_items.jig_no',
+                'receipt_items.side',
+                DB::raw('MAX(COALESCE(receipts.receipt_date, receipt_items.created_at)) as max_rec_date')
+            )
+            ->groupBy('bom_items.jig_no', 'receipt_items.side')
+            ->get()
+            ->mapWithKeys(function ($r) {
+                $j = strtoupper(trim((string)$r->jig_no));
+                $s = strtoupper(trim((string)$r->side));
+                return ["{$j}|{$s}" => $r->max_rec_date];
+            });
+
+        $receiptDatesByJig = ReceiptItem::query()
             ->join('bom_items', 'bom_items.id', '=', 'receipt_items.bom_item_id')
             ->leftJoin('receipts', 'receipts.id', '=', 'receipt_items.receipt_id')
             ->where('bom_items.project_id', $project->id)
@@ -329,7 +356,7 @@ class ExportService
             ->mapWithKeys(fn($date, $jig) => [strtoupper(trim((string)$jig)) => $date]);
 
         // Preload earliest release/assignment dates by Jig
-        $assignmentDates = SupplierAssignment::query()
+        $assignmentDatesByJig = SupplierAssignment::query()
             ->where('project_id', $project->id)
             ->where('status', 'active')
             ->whereNotNull('assignment_date')
@@ -343,30 +370,9 @@ class ExportService
         $safeSheetTitle = substr(preg_replace('/[\\\\\\/?*\\[\\]]/', '', $project->project_code . ' Jigs'), 0, 31);
         $sheet->setTitle($safeSheetTitle);
 
-        // Document Banner
-        $sheet->setCellValue('A1', 'FAITH AUTOMATION — Industrial Spare Parts Tracking System');
-        $sheet->mergeCells('A1:L1');
-        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(13)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('0F172A'));
-        $sheet->getRowDimension(1)->setRowHeight(22);
-
-        $subtitle = "{$project->project_code} ({$project->name}) — Jig Material Status Report";
-        $sheet->setCellValue('A2', $subtitle);
-        $sheet->mergeCells('A2:L2');
-        $sheet->getStyle('A2')->getFont()->setBold(true)->setSize(11)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('2563EB'));
-        $sheet->getRowDimension(2)->setRowHeight(18);
-
-        $meta = 'Generated: ' . now()->format('d-M-Y H:i') . '   |   Project: ' . $project->project_code . ' - ' . $project->name . '   |   Jigs: ' . count($jigs);
-        $sheet->setCellValue('A3', $meta);
-        $sheet->mergeCells('A3:L3');
-        $sheet->getStyle('A3')->getFont()->setItalic(true)->setSize(9)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('64748B'));
-        $sheet->getRowDimension(3)->setRowHeight(16);
-
-        // Row 4 is blank separator
-        $headerRow = 5;
-
         $headers = [
             'Fix No.',
-            'Design Release Date',
+            'Design Release date',
             'Supplier Name',
             'Mfg Receipt Date',
             'Total',
@@ -379,146 +385,232 @@ class ExportService
             'ECN'
         ];
 
-        $colChar = 'A';
-        foreach ($headers as $h) {
-            $sheet->setCellValue($colChar . $headerRow, $h);
-            $colChar++;
-        }
-        $lastCol = 'L';
-
-        // Header Styling: Gold/tan fill (#F5E6CB), bold dark text, centered
-        $headerRange = "A{$headerRow}:{$lastCol}{$headerRow}";
-        $sheet->getStyle($headerRange)->getFont()->setBold(true)->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
-        $sheet->getStyle($headerRange)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF5E6CB');
-        $sheet->getStyle($headerRange)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(true);
-        $sheet->getRowDimension($headerRow)->setRowHeight(26);
-
-        $dataStartRow = 6;
-        $currentRow = $dataStartRow;
-
-        $totalSums = [
-            'total' => 0,
-            'received' => 0,
-            'pending' => 0,
-            'quality' => 0,
-            'rework' => 0,
-            'paintshop' => 0,
-            'assembly' => 0,
-            'ecn' => 0,
-        ];
+        $currentRow = 1;
 
         foreach ($jigs as $jig) {
             $jigName = $jig['jig_name'] ?? 'N/A';
             $jKey = strtoupper(trim((string)$jigName));
 
-            // Suppliers: combine unique names or leave blank if none in database/website
-            $suppList = collect();
-            if ($assignedSuppliers->has($jKey)) {
-                $suppList = $suppList->merge($assignedSuppliers->get($jKey)->pluck('supplier.name'));
-            }
-            if ($bomSuppliers->has($jKey)) {
-                $suppList = $suppList->merge($bomSuppliers->get($jKey)->pluck('supplier.name'));
-                $suppList = $suppList->merge($bomSuppliers->get($jKey)->pluck('supplier_name_raw'));
-            }
-            $supplierName = $suppList->filter(fn($n) => !empty($n) && strtolower($n) !== 'standard')->unique()->values()->implode(', ');
+            // 1. Jig Name Header Row (Merged A to L, 14pt bold centered)
+            $bannerRow = $currentRow;
+            $sheet->setCellValue('A' . $bannerRow, $jigName);
+            $sheet->mergeCells("A{$bannerRow}:L{$bannerRow}");
+            $sheet->getStyle("A{$bannerRow}")->getFont()->setBold(true)->setSize(14)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
+            $sheet->getStyle("A{$bannerRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
+            $sheet->getStyle("A{$bannerRow}:L{$bannerRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
+            $sheet->getRowDimension($bannerRow)->setRowHeight(28);
+            $currentRow++;
 
-            // Design Release Date: from assignment_date; leave blank if none in database/website
-            $designDateRaw = $assignmentDates->get($jKey);
-            $designDate = '';
-            if ($designDateRaw) {
-                try {
-                    $designDate = Carbon::parse($designDateRaw)->format('d-M');
-                } catch (\Exception $e) {
-                    $designDate = '';
+            // 2. Table Header Row (Gold/Tan fill #F5E6CB, 10pt bold centered)
+            $headerRow = $currentRow;
+            $colChar = 'A';
+            foreach ($headers as $h) {
+                $sheet->setCellValue($colChar . $headerRow, $h);
+                $colChar++;
+            }
+            $sheet->getStyle("A{$headerRow}:L{$headerRow}")->getFont()->setBold(true)->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
+            $sheet->getStyle("A{$headerRow}:L{$headerRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF5E6CB');
+            $sheet->getStyle("A{$headerRow}:L{$headerRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(true);
+            $sheet->getStyle("A{$headerRow}:L{$headerRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
+            $sheet->getRowDimension($headerRow)->setRowHeight(26);
+            $currentRow++;
+
+            // 3. Side / Fixture Rows
+            $sidesMap = [];
+            foreach ($jig['units'] ?? [] as $u) {
+                if (!empty($u['sides'])) {
+                    foreach ($u['sides'] as $sKey => $sData) {
+                        $normSide = strtoupper(trim((string)$sKey));
+                        if (!isset($sidesMap[$normSide])) {
+                            $sidesMap[$normSide] = [
+                                'total_required' => 0,
+                                'total_received' => 0,
+                                'total_pending' => 0,
+                                'quality' => 0,
+                                'rework' => 0,
+                                'paintshop' => 0,
+                                'assembly' => 0,
+                                'ecn' => 0,
+                            ];
+                        }
+                        $sidesMap[$normSide]['total_required'] += (int)($sData['total_required'] ?? 0);
+                        $sidesMap[$normSide]['total_received'] += (int)($sData['total_received'] ?? 0);
+                        $sidesMap[$normSide]['total_pending'] += (int)($sData['pending_quantity'] ?? 0);
+                        $m = $sData['metrics'] ?? [];
+                        $sidesMap[$normSide]['quality'] += (int)($m['parts_in_qc'] ?? (($m['qc_pending_arrival'] ?? 0) + ($m['qc_pending_inspection'] ?? 0)));
+                        $sidesMap[$normSide]['rework'] += (int)($m['parts_in_rework'] ?? ($m['rework_pending'] ?? 0));
+                        $sidesMap[$normSide]['paintshop'] += (int)($m['parts_in_paint'] ?? ($m['paint_ready'] ?? 0));
+                        $sidesMap[$normSide]['assembly'] += (int)($sData['assembly_completed'] ?? ($m['assembly_completed'] ?? 0));
+                        $sidesMap[$normSide]['ecn'] += (int)($sData['ecn_count'] ?? 0);
+                    }
+                } else {
+                    $normSide = 'COMMON';
+                    if (!isset($sidesMap[$normSide])) {
+                        $sidesMap[$normSide] = [
+                            'total_required' => 0,
+                            'total_received' => 0,
+                            'total_pending' => 0,
+                            'quality' => 0,
+                            'rework' => 0,
+                            'paintshop' => 0,
+                            'assembly' => 0,
+                            'ecn' => 0,
+                        ];
+                    }
+                    $sidesMap[$normSide]['total_required'] += (int)($u['total_required'] ?? 0);
+                    $sidesMap[$normSide]['total_received'] += (int)($u['total_received'] ?? 0);
+                    $sidesMap[$normSide]['total_pending'] += (int)($u['total_pending'] ?? 0);
+                    $m = $u['metrics'] ?? [];
+                    $sidesMap[$normSide]['quality'] += (int)($m['parts_in_qc'] ?? (($m['qc_pending_arrival'] ?? 0) + ($m['qc_pending_inspection'] ?? 0)));
+                    $sidesMap[$normSide]['rework'] += (int)($m['parts_in_rework'] ?? ($m['rework_pending'] ?? 0));
+                    $sidesMap[$normSide]['paintshop'] += (int)($m['parts_in_paint'] ?? ($m['paint_ready'] ?? 0));
+                    $sidesMap[$normSide]['assembly'] += (int)($m['assembly_completed'] ?? 0);
+                    $sidesMap[$normSide]['ecn'] += (int)($u['ecn_count'] ?? 0);
                 }
             }
 
-            // Mfg Receipt Date: from latest receipt; leave blank if none
-            $mfgDateRaw = $receiptDates->get($jKey);
-            $mfgDate = '';
-            if ($mfgDateRaw) {
-                try {
-                    $mfgDate = Carbon::parse($mfgDateRaw)->format('d-M');
-                } catch (\Exception $e) {
-                    $mfgDate = '';
+            // Filter out sides with zero activity if other active sides exist
+            if (count($sidesMap) > 1) {
+                $filteredSides = array_filter($sidesMap, fn($v) => ($v['total_required'] > 0 || $v['total_received'] > 0 || $v['ecn'] > 0));
+                if (!empty($filteredSides)) {
+                    $sidesMap = $filteredSides;
                 }
             }
 
-            // Numeric Quantities
-            $m = $jig['metrics'] ?? [];
-            $total = (int) ($jig['total_required'] ?? 0);
-            $received = (int) ($jig['total_received'] ?? 0);
-            $pending = (int) ($jig['total_pending'] ?? 0);
-            $quality = (int) ($m['parts_in_qc'] ?? (($m['qc_pending_arrival'] ?? 0) + ($m['qc_pending_inspection'] ?? 0)));
-            $rework = (int) ($m['parts_in_rework'] ?? ($m['rework_pending'] ?? 0));
-            $paintshop = (int) ($m['parts_in_paint'] ?? ($m['paint_ready'] ?? 0));
-            $assembly = (int) ($m['assembly_completed'] ?? 0);
-            $ecn = (int) ($jig['ecn_count'] ?? 0);
+            // Sort sides: RH first, then LH, then COMMON
+            uksort($sidesMap, function ($a, $b) {
+                if ($a === 'RH' && $b === 'LH') return -1;
+                if ($a === 'LH' && $b === 'RH') return 1;
+                return strcmp($a, $b);
+            });
 
-            // Accumulate sums
-            $totalSums['total'] += $total;
-            $totalSums['received'] += $received;
-            $totalSums['pending'] += $pending;
-            $totalSums['quality'] += $quality;
-            $totalSums['rework'] += $rework;
-            $totalSums['paintshop'] += $paintshop;
-            $totalSums['assembly'] += $assembly;
-            $totalSums['ecn'] += $ecn;
+            $jigTotals = [
+                'total' => 0,
+                'received' => 0,
+                'pending' => 0,
+                'quality' => 0,
+                'rework' => 0,
+                'paintshop' => 0,
+                'assembly' => 0,
+                'ecn' => 0,
+            ];
 
-            // Row values
-            $sheet->setCellValueExplicit('A' . $currentRow, $jigName, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit('B' . $currentRow, $designDate, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit('C' . $currentRow, $supplierName, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit('D' . $currentRow, $mfgDate, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+            foreach ($sidesMap as $sKey => $vals) {
+                $fixNo = ($sKey === 'COMMON' || empty($sKey)) ? $jigName : "{$jigName}-{$sKey}";
+                $jSideKey = "{$jKey}|{$sKey}";
 
-            // Explicit numeric values (not formatted text)
-            $sheet->setCellValueExplicit('E' . $currentRow, $total, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit('F' . $currentRow, $received, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit('G' . $currentRow, $pending, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit('H' . $currentRow, $quality, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit('I' . $currentRow, $rework, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit('J' . $currentRow, $paintshop, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit('K' . $currentRow, $assembly, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit('L' . $currentRow, $ecn, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
+                // Supplier Name: check (jig, side), then jig; leave blank if none in database/website
+                $suppList = collect();
+                if ($bomSuppliersByJigSide->has($jSideKey)) {
+                    $suppList = $suppList->merge($bomSuppliersByJigSide->get($jSideKey)->pluck('supplier.name'));
+                    $suppList = $suppList->merge($bomSuppliersByJigSide->get($jSideKey)->pluck('supplier_name_raw'));
+                }
+                if ($suppList->isEmpty()) {
+                    if ($assignedSuppliers->has($jKey)) {
+                        $suppList = $suppList->merge($assignedSuppliers->get($jKey)->pluck('supplier.name'));
+                    }
+                    if ($bomSuppliersByJig->has($jKey)) {
+                        $suppList = $suppList->merge($bomSuppliersByJig->get($jKey)->pluck('supplier.name'));
+                        $suppList = $suppList->merge($bomSuppliersByJig->get($jKey)->pluck('supplier_name_raw'));
+                    }
+                }
+                $supplierName = $suppList->filter(fn($n) => !empty($n) && strtolower($n) !== 'standard')->unique()->values()->implode(', ');
 
-            // Alignments
-            $sheet->getStyle('A' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
-            $sheet->getStyle('B' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
-            $sheet->getStyle('C' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT)->setVertical(Alignment::VERTICAL_CENTER);
-            $sheet->getStyle('D' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
-            $sheet->getStyle("E{$currentRow}:L{$currentRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT)->setVertical(Alignment::VERTICAL_CENTER);
+                // Design Release Date: from assignment_date for this jig; leave blank if none in database/website
+                $designDateRaw = $assignmentDatesByJig->get($jKey);
+                $designDate = '';
+                if ($designDateRaw) {
+                    try {
+                        $designDate = Carbon::parse($designDateRaw)->format('d-M');
+                    } catch (\Exception $e) {
+                        $designDate = '';
+                    }
+                }
 
-            $sheet->getRowDimension($currentRow)->setRowHeight(20);
+                // Mfg Receipt Date: check (jig, side), then jig; leave blank if none in database/website
+                $mfgDateRaw = $receiptDatesByJigSide->get($jSideKey) ?? $receiptDatesByJig->get($jKey);
+                $mfgDate = '';
+                if ($mfgDateRaw) {
+                    try {
+                        $mfgDate = Carbon::parse($mfgDateRaw)->format('d-M');
+                    } catch (\Exception $e) {
+                        $mfgDate = '';
+                    }
+                }
+
+                $total = (int) $vals['total_required'];
+                $received = (int) $vals['total_received'];
+                $pending = (int) $vals['total_pending'];
+                $quality = (int) $vals['quality'];
+                $rework = (int) $vals['rework'];
+                $paintshop = (int) $vals['paintshop'];
+                $assembly = (int) $vals['assembly'];
+                $ecn = (int) $vals['ecn'];
+
+                $jigTotals['total'] += $total;
+                $jigTotals['received'] += $received;
+                $jigTotals['pending'] += $pending;
+                $jigTotals['quality'] += $quality;
+                $jigTotals['rework'] += $rework;
+                $jigTotals['paintshop'] += $paintshop;
+                $jigTotals['assembly'] += $assembly;
+                $jigTotals['ecn'] += $ecn;
+
+                // Set row values
+                $sheet->setCellValueExplicit('A' . $currentRow, $fixNo, DataType::TYPE_STRING);
+                $sheet->setCellValueExplicit('B' . $currentRow, $designDate, DataType::TYPE_STRING);
+                $sheet->setCellValueExplicit('C' . $currentRow, $supplierName, DataType::TYPE_STRING);
+                $sheet->setCellValueExplicit('D' . $currentRow, $mfgDate, DataType::TYPE_STRING);
+
+                // Numeric values
+                $sheet->setCellValueExplicit('E' . $currentRow, $total, DataType::TYPE_NUMERIC);
+                $sheet->setCellValueExplicit('F' . $currentRow, $received, DataType::TYPE_NUMERIC);
+                $sheet->setCellValueExplicit('G' . $currentRow, $pending, DataType::TYPE_NUMERIC);
+                $sheet->setCellValueExplicit('H' . $currentRow, $quality, DataType::TYPE_NUMERIC);
+                $sheet->setCellValueExplicit('I' . $currentRow, $rework, DataType::TYPE_NUMERIC);
+                $sheet->setCellValueExplicit('J' . $currentRow, $paintshop, DataType::TYPE_NUMERIC);
+                $sheet->setCellValueExplicit('K' . $currentRow, $assembly, DataType::TYPE_NUMERIC);
+                $sheet->setCellValueExplicit('L' . $currentRow, $ecn, DataType::TYPE_NUMERIC);
+
+                // Row formatting & borders
+                $sheet->getStyle('A' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
+                $sheet->getStyle('B' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
+                $sheet->getStyle('C' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT)->setVertical(Alignment::VERTICAL_CENTER);
+                $sheet->getStyle('D' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
+                $sheet->getStyle("E{$currentRow}:L{$currentRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT)->setVertical(Alignment::VERTICAL_CENTER);
+                $sheet->getStyle("A{$currentRow}:L{$currentRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
+                $sheet->getRowDimension($currentRow)->setRowHeight(20);
+                $currentRow++;
+            }
+
+            // 4. Jig TOTAL row
+            $totalRow = $currentRow;
+            $sheet->setCellValue('A' . $totalRow, 'TOTAL');
+            $sheet->setCellValue('B' . $totalRow, '');
+            $sheet->setCellValue('C' . $totalRow, '');
+            $sheet->setCellValue('D' . $totalRow, '');
+
+            $sheet->setCellValueExplicit('E' . $totalRow, $jigTotals['total'], DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit('F' . $totalRow, $jigTotals['received'], DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit('G' . $totalRow, $jigTotals['pending'], DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit('H' . $totalRow, $jigTotals['quality'], DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit('I' . $totalRow, $jigTotals['rework'], DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit('J' . $totalRow, $jigTotals['paintshop'], DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit('K' . $totalRow, $jigTotals['assembly'], DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit('L' . $totalRow, $jigTotals['ecn'], DataType::TYPE_NUMERIC);
+
+            $totalRange = "A{$totalRow}:L{$totalRow}";
+            $sheet->getStyle($totalRange)->getFont()->setBold(true)->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
+            $sheet->getStyle('A' . $totalRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
+            $sheet->getStyle("E{$totalRow}:L{$totalRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT)->setVertical(Alignment::VERTICAL_CENTER);
+            $sheet->getStyle($totalRange)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
+            $sheet->getRowDimension($totalRow)->setRowHeight(22);
+            $currentRow++;
+
+            // 5. Blank spacer row between Jigs
+            $sheet->getRowDimension($currentRow)->setRowHeight(18);
             $currentRow++;
         }
-
-        // Concluding TOTAL row
-        $totalRow = $currentRow;
-        $sheet->setCellValue('A' . $totalRow, 'TOTAL');
-        $sheet->setCellValue('B' . $totalRow, '');
-        $sheet->setCellValue('C' . $totalRow, '');
-        $sheet->setCellValue('D' . $totalRow, '');
-
-        $sheet->setCellValueExplicit('E' . $totalRow, $totalSums['total'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-        $sheet->setCellValueExplicit('F' . $totalRow, $totalSums['received'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-        $sheet->setCellValueExplicit('G' . $totalRow, $totalSums['pending'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-        $sheet->setCellValueExplicit('H' . $totalRow, $totalSums['quality'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-        $sheet->setCellValueExplicit('I' . $totalRow, $totalSums['rework'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-        $sheet->setCellValueExplicit('J' . $totalRow, $totalSums['paintshop'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-        $sheet->setCellValueExplicit('K' . $totalRow, $totalSums['assembly'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-        $sheet->setCellValueExplicit('L' . $totalRow, $totalSums['ecn'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_NUMERIC);
-
-        // TOTAL row formatting: bold, right aligned for sums, centered for TOTAL label
-        $totalRange = "A{$totalRow}:L{$totalRow}";
-        $sheet->getStyle($totalRange)->getFont()->setBold(true)->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
-        $sheet->getStyle('A' . $totalRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
-        $sheet->getStyle("E{$totalRow}:L{$totalRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT)->setVertical(Alignment::VERTICAL_CENTER);
-        $sheet->getRowDimension($totalRow)->setRowHeight(22);
-
-        // Borders: Strong visible black borders across the entire table
-        $fullTableRange = "A{$headerRow}:L{$totalRow}";
-        $sheet->getStyle($fullTableRange)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
-        $sheet->getStyle("A{$totalRow}:L{$totalRow}")->getBorders()->getBottom()->setBorderStyle(Border::BORDER_DOUBLE)->getColor()->setARGB('FF000000');
 
         // Column widths for immediate readability
         $sheet->getColumnDimension('A')->setWidth(18); // Fix No.
