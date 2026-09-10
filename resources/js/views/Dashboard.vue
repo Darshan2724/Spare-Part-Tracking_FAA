@@ -2763,7 +2763,7 @@ const onProjectFilterChange = () => {
   unitPartSearch.value = {};
   unitSideTab.value = {};
   unitPartPage.value = {};
-  fetchData(true);
+  fetchData(false);
 };
 
 const toggleJigExpand = (sectionKey, jigName) => {
@@ -2935,12 +2935,13 @@ const fetchData = async (forceFresh = false) => {
   }
 
   try {
-    const sumRes = await axios.get(`/api/v1/dashboard/summary?${params}`);
-    cacheStore.set(cacheKey, sumRes.data, 60000);
-    applyData(sumRes.data);
+    const sumPromise = axios.get(`/api/v1/dashboard/summary?${params}`);
+    const hierPromise = filters.value.project_id ? fetchProjectHierarchy(forceFresh) : Promise.resolve(null);
 
-    if (filters.value.project_id) {
-      await fetchProjectHierarchy(forceFresh);
+    const [sumResult] = await Promise.allSettled([sumPromise, hierPromise]);
+    if (sumResult.status === 'fulfilled' && sumResult.value?.data) {
+      cacheStore.set(cacheKey, sumResult.value.data, 60000);
+      applyData(sumResult.value.data);
     }
   } catch (err) {
     console.error('Failed to load dashboard data:', err);

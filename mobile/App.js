@@ -620,6 +620,8 @@ function App() {
   // Mobile Store Hierarchy State
   const [hierarchyJigs, setHierarchyJigs] = useState([]);
   const [hierarchyProject, setHierarchyProject] = useState(null);
+  const [isProjectJigsLoading, setIsProjectJigsLoading] = useState(false);
+  const [projectJigsError, setProjectJigsError] = useState(null);
   const [selectedJig, setSelectedJig] = useState(null);
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [unitSideTab, setUnitSideTab] = useState('LH'); // 'LH' | 'RH'
@@ -1143,11 +1145,27 @@ function App() {
     selectionGenerationRef.current++;
     lastNavTapTimeRef.current = Date.now();
 
+    const activeDept = activeTab === 'dashboard' ? 'store' : activeTab;
+    const currentSub = getCurrentSubTabForDept(activeDept);
+    const cacheKey = `hierarchy_${user?.id || 'anon'}_${activeDept}_${currentSub}_proj_${projId}_${selectedSide || ''}`;
+
+    // 1. Instant Cache-First Display: If previously cached, display immediately without blocking
+    const cachedEntry = mobileCacheRef.current.get(cacheKey);
+    if (cachedEntry && cachedEntry.is_hierarchical) {
+      setHierarchyJigs(cachedEntry.jigs || []);
+      setHierarchyProject(cachedEntry.project || null);
+      setProjectJigsError(null);
+      setIsProjectJigsLoading(false);
+    } else {
+      setHierarchyJigs([]);
+      setHierarchyProject(null);
+      setIsProjectJigsLoading(true);
+      setProjectJigsError(null);
+    }
+
     const thisReqId = ++currentRequestIdRef.current;
     setLoading(true);
     try {
-      const activeDept = activeTab === 'dashboard' ? 'store' : activeTab;
-      const currentSub = getCurrentSubTabForDept(activeDept);
       const hierarchyEndpoint = `/${activeDept}/hierarchy`;
       const res = await apiClient.get(hierarchyEndpoint, {
         params: {
@@ -1158,18 +1176,24 @@ function App() {
       });
       if (thisReqId === currentRequestIdRef.current) {
         if (res.data.is_hierarchical) {
+          mobileCacheRef.current.set(cacheKey, res.data);
           setHierarchyJigs(res.data.jigs || []);
           setHierarchyProject(res.data.project || null);
         } else {
           setHierarchyJigs([]);
           setHierarchyProject(null);
         }
+        setProjectJigsError(null);
       }
     } catch (err) {
       console.log("Error selecting project:", err);
+      if (thisReqId === currentRequestIdRef.current) {
+        setProjectJigsError(err.message || 'Failed to load project JIGs');
+      }
     } finally {
       if (thisReqId === currentRequestIdRef.current) {
         setLoading(false);
+        setIsProjectJigsLoading(false);
       }
     }
   };
@@ -1184,6 +1208,8 @@ function App() {
     lastNavTapTimeRef.current = Date.now();
     setHierarchyJigs([]);
     setHierarchyProject(null);
+    setIsProjectJigsLoading(false);
+    setProjectJigsError(null);
     loadData(activeTab);
   };
 
@@ -3016,52 +3042,79 @@ function App() {
                         }).length
                       })
                     </Text>
-                    {hierarchyJigs
-                      .filter(j => {
-                        if (!currentSearchQuery) return true;
-                        const q = currentSearchQuery.toLowerCase().trim();
-                        return (j.jig_name || '').toLowerCase().includes(q);
-                      })
-                      .map((jig) => (
-                      <TouchableOpacity
-                        key={jig.jig_name}
-                        style={[
-                          styles.jigCard,
-                          jig.is_complete ? styles.jigCardComplete : styles.jigCardIncomplete
-                        ]}
-                        onPress={() => handleSelectJig(jig)}>
-                        <View style={styles.itemHeader}>
-                          <Text style={[styles.jigName, jig.is_complete && { color: '#15803d' }]}>
-                            {jig.is_complete ? '✓ ' : '⚙️ '}JIG: {jig.jig_name}
-                          </Text>
-                          <Text style={[styles.jigBadge, jig.is_complete ? styles.jigBadgeComplete : styles.jigBadgeIncomplete]}>
-                            {jig.is_complete ? '100% DONE' : `${jig.completion_pct}%`}
-                          </Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
-                          <Text style={styles.itemSubText}>
-                            {jig.complete_units} / {jig.total_units} Units Complete • Total Parts: {jig.total_parts || jig.total_required || 0}
-                          </Text>
-                          {Boolean((jig.is_ecn_present || jig.ecn_present || (jig.ecn_parts && jig.ecn_parts > 0) || (jig.ecn_part_count && jig.ecn_part_count > 0) || jig.ecn_number_display) && (jig.ecn_number_display || jig.ecn_parts || jig.ecn_part_count || jig.ecn_count)) && (
-                            <View style={styles.ecnBadgeCompact}>
-                              <Text style={styles.ecnBadgeCompactText}>⚡ {jig.ecn_number_display || `ECN (${jig.ecn_parts || jig.ecn_part_count || jig.ecn_count} ${(jig.ecn_parts || jig.ecn_part_count || jig.ecn_count) === 1 ? 'part' : 'parts'})`}</Text>
-                            </View>
-                          )}
-                        </View>
-                        <View style={styles.progressBarBg}>
-                          <View style={[styles.progressBarFill, { width: `${jig.completion_pct}%`, backgroundColor: jig.is_complete ? '#16a34a' : '#2563eb' }]} />
-                        </View>
-                        <Text style={styles.tapExploreText}>Tap to explore Units inside {jig.jig_name} ›</Text>
-                      </TouchableOpacity>
-                    ))}
-                    {hierarchyJigs.filter(j => {
-                      if (!currentSearchQuery) return true;
-                      const q = currentSearchQuery.toLowerCase().trim();
-                      return (j.jig_name || '').toLowerCase().includes(q);
-                    }).length === 0 && (
-                      <View style={styles.emptyState}>
-                        <Text style={styles.emptyStateText}>No JIGs match "{currentSearchQuery}".</Text>
+                    {isProjectJigsLoading && hierarchyJigs.length === 0 ? (
+                      <View style={{ padding: 32, alignItems: 'center', justifyContent: 'center' }}>
+                        <ActivityIndicator size="large" color="#2563eb" />
+                        <Text style={{ marginTop: 12, fontSize: 14, color: '#64748b', fontWeight: '600' }}>
+                          Loading JIGs...
+                        </Text>
                       </View>
+                    ) : projectJigsError && hierarchyJigs.length === 0 ? (
+                      <View style={{ padding: 24, alignItems: 'center', backgroundColor: '#fef2f2', borderRadius: 8, marginVertical: 12 }}>
+                        <Text style={{ fontSize: 15, color: '#dc2626', fontWeight: '700', marginBottom: 6 }}>
+                          ⚠️ Unable to Load JIGs
+                        </Text>
+                        <Text style={{ fontSize: 13, color: '#7f1d1d', textAlign: 'center', marginBottom: 12 }}>
+                          {projectJigsError}
+                        </Text>
+                        <TouchableOpacity
+                          style={{ backgroundColor: '#2563eb', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6 }}
+                          onPress={() => handleSelectProject(selectedProject)}>
+                          <Text style={{ color: '#ffffff', fontWeight: '700', fontSize: 13 }}>Retry Loading JIGs</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <>
+                        {hierarchyJigs
+                          .filter(j => {
+                            if (!currentSearchQuery) return true;
+                            const q = currentSearchQuery.toLowerCase().trim();
+                            return (j.jig_name || '').toLowerCase().includes(q);
+                          })
+                          .map((jig) => (
+                          <TouchableOpacity
+                            key={jig.jig_name}
+                            style={[
+                              styles.jigCard,
+                              jig.is_complete ? styles.jigCardComplete : styles.jigCardIncomplete
+                            ]}
+                            onPress={() => handleSelectJig(jig)}>
+                            <View style={styles.itemHeader}>
+                              <Text style={[styles.jigName, jig.is_complete && { color: '#15803d' }]}>
+                                {jig.is_complete ? '✓ ' : '⚙️ '}JIG: {jig.jig_name}
+                              </Text>
+                              <Text style={[styles.jigBadge, jig.is_complete ? styles.jigBadgeComplete : styles.jigBadgeIncomplete]}>
+                                {jig.is_complete ? '100% DONE' : `${jig.completion_pct}%`}
+                              </Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                              <Text style={styles.itemSubText}>
+                                {jig.complete_units} / {jig.total_units} Units Complete • Total Parts: {jig.total_parts || jig.total_required || 0}
+                              </Text>
+                              {Boolean((jig.is_ecn_present || jig.ecn_present || (jig.ecn_parts && jig.ecn_parts > 0) || (jig.ecn_part_count && jig.ecn_part_count > 0) || jig.ecn_number_display) && (jig.ecn_number_display || jig.ecn_parts || jig.ecn_part_count || jig.ecn_count)) && (
+                                <View style={styles.ecnBadgeCompact}>
+                                  <Text style={styles.ecnBadgeCompactText}>⚡ {jig.ecn_number_display || `ECN (${jig.ecn_parts || jig.ecn_part_count || jig.ecn_count} ${(jig.ecn_parts || jig.ecn_part_count || jig.ecn_count) === 1 ? 'part' : 'parts'})`}</Text>
+                                </View>
+                              )}
+                            </View>
+                            <View style={styles.progressBarBg}>
+                              <View style={[styles.progressBarFill, { width: `${jig.completion_pct}%`, backgroundColor: jig.is_complete ? '#16a34a' : '#2563eb' }]} />
+                            </View>
+                            <Text style={styles.tapExploreText}>Tap to explore Units inside {jig.jig_name} ›</Text>
+                          </TouchableOpacity>
+                        ))}
+                        {hierarchyJigs.filter(j => {
+                          if (!currentSearchQuery) return true;
+                          const q = currentSearchQuery.toLowerCase().trim();
+                          return (j.jig_name || '').toLowerCase().includes(q);
+                        }).length === 0 && (
+                          <View style={styles.emptyState}>
+                            <Text style={styles.emptyStateText}>
+                              {currentSearchQuery ? `No JIGs match "${currentSearchQuery}".` : 'No JIGs found for this project.'}
+                            </Text>
+                          </View>
+                        )}
+                      </>
                     )}
                   </View>
                 )}

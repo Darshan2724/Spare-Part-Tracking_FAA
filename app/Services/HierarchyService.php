@@ -187,12 +187,29 @@ class HierarchyService
             ->get()
             ->groupBy('bom_item_id');
 
-        // Pre-load department-specific ECN hierarchy breakdown map and requirements
-        $ecnMap = $this->ecnQuantityService->preloadProjectDepartmentEcnMap($project->id, $ecnDeptContext);
-        $ecnReqs = EcnRequirement::where('project_id', $project->id)->get();
-        $ecnReqIds = $ecnReqs->pluck('id')->toArray();
-        $ecnReceiptsGrouped = EcnReceiptItem::whereIn('ecn_requirement_id', $ecnReqIds)->get()->groupBy('ecn_requirement_id');
-        $ecnWorkflowGrouped = EcnWorkflowRecord::whereIn('ecn_requirement_id', $ecnReqIds)->get()->groupBy('ecn_requirement_id');
+        // Pre-load department-specific ECN hierarchy breakdown map and requirements only if active ECN exists
+        if ($hasEcn) {
+            $ecnMap = $this->ecnQuantityService->preloadProjectDepartmentEcnMap($project->id, $ecnDeptContext);
+            $ecnReqs = EcnRequirement::where('project_id', $project->id)->get();
+            $ecnReqIds = $ecnReqs->pluck('id')->toArray();
+            $ecnReceiptsGrouped = EcnReceiptItem::whereIn('ecn_requirement_id', $ecnReqIds)->get()->groupBy('ecn_requirement_id');
+            $ecnWorkflowGrouped = EcnWorkflowRecord::whereIn('ecn_requirement_id', $ecnReqIds)->get()->groupBy('ecn_requirement_id');
+        } else {
+            $ecnMap = [
+                'project_total' => 0,
+                'project_ecn_numbers' => [],
+                'project_ecn_summary' => [],
+                'project_ecn_display' => null,
+                'units' => [],
+                'unit_ecn_numbers' => [],
+                'unit_ecn_summary' => [],
+                'unit_ecn_display' => [],
+                'sides' => [],
+            ];
+            $ecnReqs = collect();
+            $ecnReceiptsGrouped = collect();
+            $ecnWorkflowGrouped = collect();
+        }
 
         $ecnReqsByUnit = [];
         foreach ($ecnReqs as $er) {
@@ -541,10 +558,6 @@ class HierarchyService
             $item->side_stats = $sideStats;
             $item->metrics = $itemMetrics;
             $item->receipt_items = $itemReceipts->values();
-            $item->qc_inspections = $itemQcInspections->values();
-            $item->paint_records = $itemPaints->values();
-            $item->rework_records = $itemReworks->values();
-            $item->assembly_records = $itemAssemblies->values();
             $item->is_done = ($itemMetrics['total_required'] > 0 && $itemMetrics['assembly_completed'] >= $itemMetrics['total_required']);
 
             // Group into JIG and Unit structure
@@ -571,6 +584,10 @@ class HierarchyService
                     $jigsTree[$jigName]['jig_type'] = 'SIDE_SPECIFIC';
                 }
             }
+
+            // Unset heavy Eloquent relations to prevent recursive multi-megabyte payload bloat
+            $item->unsetRelation('project');
+            $item->unsetRelation('requirements');
 
             if (!isset($jigsTree[$jigName]['units'][$unitNo])) {
                 $jigsTree[$jigName]['units'][$unitNo] = [

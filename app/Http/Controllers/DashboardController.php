@@ -234,11 +234,16 @@ class DashboardController extends Controller
             ->pluck('total_qty', 'status');
 
         // Delayed Parts (> 3 days in current status without progress)
-        $delayedParts = ReceiptItem::query()
+        $delayedPartsQuery = ReceiptItem::query()
             ->with(['bomItem.project'])
             ->whereNotIn('status', ['assembly_completed', 'qc_rejected', 'reverted', 'scrapped', 'returned_to_vendor'])
-            ->where('updated_at', '<', now()->subDays(3))
-            ->orderBy('updated_at', 'asc')
+            ->where('updated_at', '<', now()->subDays(3));
+
+        if ($projectId) {
+            $delayedPartsQuery->whereHas('bomItem', fn($q) => $q->where('project_id', $projectId));
+        }
+
+        $delayedParts = $delayedPartsQuery->orderBy('updated_at', 'asc')
             ->limit(10)
             ->get()
             ->map(function ($item) {
@@ -254,36 +259,56 @@ class DashboardController extends Controller
             });
 
         // Quality Trend (30 Days)
-        $qualityTrend = QcInspection::query()
+        $qualityTrendQuery = QcInspection::query()
             ->select(
                 DB::raw('DATE(inspection_date) as date'),
                 DB::raw('SUM(approved_quantity) as approved'),
                 DB::raw('SUM(rework_quantity) as rework'),
                 DB::raw('SUM(rejected_quantity) as rejected')
             )
-            ->where('inspection_date', '>=', now()->subDays(30))
-            ->groupBy(DB::raw('DATE(inspection_date)'))
+            ->where('inspection_date', '>=', now()->subDays(30));
+
+        if ($projectId) {
+            $qualityTrendQuery->whereHas('bomItem', fn($q) => $q->where('project_id', $projectId));
+        }
+
+        $qualityTrend = $qualityTrendQuery->groupBy(DB::raw('DATE(inspection_date)'))
             ->orderBy('date', 'asc')
             ->get();
 
         // Recent Workflow Activity Log
-        $recentEvents = WorkflowEvent::query()
-            ->with(['bomItem.project', 'user'])
-            ->orderByDesc('created_at')
+        $recentEventsQuery = WorkflowEvent::query()
+            ->with(['bomItem.project', 'user']);
+
+        if ($projectId) {
+            $recentEventsQuery->whereHas('bomItem', fn($q) => $q->where('project_id', $projectId));
+        }
+
+        $recentEvents = $recentEventsQuery->orderByDesc('created_at')
             ->limit(10)
             ->get();
 
         // Supplier Quality & Delivery Metrics via single-pass aggregate queries
-        $supplierReceipts = ReceiptItem::join('bom_items', 'bom_items.id', '=', 'receipt_items.bom_item_id')
+        $supplierReceiptsQuery = ReceiptItem::join('bom_items', 'bom_items.id', '=', 'receipt_items.bom_item_id')
             ->whereNotNull('bom_items.supplier_id')
-            ->whereIn('receipt_items.status', QuantityCalculationService::VALID_RECEIPT_STATUSES)
-            ->select('bom_items.supplier_id', DB::raw('SUM(receipt_items.received_quantity) as total_received'))
+            ->whereIn('receipt_items.status', QuantityCalculationService::VALID_RECEIPT_STATUSES);
+
+        if ($projectId) {
+            $supplierReceiptsQuery->where('bom_items.project_id', $projectId);
+        }
+
+        $supplierReceipts = $supplierReceiptsQuery->select('bom_items.supplier_id', DB::raw('SUM(receipt_items.received_quantity) as total_received'))
             ->groupBy('bom_items.supplier_id')
             ->pluck('total_received', 'bom_items.supplier_id');
 
-        $supplierQc = QcInspection::join('bom_items', 'bom_items.id', '=', 'qc_inspections.bom_item_id')
-            ->whereNotNull('bom_items.supplier_id')
-            ->select(
+        $supplierQcQuery = QcInspection::join('bom_items', 'bom_items.id', '=', 'qc_inspections.bom_item_id')
+            ->whereNotNull('bom_items.supplier_id');
+
+        if ($projectId) {
+            $supplierQcQuery->where('bom_items.project_id', $projectId);
+        }
+
+        $supplierQc = $supplierQcQuery->select(
                 'bom_items.supplier_id',
                 DB::raw('SUM(qc_inspections.approved_quantity) as total_approved'),
                 DB::raw('SUM(qc_inspections.rejected_quantity) as total_rejected'),
