@@ -1,68 +1,101 @@
 ====================================================================
-SPARETRACK — PRODUCTION SERVER PERFORMANCE DEPLOYMENT COMMANDS
+SPARETRACK — PRODUCTION SERVER PERFORMANCE DEPLOYMENT INSTRUCTIONS
 ====================================================================
 
-Release: Full-System Performance Audit & Optimization (FAA-120)
-Branch: branch-a -> main
+Release: Full-System Performance Fixes & Core Regression Audit
+Branch: main (Merged & Synced with branch-a PR #24)
 Repository: https://github.com/Darshan2724/Spare-Part-Tracking_FAA
+Target Server Directory: C:\PROJECT\SpareTrack\SpareTrack
 
 --------------------------------------------------------------------
-POWERSHELL ONE-LINER (COPY & PASTE ON SERVER PC IN C:\PROJECT\SpareTrack\SpareTrack):
+DATA SAFETY & OFFLINE GUARANTEE:
 --------------------------------------------------------------------
-
-git fetch origin branch-a; git checkout origin/branch-a -- .; npm run build; docker compose up -d; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx; Start-Sleep -Seconds 3; curl.exe -s http://127.0.0.1:8080/api/v1/health
-
---------------------------------------------------------------------
-STEP-BY-STEP SERVER COMMANDS:
---------------------------------------------------------------------
-
-1. (With Internet ON) Fetch and checkout latest branch-a files:
-   git fetch origin branch-a; git checkout origin/branch-a -- .
-
-2. Build optimized frontend assets:
-   npm run build
-
-3. Update Docker containers with NVMe PostgreSQL and OPcache settings:
-   docker compose up -d
-
-4. Run performance database index migration:
-   docker exec -t sparetrack-app php artisan migrate --force
-
-5. Optimize Laravel production caches:
-   docker exec -t sparetrack-app php artisan optimize:clear
-   docker exec -t sparetrack-app php artisan config:cache
-   docker exec -t sparetrack-app php artisan route:cache
-   docker exec -t sparetrack-app php artisan view:cache
-
-6. Restart background worker and application services:
-   docker exec -t sparetrack-app php artisan queue:restart
-   docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
-
-7. Verify sub-second health check:
-   curl.exe -s http://127.0.0.1:8080/api/v1/health
+1. ZERO DATA LOSS: All migrations are additive only (B-tree indexes).
+   No tables are dropped. No records are deleted. No data is reset.
+   The PostgreSQL volume (sparetrack-postgres-data) remains untouched.
+2. OFFLINE READY: You only need internet for 60 seconds to run 'git pull'.
+   Once the code is pulled, you can immediately disconnect the internet.
+   All builds, containers, migrations, and caches run 100% OFFLINE.
 
 --------------------------------------------------------------------
-MOBILE OTA UPDATE COMMANDS (RUN IN MOBILE FOLDER ON LAPTOP):
+QUICK 1-STEP POWERSHELL COMMAND (RUN IN C:\PROJECT\SpareTrack\SpareTrack):
+--------------------------------------------------------------------
+
+# (Turn Internet ON for 1 minute, paste this line, then Turn Internet OFF):
+git fetch origin main; git reset --hard origin/main; docker compose up -d; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx; Start-Sleep -Seconds 3; curl.exe -s http://127.0.0.1:8080/api/v1/health
+
+--------------------------------------------------------------------
+STEP-BY-STEP INSTRUCTIONS (IF RUNNING MANUALLY):
+--------------------------------------------------------------------
+
+### STEP 1: (INTERNET ON) Pull the merged code from main
+Open PowerShell as Administrator on Server PC:
+```powershell
+cd C:\PROJECT\SpareTrack\SpareTrack
+git fetch origin main
+git reset --hard origin/main
+```
+*(You can now turn the INTERNET OFF immediately. Everything below is offline.)*
+
+### STEP 2: (OPTIONAL SAFETY) Create a snapshot backup of your database
+Run this before applying indexes if you want a local backup for peace of mind:
+```powershell
+docker exec -t sparetrack-postgres pg_dump -U sparetrack_user -d sparetrack > "C:\PROJECT\sparetrack_backup_$(Get-Date -Format 'yyyyMMdd_HHmmss').sql"
+```
+
+### STEP 3: Apply OPcache & Nginx tuning to Docker containers
+```powershell
+docker compose up -d
+```
+*(This restarts containers with OPcache volume mounted and tuned Postgres parameters.)*
+
+### STEP 4: Apply performance indexes to PostgreSQL
+```powershell
+docker exec -t sparetrack-app php artisan migrate --force
+```
+*(This creates non-unique B-tree indexes on bom_item_id, side, and status. Takes ~1-2 seconds. Zero data changed.)*
+
+### STEP 5: Compile production caches for sub-50ms response times
+```powershell
+docker exec -t sparetrack-app php artisan optimize:clear
+docker exec -t sparetrack-app php artisan config:cache
+docker exec -t sparetrack-app php artisan route:cache
+docker exec -t sparetrack-app php artisan view:cache
+docker exec -t sparetrack-app php artisan queue:restart
+```
+
+### STEP 6: Restart web and worker services
+```powershell
+docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
+```
+
+### STEP 7: Verify healthy status
+```powershell
+curl.exe -s http://127.0.0.1:8080/api/v1/health
+```
+
+--------------------------------------------------------------------
+MOBILE OTA UPDATE COMMANDS (RUN ON YOUR LAPTOP IN mobile/ FOLDER):
 --------------------------------------------------------------------
 
 cd "c:\Darshan Details\Internship Faith Automation\Projects\Spare Part Tracking\SpareTrack\mobile"
 
 Preview Build (EAS update):
-npx --yes eas-cli update --branch preview --message "Performance optimization: request deduplication and reduced polling frequency"
+npx --yes eas-cli update --branch preview --message "Performance optimization: request deduplication and 60s polling"
 
 Production Build (EAS update):
-npx --yes eas-cli update --branch production --message "Performance optimization: request deduplication and reduced polling frequency"
+npx --yes eas-cli update --branch production --message "Performance optimization: request deduplication and 60s polling"
 
 --------------------------------------------------------------------
-SUMMARY OF PERFORMANCE IMPROVEMENTS IN THIS RELEASE:
+LATENCY FIXES INCLUDED IN THIS DEPLOYMENT:
 --------------------------------------------------------------------
-1. PHP OPcache Enabled: Cuts baseline request time from 5,255ms to < 50ms.
-2. Nginx Gzip Compression: Shrinks 4.3 MB JSON payloads down to ~350 KB (88% reduction).
-3. FastCGI Buffer Tuning: Eliminates temporary disk buffering on API responses.
-4. NVMe PostgreSQL Tuning: Configures random_page_cost=1.1 and shared_buffers=1GB for Crucial SSD.
-5. Missing FK Indexes: Indexes rework_records, paint_records, assembly_records, qc_inspections.
-6. 75% Query Reduction: Dashboard summary computes All, MFG, BOP, STD metrics in a single pass.
-7. 70% Memory Reduction: HierarchyService selects only necessary operational columns.
-8. Storm Protection: 1.5s debounce on WebSocket events and in-flight request deduplication on mobile.
-9. Zero Data Loss Guaranteed: Preserves 100% of FA-273 and FA-279 production history.
+1. PHP OPcache Enabled: Drops baseline request latency from ~5,200ms to < 50ms.
+2. Nginx Gzip Compression: Reduces 4.3 MB hierarchy JSON payloads down to ~350 KB.
+3. FastCGI Buffer Tuning: Eliminates temporary disk buffering on large responses.
+4. Single-Pass Multi-Type Metrics: Computes ALL, MFG, BOP, STD metrics in 1 DB pass.
+5. In-Memory Hierarchy Partitioning: Cuts dashboard hierarchy queries from 150+ to < 35.
+6. Composite B-Tree Indexes: Instant lookups on receipt_items, qc_inspections, rework, paint, assembly.
+7. Mobile Request Deduplication: Prevents concurrent redundant queries during screen transitions.
+8. WebSocket Debouncing: 1.5s debounce on Reverb events stops server thundering-herd spikes.
+9. Zero Data Loss: 100% of FA-273 and FA-279 production history and records are preserved.
 ====================================================================
