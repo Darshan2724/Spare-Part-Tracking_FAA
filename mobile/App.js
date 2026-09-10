@@ -535,6 +535,7 @@ function App() {
 
   const currentRequestIdRef = useRef(0);
   const currentGlobalRevertReqIdRef = useRef(0);
+  const inFlightRequestsRef = useRef(new Set());
 
   const currentSearchQuery = tabSearches[getCurrentSearchKey()] || '';
 
@@ -730,12 +731,12 @@ function App() {
     clearSelection();
   }, [screenContextKey, scrollToTop]);
 
-  // 30s Polling Loop for live real-time updates
+  // 60s Polling Loop for live real-time updates (reduced frequency to prevent server load spikes)
   useEffect(() => {
     if (!token) return;
     const interval = setInterval(() => {
       loadData(activeTab, false);
-    }, 30000);
+    }, 60000);
     return () => clearInterval(interval);
   }, [token, activeTab, storeSubTab, qcSubTab, reworkSubTab, paintSubTab, assemblySubTab, purchaseSubTab, tabSearches, selectedSide, selectedProject]);
 
@@ -1011,6 +1012,12 @@ function App() {
       setLoading(true);
     }
 
+    // Deduplicate concurrent in-flight requests for the exact same cacheKey
+    if (inFlightRequestsRef.current.has(cacheKey) && !forceFresh) {
+      return;
+    }
+    inFlightRequestsRef.current.add(cacheKey);
+
     try {
       const params = { per_page: 100 };
       if (activeSearch) params.search = activeSearch;
@@ -1091,6 +1098,7 @@ function App() {
     } catch (err) {
       console.log(`Error loading ${tab} data:`, err);
     } finally {
+      inFlightRequestsRef.current.delete(cacheKey);
       if (thisRequestId === currentRequestIdRef.current) {
         if (showSpinner) setLoading(false);
         setRefreshing(false);

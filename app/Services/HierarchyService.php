@@ -155,29 +155,34 @@ class HierarchyService
 
         $bomItemIds = $bomItems->pluck('id')->toArray();
 
-        // Pre-fetch related operational records in bulk, only valid non-reverted/non-scrapped receipts
+        // Pre-fetch related operational records in bulk with targeted columns to minimize memory footprint
         $receiptItemsGrouped = ReceiptItem::query()
+            ->select(['id', 'bom_item_id', 'side', 'status', 'received_quantity'])
             ->whereIn('bom_item_id', $bomItemIds)
             ->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES)
             ->get()
             ->groupBy('bom_item_id');
 
         $qcInspectionsGrouped = QcInspection::query()
+            ->select(['id', 'bom_item_id', 'receipt_item_id', 'side', 'destination', 'approved_quantity', 'rejected_quantity', 'rework_quantity'])
             ->whereIn('bom_item_id', $bomItemIds)
             ->get()
             ->groupBy('bom_item_id');
 
         $reworkRecordsGrouped = ReworkRecord::query()
+            ->select(['id', 'bom_item_id', 'qc_inspection_id', 'side', 'status', 'quantity'])
             ->whereIn('bom_item_id', $bomItemIds)
             ->get()
             ->groupBy('bom_item_id');
 
         $paintRecordsGrouped = PaintRecord::query()
+            ->select(['id', 'bom_item_id', 'qc_inspection_id', 'side', 'status', 'quantity'])
             ->whereIn('bom_item_id', $bomItemIds)
             ->get()
             ->groupBy('bom_item_id');
 
         $assemblyRecordsGrouped = AssemblyRecord::query()
+            ->select(['id', 'bom_item_id', 'paint_record_id', 'qc_inspection_id', 'side', 'status', 'quantity'])
             ->whereIn('bom_item_id', $bomItemIds)
             ->get()
             ->groupBy('bom_item_id');
@@ -581,6 +586,7 @@ class HierarchyService
                     'parts' => [],
                 ];
             }
+
 
             $jigsTree[$jigName]['units'][$unitNo]['parts'][] = $item;
             $jigsTree[$jigName]['units'][$unitNo]['total_parts']++;

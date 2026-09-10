@@ -68,12 +68,15 @@ php artisan migrate --force
 echo "🌱 Running database seeders..."
 php artisan db:seed --force || true
 
-# Clear caches
-echo "⚡ Clearing Laravel caches..."
-php artisan config:clear || true
-php artisan route:clear || true
-php artisan view:clear || true
-php artisan cache:clear || true
+# Enable OPcache extension if available
+docker-php-ext-enable opcache 2>/dev/null || true
+
+# Optimize Laravel production caches (config, routes, views)
+echo "⚡ Optimizing Laravel production caches..."
+php artisan optimize:clear || true
+php artisan config:cache || true
+php artisan route:cache || true
+php artisan view:cache || true
 
 echo "✅ SpareTrack readiness checks completed!"
 

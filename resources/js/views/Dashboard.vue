@@ -3070,34 +3070,33 @@ const renderHealthChart = () => {
   }
 };
 
-onMounted(async () => {
-  await fetchInitialProjectsList();
-  fetchData();
+let wsDebounceTimer = null;
+const debouncedFetchData = (force = false) => {
+  if (wsDebounceTimer) clearTimeout(wsDebounceTimer);
+  wsDebounceTimer = setTimeout(() => {
+    fetchData(force);
+  }, 1500);
+};
+
+onMounted(() => {
+  // Parallel initial load to reduce initial render wait
+  Promise.all([fetchInitialProjectsList(), fetchData()]);
   if (window.Echo) {
     window.Echo.channel('workflow')
-      .listen('.assembly.completed', () => {
-        fetchData();
-      })
-      .listen('.paint.completed', () => {
-        fetchData();
-      })
-      .listen('.qc.inspected', () => {
-        fetchData();
-      })
-      .listen('.store.received', () => {
-        fetchData();
-      })
-      .listen('.part.reverted', () => {
-        fetchData();
-      })
+      .listen('.assembly.completed', () => debouncedFetchData())
+      .listen('.paint.completed', () => debouncedFetchData())
+      .listen('.qc.inspected', () => debouncedFetchData())
+      .listen('.store.received', () => debouncedFetchData())
+      .listen('.part.reverted', () => debouncedFetchData())
       .listen('.ecn.updated', () => {
         fetchInitialProjectsList();
-        fetchData(true);
+        debouncedFetchData(true);
       });
   }
 });
 
 onUnmounted(() => {
+  if (wsDebounceTimer) clearTimeout(wsDebounceTimer);
   if (window.Echo) {
     try {
       window.Echo.leaveChannel('workflow');
