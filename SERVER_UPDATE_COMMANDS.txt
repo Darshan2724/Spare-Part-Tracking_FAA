@@ -18,11 +18,31 @@ DATA SAFETY & OFFLINE GUARANTEE:
    All builds, containers, migrations, and caches run 100% OFFLINE.
 
 --------------------------------------------------------------------
-QUICK 1-STEP POWERSHELL COMMAND (RUN IN C:\PROJECT\SpareTrack\SpareTrack):
+THE SIMPLE 2-STEP SERVER UPDATE WORKFLOW:
 --------------------------------------------------------------------
 
-# (Turn Internet ON for 1 minute, paste this line, then Turn Internet OFF):
-git fetch origin main; git reset --hard origin/main; docker compose up -d; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx; Start-Sleep -Seconds 3; curl.exe -s http://127.0.0.1:8080/api/v1/health
+STEP 1: (Turn Internet ON for 1 minute) Pull latest code into C:\PROJECT\SpareTrack\SpareTrack:
+Open PowerShell as Administrator:
+```powershell
+cd C:\PROJECT\SpareTrack\SpareTrack
+git fetch origin main
+git reset --hard origin/main
+```
+>>> YOU CAN NOW DISCONNECT THE INTERNET IMMEDIATELY. <<<
+
+STEP 2: (100% OFFLINE) Run the update batch file:
+In the same PowerShell window or by double-clicking in File Explorer:
+```powershell
+.\update_server.bat
+```
+
+That's it! Everything executes automatically in sequence:
+[1/6] Docker OPcache & Postgres NVMe config applied
+[2/6] B-Tree performance indexes added to PostgreSQL (Zero data loss)
+[3/6] Production caches generated (sub-50ms speed)
+[4/6] Queue worker restarted
+[5/6] Web & worker services restarted
+[6/6] Health check verified (http://127.0.0.1:8080/api/v1/health)
 
 --------------------------------------------------------------------
 STEP-BY-STEP INSTRUCTIONS (IF RUNNING MANUALLY):
