@@ -21,6 +21,8 @@ use App\Http\Controllers\Admin\SystemLogController;
 use App\Http\Controllers\EcnImportController;
 use App\Http\Controllers\EcnDashboardController;
 use App\Http\Controllers\EcnWorkflowController;
+use App\Http\Controllers\BopIntakeController;
+use App\Http\Controllers\StdIntakeController;
 use App\Http\Middleware\CaptureSystemLogsMiddleware;
 
 /*
@@ -224,6 +226,21 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::get('/revert-options', [EcnWorkflowController::class, 'revertOptions']);
             Route::post('/mixed-bulk-intake', [EcnWorkflowController::class, 'mixedBulkIntake']);
             Route::post('/mixed-bulk-revert', [EcnWorkflowController::class, 'mixedBulkRevert']);
+        });
+
+        // BOP (Bought Out Parts) Aggregated Intake & Department Workflow
+        Route::prefix('bop')->group(function () {
+            Route::get('/parts', [BopIntakeController::class, 'index']);
+            Route::get('/parts/{partNo}/breakdown', [BopIntakeController::class, 'breakdown']);
+            Route::post('/transition', [BopIntakeController::class, 'transition']);
+        });
+
+        // STD (Standard Hardware) Aggregated Intake & Department Workflow
+        Route::prefix('std')->group(function () {
+            Route::get('/parts', [StdIntakeController::class, 'index']);
+            Route::get('/parts/{partNo}/breakdown', [StdIntakeController::class, 'breakdown']);
+            Route::post('/transition', [StdIntakeController::class, 'transition']);
+            Route::post('/qc-route', [StdIntakeController::class, 'qcRoute']);
         });
     });
 });

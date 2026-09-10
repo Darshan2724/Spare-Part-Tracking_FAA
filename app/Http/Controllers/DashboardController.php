@@ -150,19 +150,27 @@ class DashboardController extends Controller
         }
         $projects = $projectsQuery->get();
 
-        $bulkMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $side, $filters);
+        if (empty($filters['part_type'])) {
+            // Single-pass computation for All Types + individual MFG, BOP, STD breakdowns (75% query reduction)
+            $multiMetrics = $this->quantityService->calculateBulkProjectsMetricsWithPartTypes($projects, $side, $filters);
+            $bulkMetrics = $multiMetrics['all'];
+            $mfgMetrics = $multiMetrics['mfg'];
+            $bopMetrics = $multiMetrics['bop'];
+            $stdMetrics = $multiMetrics['std'];
+        } else {
+            $bulkMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $side, $filters);
+            $mfgMetrics = ($filters['part_type'] === 'MFG') ? $bulkMetrics : collect();
+            $bopMetrics = ($filters['part_type'] === 'BOP') ? $bulkMetrics : collect();
+            $stdMetrics = ($filters['part_type'] === 'STD') ? $bulkMetrics : collect();
+        }
+
         $canonicalSummary = $this->quantityService->calculateDashboardSummary($filters, $bulkMetrics);
         $canonicalSummary['ecn_total_parts'] = $this->quantityService->getEcnTotalForDashboard($filters);
         $canonicalSummary['ecn_total'] = $canonicalSummary['ecn_total_parts'];
 
-        // Compute separated summaries for the 3 BOM types (MFG, BOP, STD)
         $mfgFilters = array_merge($filters, ['part_type' => 'MFG']);
         $bopFilters = array_merge($filters, ['part_type' => 'BOP']);
         $stdFilters = array_merge($filters, ['part_type' => 'STD']);
-
-        $mfgMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $side, $mfgFilters);
-        $bopMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $side, $bopFilters);
-        $stdMetrics = $this->quantityService->calculateBulkProjectsMetrics($projects, $side, $stdFilters);
 
         $mfgSummary = $this->quantityService->calculateDashboardSummary($mfgFilters, $mfgMetrics);
         $bopSummary = $this->quantityService->calculateDashboardSummary($bopFilters, $bopMetrics);
@@ -694,7 +702,14 @@ class DashboardController extends Controller
         $projectId = $request->query('project_id');
 
         $bomQuery = BomItem::query()
-            ->with(['project', 'supplier', 'requirements', 'receiptItems', 'assemblyRecords'])
+            ->select(['id', 'project_id', 'jig_no', 'unit_no', 'standard_part_no', 'supplier_id'])
+            ->with([
+                'project:id,name,project_code',
+                'supplier:id,name',
+                'requirements:id,bom_item_id,side,required_quantity',
+                'receiptItems' => fn($q) => $q->select(['id', 'bom_item_id', 'side', 'received_quantity', 'status'])->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES),
+                'assemblyRecords' => fn($q) => $q->select(['id', 'bom_item_id', 'side', 'quantity', 'status'])->where('status', 'completed')
+            ])
             ->whereNotNull('standard_part_no');
 
         if ($projectId) {

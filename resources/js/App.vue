@@ -106,6 +106,38 @@
             </router-link>
           </li>
 
+          <!-- 3.6. BOP Intake -->
+          <li class="nav-item">
+            <router-link 
+              class="sidebar-nav-link" 
+              :class="{ 'active': route.name === 'bop' }" 
+              :to="{ name: 'bop' }"
+              :aria-label="isSidebarCollapsed ? 'BOP' : undefined"
+            >
+              <span class="nav-icon-wrap">
+                <i class="fas fa-shopping-cart"></i>
+              </span>
+              <span v-if="!isSidebarCollapsed" class="nav-label">BOP</span>
+              <span v-if="isSidebarCollapsed" class="sidebar-tooltip">BOP</span>
+            </router-link>
+          </li>
+
+          <!-- 3.7. STD Intake -->
+          <li class="nav-item">
+            <router-link 
+              class="sidebar-nav-link" 
+              :class="{ 'active': route.name === 'std' }" 
+              :to="{ name: 'std' }"
+              :aria-label="isSidebarCollapsed ? 'STD' : undefined"
+            >
+              <span class="nav-icon-wrap">
+                <i class="fas fa-wrench"></i>
+              </span>
+              <span v-if="!isSidebarCollapsed" class="nav-label">STD</span>
+              <span v-if="isSidebarCollapsed" class="sidebar-tooltip">STD</span>
+            </router-link>
+          </li>
+
           <!-- 4. Store -->
           <li class="nav-item">
             <router-link 

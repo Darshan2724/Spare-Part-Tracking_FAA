@@ -17,10 +17,14 @@ RUN apt-get update && apt-get install -y \
     nodejs \
     npm \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install pdo pdo_pgsql pgsql mbstring exif pcntl bcmath gd zip \
+    && docker-php-ext-install pdo pdo_pgsql pgsql mbstring exif pcntl bcmath gd zip opcache \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && docker-php-source delete
+
+# Copy OPcache configuration
+COPY docker/app/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
+
 
 # Clear cache
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*

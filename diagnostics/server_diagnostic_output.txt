@@ -1,0 +1,786 @@
+﻿[10:10:46] SPARETRACK SERVER PERFORMANCE DIAGNOSTIC
+[10:10:46] Started: 2026-09-10 10:10:46
+[10:10:46] Output:  sparetrack_diagnostic_20260910_101046.txt
+[10:10:46] Mode:    READ-ONLY (zero modifications)
+[10:10:46] 
+[10:10:46] 
+[10:10:46] ================================================================================
+[10:10:46]   SECTION 1: HARDWARE AND SYSTEM INFORMATION
+[10:10:46] ================================================================================
+[10:10:46] 
+[10:10:46] --- CPU Information ---
+Name                      : Intel(R) Xeon(R) CPU E3-1270 v5 @ 3.60GHz
+NumberOfCores             : 4
+NumberOfLogicalProcessors : 8
+MaxClockSpeed             : 3600
+CurrentClockSpeed         : 3600
+LoadPercentage            : 4
+[10:10:48] 
+[10:10:48] --- Operating System and Memory ---
+OS:         Microsoft Windows 11 Pro 10.0.26200
+Build:      26200
+Arch:       64-bit
+Total RAM:  47.93 GB
+Free RAM:   28.6 GB
+Used RAM:   19.34 GB (40.3%)
+[10:10:48] 
+[10:10:48] --- Physical Disks (SSD vs HDD detection) ---
+DeviceId FriendlyName      MediaType BusType         Size HealthStatus
+-------- ------------      --------- -------         ---- ------------
+0        NVMe CT500P3PSSD8 SSD       RAID    500107862016 Healthy
+[10:10:51] 
+[10:10:51] --- Volume Free Space ---
+C:  Size=200.03GB  Free=111.72GB  Used=44.1%  FS=NTFS
+D:  Size=264.24GB  Free=123.78GB  Used=53.2%  FS=NTFS
+[10:10:51] 
+[10:10:51] --- System Uptime ---
+Last Boot: 08/18/2026 14:59:06
+Uptime: 22 days, 19 hours, 11 minutes
+[10:10:51] 
+[10:10:51] ================================================================================
+[10:10:51]   SECTION 2: LIVE PERFORMANCE COUNTERS
+[10:10:51] ================================================================================
+[10:10:51] Capturing 5-second performance snapshot...
+[10:10:51] 
+[10:10:51] --- CPU Utilization (5 samples) ---
+Sample 1: 7.3%
+  Sample 2: 3.2%
+  Sample 3: 2.5%
+  Sample 4: 9.9%
+  Sample 5: 5.8%
+  Average CPU: 5.7%   Max CPU: 9.9%
+[10:11:01] 
+[10:11:01] --- Memory Counters ---
+Available Memory: 28.5 GB (29185 MB)
+  Pages/sec (paging activity): 0
+  OK: Paging activity normal
+[10:11:03] 
+[10:11:03] --- Disk Counters ---
+Avg Read Latency:  0.25 ms
+  Avg Write Latency: 0 ms
+  Disk Utilization:  0.2%
+  OK: Good read latency (<5ms, likely SSD)
+[10:11:06] 
+[10:11:06] ================================================================================
+[10:11:06]   SECTION 3: DOCKER CONTAINER DIAGNOSTICS
+[10:11:06] ================================================================================
+[10:11:06] 
+[10:11:06] --- Docker Version ---
+Client:
+ Version:           29.7.2
+ API version:       1.55
+ Go version:        go1.26.5
+ Git commit:        a7dcaa6
+ Built:             Wed Aug  5 18:31:33 2026
+ OS/Arch:           windows/amd64
+ Context:           desktop-linux
+
+Server: Docker Desktop 4.86.0 (236216)
+ Engine:
+  Version:          29.7.2
+  API version:      1.55 (minimum version 1.40)
+  Go version:       go1.26.5
+  Git commit:       6a43e3d
+  Built:            Wed Aug  5 18:28:36 2026
+  OS/Arch:          linux/amd64
+  Experimental:     false
+ containerd:
+  Version:          v2.2.5
+  GitCommit:        e53c7c1516c3b2bff98eb76f1f4117477e6f4e66
+ runc:
+  Version:          1.3.6
+  GitCommit:        v1.3.6-0-g491b69ba
+ docker-init:
+  Version:          0.19.0
+  GitCommit:        de40ad0
+[10:11:07] 
+[10:11:07] --- Docker Info Summary ---
+Containers: 11
+ Server Version: 29.7.2
+ Storage Driver: overlayfs
+ Operating System: Docker Desktop
+ CPUs: 8
+ Total Memory: 23.44GiB
+ Docker Root Dir: /var/lib/docker
+[10:11:07] 
+[10:11:07] --- Docker Container Status ---
+NAMES                 STATUS                  PORTS
+itam-nginx            Up 21 hours             0.0.0.0:80->80/tcp, [::]:80->80/tcp, 0.0.0.0:3000->80/tcp, [::]:3000->80/tcp
+itam-frontend         Up 21 hours             80/tcp
+itam-backend          Up 21 hours (healthy)   5000/tcp
+itam-postgres         Up 21 hours (healthy)   5432/tcp
+sparetrack-reverb     Up 2 days               0.0.0.0:8085->8080/tcp, [::]:8085->8080/tcp
+sparetrack-worker     Up 2 days               9000/tcp
+sparetrack-nginx      Up 2 days               0.0.0.0:8080->80/tcp, [::]:8080->80/tcp
+sparetrack-app        Up 2 days               9000/tcp
+sparetrack-adminer    Up 3 weeks              0.0.0.0:8088->8080/tcp, [::]:8088->8080/tcp
+sparetrack-postgres   Up 3 weeks (healthy)    5432/tcp
+sparetrack-redis      Up 3 weeks (healthy)    6379/tcp
+[10:11:07] 
+[10:11:07] --- Docker Container Resource Usage (live snapshot) ---
+NAME                  CPU %     MEM USAGE / LIMIT     MEM %     NET I/O           BLOCK I/O
+itam-nginx            0.00%     8.051MiB / 23.44GiB   0.03%     19.8MB / 9.7MB    0B / 12.3kB
+itam-frontend         0.00%     7.617MiB / 23.44GiB   0.03%     103kB / 12.8MB    0B / 8.19kB
+itam-backend          0.00%     64.18MiB / 23.44GiB   0.27%     10.6MB / 11.1MB   0B / 24.7MB
+itam-postgres         0.00%     63.97MiB / 23.44GiB   0.27%     6.5MB / 7.73MB    655kB / 105MB
+sparetrack-reverb     0.00%     39.96MiB / 23.44GiB   0.17%     1.18MB / 787kB    0B / 0B
+sparetrack-worker     0.00%     35.46MiB / 23.44GiB   0.15%     18.2MB / 230MB    0B / 0B
+sparetrack-nginx      0.00%     10.52MiB / 23.44GiB   0.04%     33.1GB / 31.4GB   1.56MB / 1.67MB
+sparetrack-app        0.00%     136.9MiB / 23.44GiB   0.57%     8.73GB / 35.6GB   7.73MB / 0B
+sparetrack-adminer    0.01%     12.85MiB / 23.44GiB   0.05%     370kB / 257kB     700kB / 36.9kB
+sparetrack-postgres   0.00%     54.98MiB / 23.44GiB   0.23%     12GB / 39.6GB     89.5GB / 1.24GB
+sparetrack-redis      0.96%     6.031MiB / 23.44GiB   0.03%     1.76GB / 138MB    120GB / 0B
+[10:11:09] 
+[10:11:09] --- Docker System Disk Usage ---
+TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE
+Images          14        11        3.939GB   299.3MB (7%)
+Containers      11        11        29.36MB   0B (0%)
+Local Volumes   10        3         597.4MB   441.2MB (73%)
+Build Cache     80        0         4.231GB   1.672GB
+[10:11:10] 
+[10:11:10] --- Docker Volume List ---
+DRIVER    VOLUME NAME
+local     8cfe2cb993cde86f871f42f6553e5bd4a980efa61336bc8de9c90565f6ea43ed
+local     39efa6ca524c4bf514c74f92c8521b260d0600d5e1cf90970992613991caf1fb
+local     7129f60c24a06d269bfae59df5b59e4a47cd5c517ce369c4fb8598f23020519e
+local     8912d870211bfd3718b97de42c99b9044bde503db5755ab6599252bbf57a485a
+local     e63bb8a5770d893523bf4b0d4dacee598be520cc398711dd57608690580254eb
+local     f8cb7de05f691778e7b97f5ecaa3825943afff0d9b463a59a70d294fb3877f60
+local     faith-it-inventory_postgres_data
+local     faith-itam_postgres_data
+local     sparetrack_postgres_data
+local     sparetrack_redis_data
+[10:11:10] 
+[10:11:10] --- PostgreSQL Container Memory Limit ---
+Memory Limit: NONE (container can use all host RAM)
+Restart Count: 0
+[10:11:10] 
+[10:11:10] --- App Container Memory Limit ---
+Memory Limit: NONE (container can use all host RAM)
+Restart Count: 0
+[10:11:11] 
+[10:11:11] --- Recent App Container Logs (last 30 lines) ---
+docker : 2026-09-10T04:36:24.512061762Z 172.18.0.8 -  10/Sep/2026:04:36:21 +0000 "GET /index.php" 200
+At C:\PROJECT\SpareTrack\SpareTrack\diagnostics\server_diagnostic.ps1:250 char:5
++     docker logs sparetrack-app --tail 30 --timestamps 2>&1
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2026-09-10T04:3.../index.php" 200:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+2026-09-10T04:36:29.322441645Z 172.18.0.8 -  10/Sep/2026:04:36:25 +0000 "POST /index.php" 200
+2026-09-10T04:36:33.204143700Z 172.18.0.8 -  10/Sep/2026:04:36:29 +0000 "GET /index.php" 200
+2026-09-10T04:36:37.540800557Z 172.18.0.8 -  10/Sep/2026:04:36:34 +0000 "GET /index.php" 200
+2026-09-10T04:36:45.677441049Z 172.18.0.8 -  10/Sep/2026:04:36:42 +0000 "POST /index.php" 200
+2026-09-10T04:36:49.554744489Z 172.18.0.8 -  10/Sep/2026:04:36:46 +0000 "GET /index.php" 200
+2026-09-10T04:37:02.317758982Z 172.18.0.8 -  10/Sep/2026:04:36:59 +0000 "POST /index.php" 200
+2026-09-10T04:37:05.360055587Z 172.18.0.8 -  10/Sep/2026:04:37:02 +0000 "GET /index.php" 200
+2026-09-10T04:37:05.362355278Z 172.18.0.8 -  10/Sep/2026:04:37:04 +0000 "GET /index.php" 200
+2026-09-10T04:37:11.446765957Z 172.18.0.8 -  10/Sep/2026:04:37:08 +0000 "POST /index.php" 200
+2026-09-10T04:37:15.178573636Z 172.18.0.8 -  10/Sep/2026:04:37:11 +0000 "GET /index.php" 200
+2026-09-10T04:37:17.001123764Z 172.18.0.8 -  10/Sep/2026:04:37:16 +0000 "GET /index.php" 200
+2026-09-10T04:37:17.788221360Z 172.18.0.8 -  10/Sep/2026:04:37:15 +0000 "GET /index.php" 200
+2026-09-10T04:37:17.851181018Z 172.18.0.8 -  10/Sep/2026:04:37:15 +0000 "GET /index.php" 200
+2026-09-10T04:37:18.327559358Z 172.18.0.8 -  10/Sep/2026:04:37:17 +0000 "POST /index.php" 200
+2026-09-10T04:37:19.777236083Z 172.18.0.8 -  10/Sep/2026:04:37:17 +0000 "GET /index.php" 200
+2026-09-10T04:37:22.015543568Z 172.18.0.8 -  10/Sep/2026:04:37:20 +0000 "GET /index.php" 200
+2026-09-10T04:37:22.440930133Z 172.18.0.8 -  10/Sep/2026:04:37:18 +0000 "GET /index.php" 200
+2026-09-10T04:37:41.453228877Z 172.18.0.8 -  10/Sep/2026:04:37:34 +0000 "GET /index.php" 200
+2026-09-10T04:38:18.984134706Z 172.18.0.8 -  10/Sep/2026:04:38:10 +0000 "GET /index.php" 200
+2026-09-10T04:38:25.701518793Z 172.18.0.8 -  10/Sep/2026:04:38:18 +0000 "GET /index.php" 200
+2026-09-10T04:38:27.501049227Z 172.18.0.8 -  10/Sep/2026:04:38:25 +0000 "GET /index.php" 200
+2026-09-10T04:38:28.187142218Z 172.18.0.8 -  10/Sep/2026:04:38:25 +0000 "GET /index.php" 200
+2026-09-10T04:38:56.088962035Z 172.18.0.8 -  10/Sep/2026:04:38:53 +0000 "GET /index.php" 200
+2026-09-10T04:39:00.389894236Z 172.18.0.8 -  10/Sep/2026:04:38:56 +0000 "GET /index.php" 200
+2026-09-10T04:39:05.901197875Z 172.18.0.8 -  10/Sep/2026:04:39:00 +0000 "GET /index.php" 200
+2026-09-10T04:39:14.014513166Z 172.18.0.8 -  10/Sep/2026:04:39:10 +0000 "GET /index.php" 200
+2026-09-10T04:39:17.543288827Z 172.18.0.8 -  10/Sep/2026:04:39:14 +0000 "GET /index.php" 200
+2026-09-10T04:39:21.919619830Z 172.18.0.8 -  10/Sep/2026:04:39:18 +0000 "GET /index.php" 200
+2026-09-10T04:39:25.589917166Z 172.18.0.8 -  10/Sep/2026:04:39:21 +0000 "GET /index.php" 200
+[10:11:11] 
+[10:11:11] --- Recent PostgreSQL Container Logs (last 30 lines) ---
+docker : 2026-09-10T02:47:31.279773058Z 2026-09-10 02:47:31.279 UTC [28] LOG:  checkpoint starting: time
+At C:\PROJECT\SpareTrack\SpareTrack\diagnostics\server_diagnostic.ps1:254 char:5
++     docker logs sparetrack-postgres --tail 30 --timestamps 2>&1
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2026-09-10T02:4... starting: time:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+2026-09-10T02:47:42.255140107Z 2026-09-10 02:47:42.254 UTC [28] LOG:  checkpoint complete: wrote 110 buffers (0.7%); 0 WAL file(s) added, 0 removed, 0 recycled; 
+write=10.942 s, sync=0.021 s, total=10.976 s; sync files=50, longest=0.003 s, average=0.001 s; distance=624 kB, estimate=624 kB; lsn=0/112245D0, redo lsn=0/111F3B78
+2026-09-10T02:52:31.310591772Z 2026-09-10 02:52:31.310 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T02:52:42.818319137Z 2026-09-10 02:52:42.817 UTC [28] LOG:  checkpoint complete: wrote 115 buffers (0.7%); 0 WAL file(s) added, 0 removed, 0 recycled; 
+write=11.443 s, sync=0.040 s, total=11.508 s; sync files=54, longest=0.010 s, average=0.001 s; distance=654 kB, estimate=654 kB; lsn=0/112CC2C8, redo lsn=0/11297660
+2026-09-10T02:57:31.893306335Z 2026-09-10 02:57:31.892 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T02:57:42.482173053Z 2026-09-10 02:57:42.481 UTC [28] LOG:  checkpoint complete: wrote 106 buffers (0.6%); 0 WAL file(s) added, 0 removed, 0 recycled; 
+write=10.543 s, sync=0.025 s, total=10.589 s; sync files=52, longest=0.007 s, average=0.001 s; distance=581 kB, estimate=647 kB; lsn=0/11329D38, redo lsn=0/11328CB8
+2026-09-10T03:02:31.555924642Z 2026-09-10 03:02:31.555 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T03:02:47.750735358Z 2026-09-10 03:02:47.750 UTC [28] LOG:  checkpoint complete: wrote 162 buffers (1.0%); 0 WAL file(s) added, 0 removed, 0 recycled; 
+write=16.144 s, sync=0.024 s, total=16.195 s; sync files=50, longest=0.005 s, average=0.001 s; distance=1187 kB, estimate=1187 kB; lsn=0/114531D8, redo lsn=0/11451960
+2026-09-10T03:07:31.727252619Z 2026-09-10 03:07:31.726 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T03:07:48.132179452Z 2026-09-10 03:07:48.131 UTC [28] LOG:  checkpoint complete: wrote 164 buffers (1.0%); 0 WAL file(s) added, 0 removed, 0 recycled; 
+write=16.350 s, sync=0.026 s, total=16.405 s; sync files=37, longest=0.008 s, average=0.001 s; distance=1126 kB, estimate=1181 kB; lsn=0/11590E18, redo lsn=0/1156B200
+2026-09-10T03:12:31.131959214Z 2026-09-10 03:12:31.131 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T03:12:41.019310480Z 2026-09-10 03:12:41.018 UTC [28] LOG:  checkpoint complete: wrote 99 buffers (0.6%); 0 WAL file(s) added, 0 removed, 0 recycled; write=9.834 
+s, sync=0.019 s, total=9.888 s; sync files=36, longest=0.006 s, average=0.001 s; distance=534 kB, estimate=1116 kB; lsn=0/115F2910, redo lsn=0/115F0A10
+2026-09-10T03:17:31.061805580Z 2026-09-10 03:17:31.061 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T03:17:36.048443309Z 2026-09-10 03:17:36.048 UTC [28] LOG:  checkpoint complete: wrote 50 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=4.927 
+s, sync=0.029 s, total=4.987 s; sync files=30, longest=0.011 s, average=0.001 s; distance=328 kB, estimate=1037 kB; lsn=0/11642A88, redo lsn=0/11642A50
+2026-09-10T03:22:31.127988456Z 2026-09-10 03:22:31.127 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T03:22:39.472871384Z 2026-09-10 03:22:39.472 UTC [28] LOG:  checkpoint complete: wrote 86 buffers (0.5%); 0 WAL file(s) added, 0 removed, 0 recycled; write=8.246 
+s, sync=0.069 s, total=8.345 s; sync files=45, longest=0.009 s, average=0.002 s; distance=425 kB, estimate=976 kB; lsn=0/116AEA08, redo lsn=0/116AD148
+2026-09-10T03:27:31.554310683Z 2026-09-10 03:27:31.553 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T03:27:37.026463638Z 2026-09-10 03:27:37.026 UTC [28] LOG:  checkpoint complete: wrote 55 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=5.426 
+s, sync=0.019 s, total=5.473 s; sync files=30, longest=0.006 s, average=0.001 s; distance=317 kB, estimate=910 kB; lsn=0/116FC720, redo lsn=0/116FC6E8
+2026-09-10T03:32:31.111540272Z 2026-09-10 03:32:31.111 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T03:32:38.110489298Z 2026-09-10 03:32:38.110 UTC [28] LOG:  checkpoint complete: wrote 70 buffers (0.4%); 0 WAL file(s) added, 0 removed, 0 recycled; write=6.936 
+s, sync=0.036 s, total=6.999 s; sync files=35, longest=0.009 s, average=0.002 s; distance=421 kB, estimate=861 kB; lsn=0/11765DB0, redo lsn=0/11765D78
+2026-09-10T03:37:31.192145039Z 2026-09-10 03:37:31.191 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T03:37:37.577443103Z 2026-09-10 03:37:37.577 UTC [28] LOG:  checkpoint complete: wrote 64 buffers (0.4%); 0 WAL file(s) added, 0 removed, 0 recycled; write=6.331 
+s, sync=0.022 s, total=6.386 s; sync files=31, longest=0.008 s, average=0.001 s; distance=508 kB, estimate=826 kB; lsn=0/117FF940, redo lsn=0/117E4F98
+2026-09-10T03:42:31.662147859Z 2026-09-10 03:42:31.661 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T03:42:42.961364284Z 2026-09-10 03:42:42.961 UTC [28] LOG:  checkpoint complete: wrote 113 buffers (0.7%); 0 WAL file(s) added, 0 removed, 0 recycled; 
+write=11.253 s, sync=0.024 s, total=11.300 s; sync files=46, longest=0.005 s, average=0.001 s; distance=651 kB, estimate=808 kB; lsn=0/11887DC0, redo lsn=0/11887D50
+2026-09-10T03:47:31.959660040Z 2026-09-10 03:47:31.959 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T03:47:36.564325452Z 2026-09-10 03:47:36.563 UTC [28] LOG:  checkpoint complete: wrote 46 buffers (0.3%); 0 WAL file(s) added, 0 removed, 0 recycled; write=4.534 
+s, sync=0.038 s, total=4.605 s; sync files=24, longest=0.010 s, average=0.002 s; distance=246 kB, estimate=752 kB; lsn=0/118C57C8, redo lsn=0/118C5790
+2026-09-10T04:32:32.078617411Z 2026-09-10 04:32:32.077 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T04:32:32.216196845Z 2026-09-10 04:32:32.215 UTC [28] LOG:  checkpoint complete: wrote 2 buffers (0.0%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.104 
+s, sync=0.011 s, total=0.138 s; sync files=2, longest=0.007 s, average=0.006 s; distance=7 kB, estimate=678 kB; lsn=0/118C77C0, redo lsn=0/118C7788
+2026-09-10T04:37:32.226150426Z 2026-09-10 04:37:32.225 UTC [28] LOG:  checkpoint starting: time
+2026-09-10T04:37:39.685075697Z 2026-09-10 04:37:39.684 UTC [28] LOG:  checkpoint complete: wrote 75 buffers (0.5%); 0 WAL file(s) added, 0 removed, 0 recycled; write=7.427 
+s, sync=0.017 s, total=7.460 s; sync files=48, longest=0.003 s, average=0.001 s; distance=342 kB, estimate=644 kB; lsn=0/1191D078, redo lsn=0/1191D008
+[10:11:11] 
+[10:11:11] --- Recent Nginx Container Logs (last 20 lines) ---
+2026-09-10T04:37:18.327091808Z 172.18.0.1 - - [10/Sep/2026:04:37:18 +0000] "POST /api/v1/store/receipts HTTP/1.1" 200 163 "-" "okhttp/4.9.2" "-"
+2026-09-10T04:37:19.776378491Z 172.18.0.1 - - [10/Sep/2026:04:37:19 +0000] "GET /api/v1/store/items?page=1&per_page=100 HTTP/1.1" 200 99319 "http://192.168.9.200:8080/store" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:37:22.001147022Z 172.18.0.1 - - [10/Sep/2026:04:37:22 +0000] "GET /api/v1/store/history?project_id=&side=&search= HTTP/1.1" 200 32791 "http://192.168.9.200:8080/store" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:37:22.435995204Z 172.18.0.1 - - [10/Sep/2026:04:37:22 +0000] "GET /api/v1/store/hierarchy?project_id=12&side=&search=&stage=pending&part_type=MFG HTTP/1.1" 200 2653145 "-" "okhttp/4.9.2" "-"
+2026-09-10T04:37:41.398375176Z 172.18.0.1 - - [10/Sep/2026:04:37:41 +0000] "GET /api/v1/store/hierarchy?project_id=12&side=&search=&stage=pending&part_type=MFG HTTP/1.1" 200 2653160 "-" "okhttp/4.9.2" "-"
+2026-09-10T04:38:10.938672160Z 172.18.0.1 - - [10/Sep/2026:04:38:10 +0000] "GET /build/assets/Reports-CZVkoL8j.js HTTP/1.1" 304 0 "http://192.168.9.200:8080/store" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:38:10.954797254Z 172.18.0.1 - - [10/Sep/2026:04:38:10 +0000] "GET /build/assets/Reports-D068VC9V.css HTTP/1.1" 304 0 "http://192.168.9.200:8080/store" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:38:18.950230924Z 172.18.0.1 - - [10/Sep/2026:04:38:18 +0000] "GET /api/v1/dashboard/project-hierarchy HTTP/1.1" 200 9475 "http://192.168.9.200:8080/reports" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:38:25.674217108Z 172.18.0.1 - - [10/Sep/2026:04:38:25 +0000] "GET /api/v1/dashboard/analytics? HTTP/1.1" 200 5485 "http://192.168.9.200:8080/reports" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:38:27.475476925Z 172.18.0.1 - - [10/Sep/2026:04:38:27 +0000] "GET /api/v1/dashboard/daily-movement?quick_range=last_5_active&window_offset=0&window_size=5 HTTP/1.1" 200 1487617 "http://192.168.9.200:8080/reports" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:38:28.185873984Z 172.18.0.1 - - [10/Sep/2026:04:38:28 +0000] "GET /api/v1/dashboard/priority-map?project_id= HTTP/1.1" 200 4167084 "http://192.168.9.200:8080/reports" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:38:56.075105173Z 172.18.0.1 - - [10/Sep/2026:04:38:56 +0000] "GET /login HTTP/1.1" 200 1274 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:39:00.376554822Z 172.18.0.1 - - [10/Sep/2026:04:39:00 +0000] "GET /api/v1/dashboard/project-hierarchy HTTP/1.1" 200 9475 "http://192.168.9.200:8080/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:39:05.887248543Z 172.18.0.1 - - [10/Sep/2026:04:39:05 +0000] "GET /api/v1/dashboard/summary? HTTP/1.1" 200 37347 "http://192.168.9.200:8080/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:39:14.003426111Z 172.18.0.1 - - [10/Sep/2026:04:39:14 +0000] "GET /api/v1/dashboard/summary?project_id=12 HTTP/1.1" 200 31563 "http://192.168.9.200:8080/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:39:17.518079412Z 172.18.0.1 - - [10/Sep/2026:04:39:17 +0000] "GET /api/v1/dashboard/project-hierarchy?project_id=12&side= HTTP/1.1" 200 4296236 "http://192.168.9.200:8080/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:39:21.905025417Z 172.18.0.1 - - [10/Sep/2026:04:39:21 +0000] "GET /api/v1/dashboard/summary?project_id=12 HTTP/1.1" 200 31563 "http://192.168.9.200:8080/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+2026-09-10T04:39:25.558869578Z 172.18.0.1 - - [10/Sep/2026:04:39:25 +0000] "GET /api/v1/dashboard/project-hierarchy?project_id=12&side= HTTP/1.1" 200 4297230 "http://192.168.9.200:8080/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0" "-"
+docker : 2026-09-10T04:38:28.179338094Z 2026/09/10 04:38:28 [warn] 33#33: *6839 an upstream response is buffered to a temporary file 
+/var/cache/nginx/fastcgi_temp/0/03/0000002030 while reading upstream, client: 172.18.0.1, server: _, request: "GET /api/v1/dashboard/priority-map?project_id= HTTP/1.1", 
+upstream: "fastcgi://172.18.0.5:9000", host: "192.168.9.200:8080", referrer: "http://192.168.9.200:8080/reports"
+At C:\PROJECT\SpareTrack\SpareTrack\diagnostics\server_diagnostic.ps1:258 char:5
++     docker logs sparetrack-nginx --tail 20 --timestamps 2>&1
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2026-09-10T04:3...0:8080/reports":String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+2026-09-10T04:39:17.511609341Z 2026/09/10 04:39:17 [warn] 33#33: *6854 an upstream response is buffered to a temporary file /var/cache/nginx/fastcgi_temp/1/03/0000002031 
+while reading upstream, client: 172.18.0.1, server: _, request: "GET /api/v1/dashboard/project-hierarchy?project_id=12&side= HTTP/1.1", upstream: 
+"fastcgi://172.18.0.5:9000", host: "192.168.9.200:8080", referrer: "http://192.168.9.200:8080/"
+[10:11:11] 
+[10:11:11] ================================================================================
+[10:11:11]   SECTION 4: NETWORK INFORMATION
+[10:11:11] ================================================================================
+[10:11:11] 
+[10:11:11] --- Network Adapters (Active) ---
+Name                               InterfaceDescription                     LinkSpeed MediaType MacAddress       
+----                               --------------------                     --------- --------- ----------       
+vEthernet (Default Switch)         Hyper-V Virtual Ethernet Adapter         10 Gbps   802.3     00-15-5D-27-6F-4E
+Ethernet                           Intel(R) Ethernet Connection (2) I219-LM 1 Gbps    802.3     18-66-DA-43-D3-61
+vEthernet (WSL (Hyper-V firewall)) Hyper-V Virtual Ethernet Adapter #2      10 Gbps   802.3     00-15-5D-C7-AB-B6
+[10:11:13] 
+[10:11:13] --- IP Configuration ---
+InterfaceAlias     : Ethernet
+IPv4Address        : {192.168.9.200}
+IPv4DefaultGateway : {MSFT_NetRoute (InstanceID = ":8:8:8:9:55;?55;C?8;@B8C8;55;")}
+DNSServer          : {MSFT_DNSClientServerAddress (Name = "12", CreationClassName = "", SystemCreationClassName = "", SystemName = "23"), MSFT_DNSClientServerAddress (Name 
+                     = "12", CreationClassName = "", SystemCreationClassName = "", SystemName = "2")}
+
+InterfaceAlias     : vEthernet (Default Switch)
+IPv4Address        : {172.17.224.1}
+IPv4DefaultGateway : 
+DNSServer          : {MSFT_DNSClientServerAddress (Name = "20", CreationClassName = "", SystemCreationClassName = "", SystemName = "23"), MSFT_DNSClientServerAddress (Name 
+                     = "20", CreationClassName = "", SystemCreationClassName = "", SystemName = "2")}
+
+InterfaceAlias     : vEthernet (WSL (Hyper-V firewall))
+IPv4Address        : {172.17.80.1}
+IPv4DefaultGateway : 
+DNSServer          : {MSFT_DNSClientServerAddress (Name = "37", CreationClassName = "", SystemCreationClassName = "", SystemName = "23"), MSFT_DNSClientServerAddress (Name 
+                     = "37", CreationClassName = "", SystemCreationClassName = "", SystemName = "2")}
+
+InterfaceAlias     : Ethernet 2
+IPv4Address        : {169.254.110.174}
+IPv4DefaultGateway : 
+DNSServer          : {MSFT_DNSClientServerAddress (Name = "30", CreationClassName = "", SystemCreationClassName = "", SystemName = "23"), MSFT_DNSClientServerAddress (Name 
+                     = "30", CreationClassName = "", SystemCreationClassName = "", SystemName = "2")}
+[10:11:16] 
+[10:11:16] ================================================================================
+[10:11:16]   SECTION 5: TOP RESOURCE CONSUMERS
+[10:11:16] ================================================================================
+[10:11:16] 
+[10:11:16] --- Top 20 Processes by Memory ---
+Name                       Id Memory_MB CPU_Sec
+----                       -- --------- -------
+vmmemWSL                11888    6376.3       0
+explorer                 7164     707.3  2943.4
+msedge                   2244       587    3187
+MsMpEng                 15860       332       0
+explorer                 3604     308.3       0
+dwm                      1424     297.1       0
+powershell              13268       202     5.4
+Docker Desktop           6452     199.1   17002
+StartMenuExperienceHost  7612     180.4    31.6
+com.docker.backend       6552     179.4 25469.4
+Docker Desktop          11860     172.8  7520.3
+StartMenuExperienceHost  4748     161.7       0
+Secure System             140     154.4       0
+msedgewebview2           9240     152.2   389.4
+com.docker.build        13232     148.4   541.5
+SearchHost               7604     142.4   158.4
+WindowsTerminal          6272     140.3     914
+SystemSettings          11416     139.3    53.4
+msedgewebview2           8844     128.6   665.8
+msedgewebview2           8224     126.2       0
+[10:11:16] 
+[10:11:16] ================================================================================
+[10:11:16]   SECTION 6: POSTGRESQL DATABASE DIAGNOSTICS
+[10:11:16] ================================================================================
+[10:11:16] Running read-only SQL diagnostics via docker exec...
+[10:11:16] (All queries are SELECT-only. Zero data modifications.)
+[10:11:16] 
+[10:11:16] --- Database Size ---
+database_size 
+---------------
+ 28 MB
+(1 row)
+[10:11:16] 
+[10:11:16] --- Table Sizes (Top 25) ---
+table_name             | total_size | data_size  | approx_rows 
+------------------------------------+------------+------------+-------------
+ public.workflow_events             | 5280 kB    | 2960 kB    |       16108
+ public.receipt_items               | 3312 kB    | 600 kB     |        5647
+ public.bom_items                   | 2576 kB    | 888 kB     |        8883
+ public.bom_requirements            | 2392 kB    | 920 kB     |       13700
+ public.qc_inspections              | 1360 kB    | 568 kB     |        3203
+ public.system_logs                 | 488 kB     | 272 kB     |         592
+ public.receipts                    | 320 kB     | 152 kB     |        1584
+ public.assembly_records            | 272 kB     | 88 kB      |         522
+ public.personal_access_tokens      | 240 kB     | 88 kB      |         437
+ public.ecn_requirements            | 224 kB     | 8192 bytes |          23
+ public.ecn_workflow_records        | 176 kB     | 8192 bytes |          21
+ public.supplier_assignments        | 160 kB     | 8192 bytes |           6
+ public.rework_records              | 152 kB     | 32 kB      |         215
+ public.suppliers                   | 128 kB     | 16 kB      |          63
+ public.ecn_receipt_items           | 128 kB     | 8192 bytes |          17
+ public.supplier_assignment_history | 112 kB     | 8192 bytes |           6
+ public.bom_import_batches          | 112 kB     | 16 kB      |          22
+ public.ecn_workflow_events         | 96 kB      | 8192 bytes |          31
+ public.paint_records               | 96 kB      | 8192 bytes |          37
+ public.purchase_queue_items        | 80 kB      | 8192 bytes |           6
+ public.system_settings             | 80 kB      | 8192 bytes |           2
+ public.ecn_import_batches          | 80 kB      | 8192 bytes |           1
+ public.model_has_roles             | 72 kB      | 8192 bytes |           8
+ public.projects                    | 64 kB      | 8192 bytes |          10
+ public.supplier_phones             | 56 kB      | 8192 bytes |          68
+(25 rows)
+[10:11:17] 
+[10:11:17] --- Table Row Counts ---
+table_name          | approx_rows 
+-----------------------------+-------------
+ workflow_events             |       16108
+ bom_requirements            |       13700
+ bom_items                   |        8883
+ receipt_items               |        5647
+ qc_inspections              |        3203
+ receipts                    |        1584
+ system_logs                 |         592
+ assembly_records            |         522
+ personal_access_tokens      |         437
+ rework_records              |         215
+ supplier_phones             |          68
+ suppliers                   |          63
+ migrations                  |          49
+ role_has_permissions        |          42
+ paint_records               |          37
+ ecn_workflow_events         |          31
+ ecn_requirements            |          23
+ bom_import_batches          |          22
+ ecn_workflow_records        |          21
+ ecn_receipt_items           |          17
+ permissions                 |          15
+ projects                    |          10
+ departments                 |           9
+ model_has_roles             |           8
+ users                       |           8
+ roles                       |           8
+ supplier_assignment_history |           6
+ supplier_assignments        |           6
+ purchase_queue_items        |           6
+ system_settings             |           2
+ ecn_import_batches          |           1
+ cache_locks                 |           0
+ activity_log                |           0
+ cache                       |           0
+ attachments                 |           0
+ supplier_imports            |           0
+ model_has_permissions       |           0
+ password_reset_tokens       |           0
+ sessions                    |           0
+(39 rows)
+[10:11:17] 
+[10:11:17] --- Existing Indexes and Usage ---
+table_name           |                index_name                 | times_used | index_size 
+-------------------------------+-------------------------------------------+------------+------------
+ public.bom_items              | bom_items_pkey                            |     136675 | 216 kB
+ public.ecn_requirements       | ecn_req_proj_state_idx                    |      88545 | 16 kB
+ public.projects               | projects_pkey                             |      71333 | 16 kB
+ public.personal_access_tokens | personal_access_tokens_pkey               |      29922 | 32 kB
+ public.roles                  | roles_pkey                                |      25868 | 16 kB
+ public.receipt_items          | receipt_items_pkey                        |      23255 | 200 kB
+ public.receipt_items          | idx_receipt_items_item_side_status        |      22312 | 544 kB
+ public.ecn_requirements       | ecn_requirements_current_state_index      |      22085 | 16 kB
+ public.bom_items              | bom_items_proj_jig_unit_idx               |      21345 | 160 kB
+ public.ecn_workflow_records   | ecn_workflow_records_status_index         |      11516 | 16 kB
+ public.bom_items              | bom_items_standard_part_no_index          |      11471 | 104 kB
+ public.bom_items              | bom_items_proj_type_part_idx              |       9173 | 104 kB
+ public.bom_requirements       | bom_req_item_side_qty_idx                 |       8936 | 504 kB
+ public.projects               | projects_status_index                     |       8844 | 16 kB
+ public.bom_items              | bom_items_project_id_part_type_index      |       8047 | 80 kB
+ public.users                  | users_pkey                                |       6068 | 16 kB
+ public.qc_inspections         | idx_qc_insp_item_side_dest                |       5973 | 192 kB
+ public.assembly_records       | assembly_records_status_index             |       4973 | 16 kB
+ public.receipts               | receipts_pkey                             |       4878 | 56 kB
+ public.qc_inspections         | idx_qc_inspections_lookup                 |       4628 | 176 kB
+ public.qc_inspections         | qc_inspections_result_index               |       3531 | 56 kB
+ public.receipt_items          | receipt_items_bom_side_status_idx         |       3245 | 568 kB
+ public.purchase_queue_items   | purchase_queue_items_status_index         |       2846 | 16 kB
+ public.qc_inspections         | qc_inspections_pkey                       |       2825 | 96 kB
+ public.permissions            | permissions_pkey                          |       1428 | 16 kB
+ public.model_has_roles        | model_has_roles_model_id_model_type_index |       1388 | 16 kB
+ public.paint_records          | paint_records_status_index                |       1310 | 16 kB
+ public.assembly_records       | idx_assembly_records_lookup               |       1024 | 48 kB
+ public.bom_import_batches     | bom_import_batches_pkey                   |        954 | 16 kB
+ public.roles                  | roles_name_guard_name_unique              |        888 | 16 kB
+(30 rows)
+[10:11:17] 
+[10:11:17] --- Unused Indexes (wasting write overhead) ---
+table_name             |                        index_name                        | index_size 
+------------------------------------+----------------------------------------------------------+------------
+ public.receipt_items               | idx_receipt_items_lookup                                 | 568 kB
+ public.bom_requirements            | bom_requirements_bom_item_id_side_unique                 | 504 kB
+ public.bom_items                   | idx_bom_items_part_no_trgm                               | 256 kB
+ public.workflow_events             | workflow_events_side_index                               | 152 kB
+ public.workflow_events             | workflow_events_event_type_index                         | 152 kB
+ public.bom_items                   | bom_items_unit_no_index                                  | 104 kB
+ public.receipt_items               | receipt_items_receipt_id_idx                             | 88 kB
+ public.receipts                    | receipts_project_created_idx                             | 72 kB
+ public.personal_access_tokens      | personal_access_tokens_token_unique                      | 72 kB
+ public.system_logs                 | system_logs_trace_id_index                               | 56 kB
+ public.qc_inspections              | idx_qc_inspections_dest                                  | 56 kB
+ public.qc_inspections              | qc_inspections_inspected_by_idx                          | 48 kB
+ public.system_logs                 | system_logs_created_at_index                             | 32 kB
+ public.supplier_assignment_history | supplier_assignment_history_created_at_index             | 16 kB
+ public.rework_records              | rework_records_side_index                                | 16 kB
+ public.personal_access_tokens      | personal_access_tokens_tokenable_type_tokenable_id_index | 16 kB
+ public.purchase_queue_items        | purchase_queue_items_standard_part_no_index              | 16 kB
+ public.purchase_queue_items        | purchase_queue_items_side_index                          | 16 kB
+ public.paint_records               | paint_records_side_index                                 | 16 kB
+ public.system_logs                 | system_logs_severity_index                               | 16 kB
+ public.system_logs                 | system_logs_category_index                               | 16 kB
+ public.system_logs                 | system_logs_module_index                                 | 16 kB
+ public.system_logs                 | system_logs_status_index                                 | 16 kB
+ public.supplier_assignments        | supplier_assignments_category_index                      | 16 kB
+ public.supplier_assignments        | supplier_assignments_status_index                        | 16 kB
+ public.supplier_assignments        | supplier_assignments_assignment_date_index               | 16 kB
+ public.supplier_assignments        | idx_sa_lookup                                            | 16 kB
+ public.supplier_assignment_history | supplier_assignment_history_supplier_assignment_id_index | 16 kB
+ public.supplier_assignment_history | supplier_assignment_history_previous_supplier_id_index   | 16 kB
+ public.supplier_assignment_history | supplier_assignment_history_new_supplier_id_index        | 16 kB
+ public.suppliers                   | suppliers_supplier_import_id_index                       | 16 kB
+ public.suppliers                   | idx_suppliers_active_dropdown                            | 16 kB
+ public.supplier_assignments        | idx_sa_load_kpi                                          | 16 kB
+ public.bom_import_batches          | bom_import_batches_project_id_bom_type_index             | 16 kB
+ public.rework_records              | idx_rework_records_lookup                                | 16 kB
+ public.bom_import_batches          | bom_import_batches_original_filename_unique              | 16 kB
+ public.paint_records               | idx_paint_item_side_status                               | 16 kB
+ public.ecn_import_batches          | ecn_import_batches_original_filename_index               | 16 kB
+ public.ecn_import_batches          | ecn_import_batches_file_hash_index                       | 16 kB
+ public.ecn_requirements            | ecn_req_proj_jig_unit_idx                                | 16 kB
+ public.ecn_requirements            | ecn_req_proj_ecn_idx                                     | 16 kB
+ public.ecn_requirements            | ecn_requirements_ecn_number_index                        | 16 kB
+ public.ecn_requirements            | ecn_requirements_jig_no_index                            | 16 kB
+ public.ecn_requirements            | ecn_requirements_unit_no_index                           | 16 kB
+ public.ecn_requirements            | ecn_requirements_part_no_index                           | 16 kB
+ public.ecn_requirements            | ecn_requirements_side_display_index                      | 16 kB
+ public.ecn_requirements            | ecn_requirements_side_family_index                       | 16 kB
+ public.ecn_receipt_items           | ecn_receipt_items_ecn_number_index                       | 16 kB
+ public.ecn_receipt_items           | ecn_receipt_items_side_index                             | 16 kB
+ public.ecn_receipt_items           | ecn_receipt_items_side_display_index                     | 16 kB
+ public.ecn_workflow_records        | ecn_wf_req_dept_idx                                      | 16 kB
+ public.ecn_workflow_records        | ecn_wf_proj_dept_idx                                     | 16 kB
+ public.ecn_workflow_records        | ecn_wf_receipt_dept_idx                                  | 16 kB
+ public.ecn_workflow_records        | ecn_workflow_records_ecn_number_index                    | 16 kB
+ public.ecn_workflow_records        | ecn_workflow_records_department_index                    | 16 kB
+ public.ecn_workflow_records        | ecn_workflow_records_side_index                          | 16 kB
+ public.ecn_workflow_records        | ecn_workflow_records_side_display_index                  | 16 kB
+ public.ecn_workflow_events         | ecn_event_req_type_idx                                   | 16 kB
+ public.ecn_workflow_events         | ecn_event_proj_type_idx                                  | 16 kB
+ public.ecn_workflow_events         | ecn_workflow_events_ecn_number_index                     | 16 kB
+ public.ecn_workflow_events         | ecn_workflow_events_event_type_index                     | 16 kB
+ public.supplier_assignments        | supplier_assignments_project_id_jig_no_unit_no_index     | 16 kB
+ public.cache_locks                 | cache_locks_expiration_index                             | 8192 bytes
+ public.cache                       | cache_expiration_index                                   | 8192 bytes
+ public.attachments                 | attachments_attachable_type_attachable_id_index          | 8192 bytes
+ public.activity_log                | activity_log_log_name_index                              | 8192 bytes
+ public.activity_log                | causer                                                   | 8192 bytes
+ public.supplier_imports            | supplier_imports_file_hash_index                         | 8192 bytes
+ public.supplier_imports            | supplier_imports_imported_by_index                       | 8192 bytes
+ public.sessions                    | sessions_user_id_index                                   | 8192 bytes
+ public.model_has_permissions       | model_has_permissions_model_id_model_type_index          | 8192 bytes
+ public.sessions                    | sessions_last_activity_index                             | 8192 bytes
+ public.activity_log                | subject                                                  | 8192 bytes
+(73 rows)
+[10:11:17] 
+[10:11:17] --- Sequential Scan Hotspots (full-table scans) ---
+table_name       | seq_scan | seq_tup_read | idx_scan | idx_usage_pct | approx_rows 
+------------------------+----------+--------------+----------+---------------+-------------
+ bom_requirements       |    48376 |    363224468 |     9511 |          16.4 |       13700
+ receipt_items          |    57319 |    129577716 |    50273 |          46.7 |        5647
+ qc_inspections         |    54003 |     71023586 |    17384 |          24.4 |        3203
+ bom_items              |    27245 |     52062568 |   187532 |          87.3 |        8883
+ assembly_records       |    52245 |     21290199 |     6849 |          11.6 |         522
+ workflow_events        |     1601 |      5941338 |      461 |          22.4 |       16108
+ ecn_requirements       |   207307 |      4646661 |   110838 |          34.8 |          23
+ rework_records         |    49809 |      3015563 |      296 |           0.6 |         215
+ personal_access_tokens |    16058 |      1677239 |    29922 |          65.1 |         437
+ paint_records          |    50003 |      1231777 |     1360 |           2.6 |          37
+ projects               |    28669 |       205963 |    80192 |          73.7 |          10
+ users                  |    43107 |       200216 |     6132 |          12.5 |           8
+ model_has_roles        |    23055 |       184416 |     1388 |           5.7 |           8
+ receipts               |      861 |       108307 |     4878 |          85.0 |        1584
+ bom_import_batches     |     8237 |       106981 |      972 |          10.6 |          22
+ suppliers              |     2586 |        76573 |      152 |           5.6 |          63
+ role_has_permissions   |      512 |        21366 |      400 |          43.9 |          42
+ migrations             |      118 |         4408 |        0 |           0.0 |          49
+ permissions            |      281 |         4185 |     2073 |          88.1 |          15
+ supplier_phones        |       59 |         3763 |      123 |          67.6 |          68
+(20 rows)
+[10:11:17] 
+[10:11:17] --- Dead Tuples (tables needing VACUUM) ---
+table_name   | live_rows | dead_rows |        last_autovacuum        |       last_autoanalyze        
+---------------+-----------+-----------+-------------------------------+-------------------------------
+ receipt_items |      5647 |       702 | 2026-09-09 06:29:07.767521+00 | 2026-09-10 03:37:32.025573+00
+(1 row)
+[10:11:18] 
+[10:11:18] --- Cache Hit Ratio ---
+cache_type     | hit_ratio_pct 
+-------------------+---------------
+ Heap (table data) |        100.00
+ Index             |         99.99
+(2 rows)
+[10:11:18] 
+[10:11:18] --- Active Database Connections ---
+state  | connection_count 
+--------+------------------
+ active |                1
+(1 row)
+[10:11:18] 
+[10:11:18] --- Long-Running Queries (active > 5 seconds) ---
+pid | duration | state | query_preview 
+-----+----------+-------+---------------
+(0 rows)
+[10:11:18] 
+[10:11:18] --- PostgreSQL Configuration (critical settings) ---
+name               | setting | unit |                                        short_desc                                        
+---------------------------------+---------+------+------------------------------------------------------------------------------------------
+ checkpoint_completion_target    | 0.9     |      | Time spent flushing dirty buffers during checkpoint, as fraction of checkpoint interval.
+ effective_cache_size            | 524288  | 8kB  | Sets the planner's assumption about the total size of the data caches.
+ effective_io_concurrency        | 1       |      | Number of simultaneous requests that can be handled efficiently by the disk subsystem.
+ huge_pages                      | try     |      | Use of huge pages on Linux or Windows.
+ maintenance_work_mem            | 65536   | kB   | Sets the maximum memory to be used for maintenance operations.
+ max_connections                 | 100     |      | Sets the maximum number of concurrent connections.
+ max_parallel_workers_per_gather | 2       |      | Sets the maximum number of parallel processes per executor node.
+ max_worker_processes            | 8       |      | Maximum number of concurrent worker processes.
+ random_page_cost                | 4       |      | Sets the planner's estimate of the cost of a nonsequentially fetched disk page.
+ shared_buffers                  | 16384   | 8kB  | Sets the number of shared memory buffers used by the server.
+ wal_buffers                     | 512     | 8kB  | Sets the number of disk-page buffers in shared memory for WAL.
+ work_mem                        | 4096    | kB   | Sets the maximum memory to be used for query workspaces.
+(12 rows)
+[10:11:18] 
+[10:11:18] --- Database Statistics Summary ---
+datname   | active_connections | transactions_committed | transactions_rolled_back | disk_blocks_read | buffer_cache_hits | cache_hit_pct | rows_returned | rows_fetched | rows_inserted | rows_updated | rows_deleted 
+------------+--------------------+------------------------+--------------------------+------------------+-------------------+---------------+---------------+--------------+---------------+--------------+--------------
+ sparetrack |                  1 |                3321411 |                       12 |             3536 |         121233213 |        100.00 |     879241040 |    163051102 |         83800 |        49830 |        18881
+(1 row)
+[10:11:18] 
+[10:11:18] --- Check pg_stat_statements extension ---
+extname | extversion 
+---------+------------
+(0 rows)
+[10:11:19] 
+[10:11:19] ================================================================================
+[10:11:19]   SECTION 7: API ENDPOINT TIMING (localhost)
+[10:11:19] ================================================================================
+[10:11:19] Timing API endpoints from the server itself (127.0.0.1:8080)
+[10:11:19] This isolates pure server processing time from any LAN latency.
+[10:11:19] 
+[10:11:19] --- Authenticating to get API token ---
+[10:11:26]   Login OK: 7522ms - Token obtained
+[10:11:35] Using project ID 2 (FA-261) for hierarchy tests
+[10:11:35] Total projects found: 10
+[10:11:35] 
+[10:11:35] --- Health Check (baseline) ---
+[10:11:35]   Endpoint: GET /api/v1/health
+[10:11:41]   Run 1: 6930ms | 0.4KB | HTTP 200
+[10:11:47]   Run 2: 5686ms | 0.4KB | HTTP 200
+[10:11:50]   Run 3: 3148ms | 0.4KB | HTTP 200
+[10:11:50]   ----------------------------------------
+[10:11:50]   RESULT: Min=3148ms  Avg=5255ms  Max=6930ms  Size=0.4KB  SLOW (>3s)
+[10:11:50] 
+[10:11:50] --- Dashboard Summary - ALL types (HEAVIEST) ---
+[10:11:50]   Endpoint: GET /api/v1/dashboard/summary
+[10:12:00]   Run 1: 9398ms | 36.4KB | HTTP 200
+[10:12:09]   Run 2: 9346ms | 36.4KB | HTTP 200
+[10:12:18]   Run 3: 9283ms | 36.4KB | HTTP 200
+[10:12:18]   ----------------------------------------
+[10:12:18]   RESULT: Min=9283ms  Avg=9342ms  Max=9398ms  Size=36.4KB  SLOW (>3s)
+[10:12:18] 
+[10:12:18] --- Dashboard Summary - MFG only ---
+[10:12:18]   Endpoint: GET /api/v1/dashboard/summary?part_type=MFG
+[10:12:24]   Run 1: 5757ms | 36.4KB | HTTP 200
+[10:12:30]   Run 2: 5574ms | 36.4KB | HTTP 200
+[10:12:30]   ----------------------------------------
+[10:12:30]   RESULT: Min=5574ms  Avg=5666ms  Max=5757ms  Size=36.4KB  SLOW (>3s)
+[10:12:30] 
+[10:12:30] --- Dashboard Summary - BOP only ---
+[10:12:30]   Endpoint: GET /api/v1/dashboard/summary?part_type=BOP
+[10:12:34]   Run 1: 4355ms | 30KB | HTTP 200
+[10:12:38]   Run 2: 4255ms | 30KB | HTTP 200
+[10:12:38]   ----------------------------------------
+[10:12:39]   RESULT: Min=4255ms  Avg=4305ms  Max=4355ms  Size=30KB  SLOW (>3s)
+[10:12:39] 
+[10:12:39] --- Dashboard Summary - STD only ---
+[10:12:39]   Endpoint: GET /api/v1/dashboard/summary?part_type=STD
+[10:12:43]   Run 1: 4417ms | 30KB | HTTP 200
+[10:12:47]   Run 2: 4298ms | 30KB | HTTP 200
+[10:12:47]   ----------------------------------------
+[10:12:47]   RESULT: Min=4298ms  Avg=4358ms  Max=4417ms  Size=30KB  SLOW (>3s)
+[10:12:47] 
+[10:12:47] --- Project Hierarchy (project list) ---
+[10:12:47]   Endpoint: GET /api/v1/dashboard/project-hierarchy
+[10:12:52]   Run 1: 4261ms | 9.2KB | HTTP 200
+[10:12:56]   Run 2: 4200ms | 9.2KB | HTTP 200
+[10:12:56]   ----------------------------------------
+[10:12:56]   RESULT: Min=4200ms  Avg=4230ms  Max=4261ms  Size=9.2KB  SLOW (>3s)
+[10:12:56] 
+[10:12:56] --- Project Hierarchy (full drill-down) ---
+[10:12:56]   Endpoint: GET /api/v1/dashboard/project-hierarchy?project_id=2
+[10:13:07]   Run 1: 10916ms | 3153.6KB | HTTP 200
+[10:13:18]   Run 2: 11632ms | 3153.6KB | HTTP 200
+[10:13:18]   ----------------------------------------
+[10:13:18]   RESULT: Min=10916ms  Avg=11274ms  Max=11632ms  Size=3153.6KB  CRITICAL (>10s)
+[10:13:18] 
+[10:13:18] --- Project Hierarchy (MFG drill-down) ---
+[10:13:18]   Endpoint: GET /api/v1/dashboard/project-hierarchy?project_id=2&part_type=MFG
+[10:13:31]   Run 1: 12626ms | 3448.4KB | HTTP 200
+[10:13:44]   Run 2: 12547ms | 3448.4KB | HTTP 200
+[10:13:44]   ----------------------------------------
+[10:13:44]   RESULT: Min=12547ms  Avg=12586ms  Max=12626ms  Size=3448.4KB  CRITICAL (>10s)
+[10:13:44] 
+[10:13:44] --- KPI Drilldown ---
+[10:13:44]   Endpoint: GET /api/v1/dashboard/kpi-drilldown?kpi=total_parts
+[10:13:48]   Run 1: 4627ms | 19.1KB | HTTP 200
+[10:13:53]   Run 2: 4745ms | 19.1KB | HTTP 200
+[10:13:53]   ----------------------------------------
+[10:13:53]   RESULT: Min=4627ms  Avg=4686ms  Max=4745ms  Size=19.1KB  SLOW (>3s)
+[10:13:53] 
+[10:13:53] --- Store Department Hierarchy ---
+[10:13:53]   Endpoint: GET /api/v1/store/hierarchy
+[10:13:57]   Run 1: 4389ms | 9.1KB | HTTP 200
+[10:14:05]   Run 2: 7926ms | 9.1KB | HTTP 200
+[10:14:05]   ----------------------------------------
+[10:14:05]   RESULT: Min=4389ms  Avg=6158ms  Max=7926ms  Size=9.1KB  SLOW (>3s)
+[10:14:05] 
+[10:14:05] --- QC Department Hierarchy ---
+[10:14:05]   Endpoint: GET /api/v1/qc/hierarchy
+[10:14:13]   Run 1: 7830ms | 9KB | HTTP 200
+[10:14:21]   Run 2: 7831ms | 9KB | HTTP 200
+[10:14:21]   ----------------------------------------
+[10:14:21]   RESULT: Min=7830ms  Avg=7830ms  Max=7831ms  Size=9KB  SLOW (>3s)
+[10:14:21] 
+[10:14:21] --- Rework Department Hierarchy ---
+[10:14:21]   Endpoint: GET /api/v1/rework/hierarchy
+[10:14:25]   Run 1: 4137ms | 8.9KB | HTTP 200
+[10:14:30]   Run 2: 4221ms | 8.9KB | HTTP 200
+[10:14:30]   ----------------------------------------
+[10:14:30]   RESULT: Min=4137ms  Avg=4179ms  Max=4221ms  Size=8.9KB  SLOW (>3s)
+[10:14:30] 
+[10:14:30] --- Paint Department Hierarchy ---
+[10:14:30]   Endpoint: GET /api/v1/paint/hierarchy
+[10:14:34]   Run 1: 4196ms | 8.9KB | HTTP 200
+[10:14:38]   Run 2: 4167ms | 8.9KB | HTTP 200
+[10:14:38]   ----------------------------------------
+[10:14:38]   RESULT: Min=4167ms  Avg=4182ms  Max=4196ms  Size=8.9KB  SLOW (>3s)
+[10:14:38] 
+[10:14:38] --- Assembly Department Hierarchy ---
+[10:14:38]   Endpoint: GET /api/v1/assembly/hierarchy
+[10:14:42]   Run 1: 4236ms | 9KB | HTTP 200
+[10:14:47]   Run 2: 4322ms | 9KB | HTTP 200
+[10:14:47]   ----------------------------------------
+[10:14:47]   RESULT: Min=4236ms  Avg=4279ms  Max=4322ms  Size=9KB  SLOW (>3s)
+[10:14:47] 
+[10:14:47] --- ECN Dashboard Summary ---
+[10:14:47]   Endpoint: GET /api/v1/ecn/dashboard/summary
+[10:14:50]   Run 1: 2893ms | 0.4KB | HTTP 200
+[10:14:52]   Run 2: 2901ms | 0.4KB | HTTP 200
+[10:14:52]   ----------------------------------------
+[10:14:52]   RESULT: Min=2893ms  Avg=2897ms  Max=2901ms  Size=0.4KB  MODERATE (>1s)
+[10:14:52] 
+[10:14:52] --- Supplier Allocation Hierarchy ---
+[10:14:52]   Endpoint: GET /api/v1/supplier-allocation/hierarchy
+[10:14:53]   Run 1: 213ms | 0.7KB | HTTP 200
+[10:14:56]   Run 2: 2845ms | 0.7KB | HTTP 200
+[10:14:56]   ----------------------------------------
+[10:14:56]   RESULT: Min=213ms  Avg=1529ms  Max=2845ms  Size=0.7KB  MODERATE (>1s)
+[10:14:56] 
+[10:14:56] --- Supplier Allocation Overview ---
+[10:14:56]   Endpoint: GET /api/v1/supplier-allocation/overview
+[10:14:59]   Run 1: 2940ms | 11.1KB | HTTP 200
+[10:15:02]   Run 2: 3063ms | 11.1KB | HTTP 200
+[10:15:02]   ----------------------------------------
+[10:15:02]   RESULT: Min=2940ms  Avg=3002ms  Max=3063ms  Size=11.1KB  SLOW (>3s)
+[10:15:02] 
+[10:15:02] --- Store Hierarchy (project drill-down) ---
+[10:15:02]   Endpoint: GET /api/v1/store/hierarchy?project_id=2
+[10:15:09]   Run 1: 7778ms | 1727KB | HTTP 200
+[10:15:17]   Run 2: 7756ms | 1727KB | HTTP 200
+[10:15:17]   ----------------------------------------
+[10:15:17]   RESULT: Min=7756ms  Avg=7767ms  Max=7778ms  Size=1727KB  SLOW (>3s)
+[10:15:17] 
+[10:15:17] --- QC Hierarchy (project drill-down) ---
+[10:15:17]   Endpoint: GET /api/v1/qc/hierarchy?project_id=2
+[10:15:25]   Run 1: 7894ms | 1727KB | HTTP 200
+[10:15:33]   Run 2: 7769ms | 1727KB | HTTP 200
+[10:15:33]   ----------------------------------------
+[10:15:33]   RESULT: Min=7769ms  Avg=7832ms  Max=7894ms  Size=1727KB  SLOW (>3s)
+[10:15:33] 
+[10:15:33] ================================================================================
+[10:15:33]   SECTION 8: DIAGNOSTIC COMPLETE
+[10:15:33] ================================================================================
+[10:15:33] 
+[10:15:33] Diagnostic completed in 287.2 seconds
+[10:15:33] All results saved to: sparetrack_diagnostic_20260910_101046.txt
+[10:15:33] 
+[10:15:33] NEXT STEPS:
+[10:15:33]   1. Share the file back (USB or git push)
+[10:15:33]   2. To git push:
+[10:15:33]      git add sparetrack_diagnostic_20260910_101046.txt
+[10:15:33]      git commit -m 'Add server diagnostic output'
+[10:15:33]      git push origin branch-a
+[10:15:33] 
+[10:15:33] REMINDER: This script made ZERO changes to your system.
+[10:15:33] Your application is still running normally.

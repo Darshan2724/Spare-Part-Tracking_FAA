@@ -144,4 +144,78 @@ class PerformanceOptimizationRegressionTest extends TestCase
         $this->assertArrayHasKey('bop', $data['summary']);
         $this->assertArrayHasKey('std', $data['summary']);
     }
+
+    public function test_hierarchy_side_stats_preserves_operational_records_and_revert_options()
+    {
+        // Create an incoming receipt item for the MFG part
+        $receipt = Receipt::create([
+            'project_id' => $this->project->id,
+            'received_by' => $this->admin->id,
+            'receipt_date' => now(),
+        ]);
+
+        $receiptItem = ReceiptItem::create([
+            'receipt_id' => $receipt->id,
+            'bom_item_id' => $this->mfgItem->id,
+            'side' => 'LH',
+            'received_quantity' => 5,
+            'status' => 'received',
+        ]);
+
+        $response = $this->actingAs($this->admin, 'sanctum')
+            ->getJson('/api/v1/store/hierarchy?project_id=' . $this->project->id);
+
+        $response->assertStatus(200);
+        $data = $response->json();
+
+        $this->assertNotEmpty($data['jigs']);
+        $jig = $data['jigs'][0];
+        $this->assertNotEmpty($jig['units']);
+        $unit = $jig['units'][0];
+        $this->assertNotEmpty($unit['parts']);
+
+        $mfgPart = collect($unit['parts'])->firstWhere('id', $this->mfgItem->id);
+        $this->assertNotNull($mfgPart);
+        $this->assertArrayHasKey('side_stats', $mfgPart);
+        $this->assertArrayHasKey('LH', $mfgPart['side_stats']);
+
+        $lhStats = $mfgPart['side_stats']['LH'];
+        $this->assertArrayHasKey('receipt_items', $lhStats);
+        $this->assertNotEmpty($lhStats['receipt_items'], 'receipt_items must be populated in side_stats');
+        $this->assertEquals($receiptItem->id, $lhStats['receipt_items'][0]['id']);
+
+        // Verify revert options are populated for store
+        $this->assertArrayHasKey('revert_options', $lhStats);
+        $this->assertNotEmpty($lhStats['revert_options']);
+        $this->assertEquals(5, $lhStats['revert_options'][0]['available_quantity']);
+    }
+
+    public function test_multi_type_bulk_metrics_matches_individual_bulk_metrics()
+    {
+        $quantityService = app(\App\Services\QuantityCalculationService::class);
+        $projects = collect([$this->project]);
+
+        $multiMetrics = $quantityService->calculateBulkProjectsMetricsWithPartTypes($projects);
+        $allDirect = $quantityService->calculateBulkProjectsMetrics($projects);
+        $mfgDirect = $quantityService->calculateBulkProjectsMetrics($projects, null, ['part_type' => 'MFG']);
+        $bopDirect = $quantityService->calculateBulkProjectsMetrics($projects, null, ['part_type' => 'BOP']);
+        $stdDirect = $quantityService->calculateBulkProjectsMetrics($projects, null, ['part_type' => 'STD']);
+
+        $projId = $this->project->id;
+
+        $this->assertEquals($allDirect->get($projId)['total_required'], $multiMetrics['all']->get($projId)['total_required']);
+        $this->assertEquals($mfgDirect->get($projId)['total_required'], $multiMetrics['mfg']->get($projId)['total_required']);
+        $this->assertEquals($bopDirect->get($projId)['total_required'], $multiMetrics['bop']->get($projId)['total_required']);
+        $this->assertEquals($stdDirect->get($projId)['total_required'], $multiMetrics['std']->get($projId)['total_required']);
+
+        $this->assertEquals($allDirect->get($projId)['total_received'], $multiMetrics['all']->get($projId)['total_received']);
+        $this->assertEquals($mfgDirect->get($projId)['total_received'], $multiMetrics['mfg']->get($projId)['total_received']);
+        $this->assertEquals($bopDirect->get($projId)['total_received'], $multiMetrics['bop']->get($projId)['total_received']);
+        $this->assertEquals($stdDirect->get($projId)['total_received'], $multiMetrics['std']->get($projId)['total_received']);
+
+        $this->assertEquals($allDirect->get($projId)['total_pending'], $multiMetrics['all']->get($projId)['total_pending']);
+        $this->assertEquals($mfgDirect->get($projId)['total_pending'], $multiMetrics['mfg']->get($projId)['total_pending']);
+        $this->assertEquals($bopDirect->get($projId)['total_pending'], $multiMetrics['bop']->get($projId)['total_pending']);
+        $this->assertEquals($stdDirect->get($projId)['total_pending'], $multiMetrics['std']->get($projId)['total_pending']);
+    }
 }
