@@ -36,6 +36,20 @@ class QuantityCalculationService
     ];
 
     /**
+     * Authoritative project health colors mapped to canonical CSS hex colors.
+     * Near Completion -> green (#16a34a)
+     * On Track -> blue (#2563eb)
+     * At Risk -> yellow (#eab308)
+     * Delayed -> red (#dc2626)
+     */
+    public const HEALTH_COLORS = [
+        'near_completion' => '#16a34a',
+        'on_track' => '#2563eb',
+        'at_risk' => '#eab308',
+        'delayed' => '#dc2626',
+    ];
+
+    /**
      * Calculate authoritative metrics for a single project.
      * Enforces mathematical consistency across all hierarchy levels.
      *
@@ -662,29 +676,41 @@ class QuantityCalculationService
     /**
      * Calculate Top Projects Near Completion for Dashboard.
      * Ranks active projects by completion percentage descending.
+     * Attaches authoritative health classification (Near Completion: green, On Track: blue, At Risk: yellow, Delayed: red).
+     * When $limit <= 0, returns all qualifying active incomplete projects.
      *
      * @param array $filters
      * @param int $limit
      * @param Collection|null $precomputedProgress
+     * @param Collection|null $precomputedBulkMetrics
      * @return array
      */
-    public function getTopProjectsNearCompletion(array $filters = [], int $limit = 10, ?Collection $precomputedProgress = null): array
+    public function getTopProjectsNearCompletion(array $filters = [], int $limit = 0, ?Collection $precomputedProgress = null, ?Collection $precomputedBulkMetrics = null): array
     {
-        $progress = $precomputedProgress ?? $this->calculateProjectsProgress($filters);
+        $progress = $precomputedProgress ?? $this->calculateProjectsProgress($filters, $precomputedBulkMetrics);
+
+        $projects = Project::whereIn('id', $progress->pluck('id'))->get();
+        $healthMap = $this->getProjectHealthMap($projects, $filters, $precomputedBulkMetrics);
 
         // Filter active incomplete projects with required > 0 and calculate exact weighted assembly completion
-        $activeIncomplete = $progress->map(function ($p) {
+        $activeIncomplete = $progress->map(function ($p) use ($healthMap) {
             $req = $p['required_qty'] ?? 0;
             $asm = $p['assembly_completed'] ?? $p['assembly_qty'] ?? 0;
             $weighted = $req > 0 ? min(100, round(($asm / $req) * 100, 1)) : 0.0;
             $p['weighted_completion'] = $weighted;
             $p['assembly_completed'] = $asm;
+
+            $h = $healthMap[$p['id']] ?? null;
+            $p['health_status'] = $h['category'] ?? ($weighted >= 85.0 ? 'near_completion' : 'on_track');
+            $p['health_color'] = $h['color'] ?? (self::HEALTH_COLORS[$p['health_status']] ?? '#2563eb');
+            $p['days_inactive'] = $h['days_inactive'] ?? 0;
+
             return $p;
         })->filter(function ($p) {
             return !$p['is_complete'] && $p['required_qty'] > 0;
         })->sortByDesc('weighted_completion')->values();
 
-        $topSubset = $activeIncomplete->take($limit);
+        $topSubset = ($limit > 0) ? $activeIncomplete->take($limit) : $activeIncomplete;
 
         return [
             'labels' => $topSubset->pluck('project_code')->toArray(),
@@ -693,9 +719,90 @@ class QuantityCalculationService
             'required' => $topSubset->pluck('required_qty')->toArray(),
             'received' => $topSubset->pluck('received_qty')->toArray(),
             'pending' => $topSubset->pluck('pending_qty')->toArray(),
+            'health_statuses' => $topSubset->pluck('health_status')->toArray(),
+            'health_colors' => $topSubset->pluck('health_color')->toArray(),
             'projects' => $topSubset->toArray(),
             'total_active_incomplete' => $activeIncomplete->count(),
         ];
+    }
+
+    /**
+     * Compute authoritative project health classification map for a collection of projects.
+     * Near Completion (>=85% complete) -> green (#16a34a)
+     * On Track (active within 7 days) -> blue (#2563eb)
+     * At Risk (inactivity 7-14 days) -> yellow (#eab308)
+     * Delayed (inactivity > 14 days and <85% complete) -> red (#dc2626)
+     *
+     * @param Collection $projects
+     * @param array $filters
+     * @param Collection|null $precomputedBulkMetrics
+     * @return array [projectId => ['category' => string, 'color' => string, 'days_inactive' => int, 'completion_pct' => float]]
+     */
+    public function getProjectHealthMap(Collection $projects, array $filters = [], ?Collection $precomputedBulkMetrics = null): array
+    {
+        if ($projects->isEmpty()) {
+            return [];
+        }
+
+        $bulkMetrics = $precomputedBulkMetrics ?? $this->calculateBulkProjectsMetrics($projects, $filters['side'] ?? null, $filters);
+
+        $latestReceiptsQuery = ReceiptItem::query()
+            ->join('bom_items', 'bom_items.id', '=', 'receipt_items.bom_item_id')
+            ->whereIn('bom_items.project_id', $projects->pluck('id'));
+
+        $latestQcQuery = QcInspection::query()
+            ->join('bom_items', 'bom_items.id', '=', 'qc_inspections.bom_item_id')
+            ->whereIn('bom_items.project_id', $projects->pluck('id'));
+
+        if (!empty($filters['part_type'])) {
+            $pType = strtoupper($filters['part_type']);
+            $latestReceiptsQuery->where('bom_items.part_type', $pType);
+            $latestQcQuery->where('bom_items.part_type', $pType);
+        }
+
+        $latestReceipts = $latestReceiptsQuery
+            ->select('bom_items.project_id', DB::raw('MAX(receipt_items.updated_at) as max_updated'))
+            ->groupBy('bom_items.project_id')
+            ->pluck('max_updated', 'project_id');
+
+        $latestQc = $latestQcQuery
+            ->select('bom_items.project_id', DB::raw('MAX(qc_inspections.updated_at) as max_updated'))
+            ->groupBy('bom_items.project_id')
+            ->pluck('max_updated', 'project_id');
+
+        $healthMap = [];
+
+        foreach ($projects as $proj) {
+            $pMetrics = $bulkMetrics->get($proj->id) ?? $this->formatProjectSummaryResult($proj, []);
+            $req = $pMetrics['required_qty'] ?? 0;
+            $asm = $pMetrics['assembly_completed'] ?? $pMetrics['assembly_qty'] ?? 0;
+            $completion = $req > 0 ? min(100, round(($asm / $req) * 100, 1)) : 0.0;
+
+            $recUpdate = $latestReceipts->get($proj->id);
+            $qcUpdate = $latestQc->get($proj->id);
+            $latestActivity = max($recUpdate, $qcUpdate, $proj->created_at);
+
+            $daysSinceActivity = $latestActivity ? max(0, (int) now()->diffInDays($latestActivity)) : 999;
+
+            if ($completion >= 85.0) {
+                $category = 'near_completion';
+            } elseif ($daysSinceActivity > 14 && $completion < 85.0) {
+                $category = 'delayed';
+            } elseif ($daysSinceActivity > 7 && $completion < 85.0) {
+                $category = 'at_risk';
+            } else {
+                $category = 'on_track';
+            }
+
+            $healthMap[$proj->id] = [
+                'category' => $category,
+                'color' => self::HEALTH_COLORS[$category] ?? '#2563eb',
+                'days_inactive' => $daysSinceActivity,
+                'completion_pct' => $completion,
+            ];
+        }
+
+        return $healthMap;
     }
 
     /**
@@ -734,66 +841,33 @@ class QuantityCalculationService
         ];
 
         $bulkMetrics = $precomputedBulkMetrics ?? $this->calculateBulkProjectsMetrics($projects, $filters['side'] ?? null, $filters);
-
-        // Single bulk query to find latest activity timestamp per project (optionally filtered by part_type)
-        $latestReceiptsQuery = ReceiptItem::query()
-            ->join('bom_items', 'bom_items.id', '=', 'receipt_items.bom_item_id')
-            ->whereIn('bom_items.project_id', $projects->pluck('id'));
-
-        $latestQcQuery = QcInspection::query()
-            ->join('bom_items', 'bom_items.id', '=', 'qc_inspections.bom_item_id')
-            ->whereIn('bom_items.project_id', $projects->pluck('id'));
-
-        if (!empty($filters['part_type'])) {
-            $pType = strtoupper($filters['part_type']);
-            $latestReceiptsQuery->where('bom_items.part_type', $pType);
-            $latestQcQuery->where('bom_items.part_type', $pType);
-        }
-
-        $latestReceipts = $latestReceiptsQuery
-            ->select('bom_items.project_id', DB::raw('MAX(receipt_items.updated_at) as max_updated'))
-            ->groupBy('bom_items.project_id')
-            ->pluck('max_updated', 'project_id');
-
-        $latestQc = $latestQcQuery
-            ->select('bom_items.project_id', DB::raw('MAX(qc_inspections.updated_at) as max_updated'))
-            ->groupBy('bom_items.project_id')
-            ->pluck('max_updated', 'project_id');
+        $healthMap = $this->getProjectHealthMap($projects, $filters, $bulkMetrics);
 
         foreach ($projects as $proj) {
             $pMetrics = $bulkMetrics->get($proj->id) ?? $this->formatProjectSummaryResult($proj, []);
             $req = $pMetrics['required_qty'] ?? 0;
-            $asm = $pMetrics['assembly_completed'] ?? $pMetrics['assembly_qty'] ?? 0;
-            $completion = $req > 0 ? min(100, round(($asm / $req) * 100, 1)) : 0.0;
 
             if ($req === 0) {
                 continue;
             }
 
-            $recUpdate = $latestReceipts->get($proj->id);
-            $qcUpdate = $latestQc->get($proj->id);
-            $latestActivity = max($recUpdate, $qcUpdate, $proj->created_at);
+            $h = $healthMap[$proj->id] ?? [
+                'category' => 'on_track',
+                'color' => self::HEALTH_COLORS['on_track'],
+                'days_inactive' => 0,
+                'completion_pct' => 0.0,
+            ];
 
-            $daysSinceActivity = $latestActivity ? now()->diffInDays($latestActivity) : 999;
-
-            if ($completion >= 85.0) {
-                $category = 'near_completion';
-            } elseif ($daysSinceActivity > 14 && $completion < 85.0) {
-                $category = 'delayed';
-            } elseif ($daysSinceActivity > 7 && $completion < 85.0) {
-                $category = 'at_risk';
-            } else {
-                $category = 'on_track';
-            }
-
+            $category = $h['category'];
             $counts[$category]++;
             $projectsByHealth[$category][] = [
                 'id' => $proj->id,
                 'project_code' => $proj->project_code,
                 'name' => $proj->name,
-                'completion_pct' => $completion,
-                'days_inactive' => $daysSinceActivity,
+                'completion_pct' => $h['completion_pct'],
+                'days_inactive' => $h['days_inactive'],
                 'category' => $category,
+                'color' => $h['color'],
             ];
         }
 

@@ -181,7 +181,7 @@ class DashboardController extends Controller
         $canonicalSummary['std'] = $stdSummary;
 
         $canonicalProjectsProgress = $this->quantityService->calculateProjectsProgress($filters, $bulkMetrics);
-        $topProjectsNearCompletion = $this->quantityService->getTopProjectsNearCompletion($filters, 10, $canonicalProjectsProgress);
+        $topProjectsNearCompletion = $this->quantityService->getTopProjectsNearCompletion($filters, 0, $canonicalProjectsProgress, $bulkMetrics);
         $healthDistribution = $this->quantityService->calculateProjectHealthDistribution($filters, $bulkMetrics);
 
         // Query builders for contextual widgets

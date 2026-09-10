@@ -55,6 +55,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
         Route::get('/export/movement', [ExportController::class, 'exportMovement']);
         Route::post('/export/drilldown', [ExportController::class, 'exportKpiDrilldown']);
         Route::get('/export/drilldown', [ExportController::class, 'exportKpiDrilldown']);
+        Route::get('/export/project-jigs', [ExportController::class, 'exportProjectJigs']);
 
         // Admin System Logs & Diagnostics (ADMIN ONLY)
         Route::prefix('admin')->group(function () {

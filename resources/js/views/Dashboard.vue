@@ -677,7 +677,7 @@
                 <span class="badge bg-primary px-2 py-1">{{ topProjectsData.total_active_incomplete || topProjectsData.labels?.length || 0 }} Active Incomplete</span>
               </div>
             <div class="card-body">
-              <div v-if="topProjectsData.labels?.length" style="height: 280px; position: relative;">
+              <div v-if="topProjectsData.labels?.length" :style="{ height: Math.max(280, (topProjectsData.labels?.length || 0) * 32 + 30) + 'px', position: 'relative' }">
                 <canvas ref="topProjectsChartCanvas"></canvas>
               </div>
               <div v-else class="text-center py-5 text-muted">
@@ -828,6 +828,19 @@
                   <i class="fas fa-compress-arrows-alt me-1"></i> Collapse All
                 </button>
               </div>
+
+              <!-- Project Jig Material Status Excel Export -->
+              <button 
+                v-if="filters.project_id"
+                type="button" 
+                @click="exportProjectJigs" 
+                :disabled="exportingJigs"
+                class="btn btn-success btn-xs px-2 shadow-xs fw-semibold text-nowrap d-inline-flex align-items-center" 
+                title="Export Project Jig Material Status to Excel (.xlsx)"
+              >
+                <i class="fas me-1" :class="exportingJigs ? 'fa-spinner fa-spin' : 'fa-file-excel'"></i>
+                {{ exportingJigs ? 'Exporting...' : 'Export Jigs (.xlsx)' }}
+              </button>
             </div>
           </div>
         </div>
@@ -903,26 +916,29 @@
               <!-- Jig Metrics Pills & Completion Bar -->
               <div class="d-flex align-items-center gap-2 flex-wrap">
                 <div class="d-flex align-items-center gap-1 flex-wrap">
-                  <span class="badge bg-light text-dark border px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Total Required Parts">
-                    <i class="fas fa-list-ol me-1 text-secondary" style="font-size: 0.72rem;"></i>Req: <strong class="ms-0.5">{{ jig.total_required }}</strong>
+                  <span class="jig-metric-pill pill-req" title="Total Required Parts">
+                    <i class="fas fa-list-ol me-1 text-secondary" style="font-size: 0.72rem;"></i>Req: <strong>{{ jig.total_required }}</strong>
                   </span>
-                  <span class="badge bg-success-subtle text-success border border-success-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Total Received Parts">
-                    <i class="fas fa-boxes me-1 text-success" style="font-size: 0.72rem;"></i>Rec: <strong class="ms-0.5">{{ jig.total_received }}</strong>
+                  <span class="jig-metric-pill pill-rec" title="Total Received Parts">
+                    <i class="fas fa-boxes me-1" style="font-size: 0.72rem;"></i>Rec: <strong>{{ jig.total_received }}</strong>
                   </span>
-                  <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Total Pending Parts">
-                    <i class="fas fa-truck-loading me-1 text-danger" style="font-size: 0.72rem;"></i>Pend: <strong class="ms-0.5">{{ jig.total_pending }}</strong>
+                  <span class="jig-metric-pill pill-pend" title="Total Pending Parts">
+                    <i class="fas fa-truck-loading me-1" style="font-size: 0.72rem;"></i>Pend: <strong>{{ jig.total_pending }}</strong>
                   </span>
-                  <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Parts in Store Bay">
-                    <i class="fas fa-warehouse me-1 text-warning" style="font-size: 0.72rem;"></i>Store: <strong class="ms-0.5">{{ jig.metrics?.parts_in_store || 0 }}</strong>
+                  <span class="jig-metric-pill pill-store" title="Parts in Store Bay">
+                    <i class="fas fa-warehouse me-1" style="font-size: 0.72rem;"></i>Store: <strong>{{ jig.metrics?.parts_in_store || 0 }}</strong>
                   </span>
-                  <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Parts in QC (Arrival & Inspection)">
-                    <i class="fas fa-clipboard-check me-1 text-info" style="font-size: 0.72rem;"></i>QC: <strong class="ms-0.5">{{ jig.metrics?.parts_in_qc ?? ((jig.metrics?.qc_pending_arrival || 0) + (jig.metrics?.qc_pending_inspection || 0)) }}</strong>
+                  <span class="jig-metric-pill pill-qc" title="Parts in QC (Arrival & Inspection)">
+                    <i class="fas fa-clipboard-check me-1" style="font-size: 0.72rem;"></i>QC: <strong>{{ jig.metrics?.parts_in_qc ?? ((jig.metrics?.qc_pending_arrival || 0) + (jig.metrics?.qc_pending_inspection || 0)) }}</strong>
                   </span>
-                  <span class="badge border px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem; background-color: #fff7ed; color: #c2410c; border-color: #fed7aa !important;" title="Parts in Rework Queue">
-                    <i class="fas fa-tools me-1" style="font-size: 0.72rem; color: #ea580c;"></i>Rew: <strong class="ms-0.5">{{ jig.metrics?.parts_in_rework ?? (jig.metrics?.rework_pending || 0) }}</strong>
+                  <span class="jig-metric-pill pill-rew" title="Parts in Rework Queue">
+                    <i class="fas fa-tools me-1" style="font-size: 0.72rem;"></i>Rew: <strong>{{ jig.metrics?.parts_in_rework ?? (jig.metrics?.rework_pending || 0) }}</strong>
                   </span>
-                  <span class="badge bg-purple text-white px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Completed Assembly Parts">
-                    <i class="fas fa-cogs me-1 text-white" style="font-size: 0.72rem;"></i>Asm: <strong class="ms-0.5">{{ jig.metrics?.assembly_completed || 0 }}</strong>
+                  <span class="jig-metric-pill pill-paint" title="Parts in Paint Shop">
+                    <i class="fas fa-paint-roller me-1" style="font-size: 0.72rem;"></i>Paint: <strong>{{ jig.metrics?.parts_in_paint ?? (jig.metrics?.paint_ready || 0) }}</strong>
+                  </span>
+                  <span class="jig-metric-pill pill-asm" title="Completed Assembly Parts">
+                    <i class="fas fa-cogs me-1" style="font-size: 0.72rem;"></i>Asm: <strong>{{ jig.metrics?.assembly_completed || 0 }}</strong>
                   </span>
                 </div>
 
@@ -1494,26 +1510,29 @@
                     <!-- Jig Metrics Pills & Completion Bar -->
                     <div class="d-flex align-items-center gap-2 flex-wrap">
                       <div class="d-flex align-items-center gap-1 flex-wrap">
-                        <span class="badge bg-light text-dark border px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Total Required Parts">
-                          <i class="fas fa-list-ol me-1 text-secondary" style="font-size: 0.72rem;"></i>Req: <strong class="ms-0.5">{{ jig.total_required }}</strong>
+                        <span class="jig-metric-pill pill-req" title="Total Required Parts">
+                          <i class="fas fa-list-ol me-1 text-secondary" style="font-size: 0.72rem;"></i>Req: <strong>{{ jig.total_required }}</strong>
                         </span>
-                        <span class="badge bg-success-subtle text-success border border-success-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Total Received Parts">
-                          <i class="fas fa-boxes me-1 text-success" style="font-size: 0.72rem;"></i>Rec: <strong class="ms-0.5">{{ jig.total_received }}</strong>
+                        <span class="jig-metric-pill pill-rec" title="Total Received Parts">
+                          <i class="fas fa-boxes me-1" style="font-size: 0.72rem;"></i>Rec: <strong>{{ jig.total_received }}</strong>
                         </span>
-                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Total Pending Parts">
-                          <i class="fas fa-truck-loading me-1 text-danger" style="font-size: 0.72rem;"></i>Pend: <strong class="ms-0.5">{{ jig.total_pending }}</strong>
+                        <span class="jig-metric-pill pill-pend" title="Total Pending Parts">
+                          <i class="fas fa-truck-loading me-1" style="font-size: 0.72rem;"></i>Pend: <strong>{{ jig.total_pending }}</strong>
                         </span>
-                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Parts in Store Bay">
-                          <i class="fas fa-warehouse me-1 text-warning" style="font-size: 0.72rem;"></i>Store: <strong class="ms-0.5">{{ jig.metrics?.parts_in_store || 0 }}</strong>
+                        <span class="jig-metric-pill pill-store" title="Parts in Store Bay">
+                          <i class="fas fa-warehouse me-1" style="font-size: 0.72rem;"></i>Store: <strong>{{ jig.metrics?.parts_in_store || 0 }}</strong>
                         </span>
-                        <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Parts in QC (Arrival & Inspection)">
-                          <i class="fas fa-clipboard-check me-1 text-info" style="font-size: 0.72rem;"></i>QC: <strong class="ms-0.5">{{ jig.metrics?.parts_in_qc ?? ((jig.metrics?.qc_pending_arrival || 0) + (jig.metrics?.qc_pending_inspection || 0)) }}</strong>
+                        <span class="jig-metric-pill pill-qc" title="Parts in QC (Arrival & Inspection)">
+                          <i class="fas fa-clipboard-check me-1" style="font-size: 0.72rem;"></i>QC: <strong>{{ jig.metrics?.parts_in_qc ?? ((jig.metrics?.qc_pending_arrival || 0) + (jig.metrics?.qc_pending_inspection || 0)) }}</strong>
                         </span>
-                        <span class="badge border px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem; background-color: #fff7ed; color: #c2410c; border-color: #fed7aa !important;" title="Parts in Rework Queue">
-                          <i class="fas fa-tools me-1" style="font-size: 0.72rem; color: #ea580c;"></i>Rew: <strong class="ms-0.5">{{ jig.metrics?.parts_in_rework ?? (jig.metrics?.rework_pending || 0) }}</strong>
+                        <span class="jig-metric-pill pill-rew" title="Parts in Rework Queue">
+                          <i class="fas fa-tools me-1" style="font-size: 0.72rem;"></i>Rew: <strong>{{ jig.metrics?.parts_in_rework ?? (jig.metrics?.rework_pending || 0) }}</strong>
                         </span>
-                        <span class="badge bg-purple text-white px-1.5 py-1 d-inline-flex align-items-center" style="font-size: 0.72rem;" title="Completed Assembly Parts">
-                          <i class="fas fa-cogs me-1 text-white" style="font-size: 0.72rem;"></i>Asm: <strong class="ms-0.5">{{ jig.metrics?.assembly_completed || 0 }}</strong>
+                        <span class="jig-metric-pill pill-paint" title="Parts in Paint Shop">
+                          <i class="fas fa-paint-roller me-1" style="font-size: 0.72rem;"></i>Paint: <strong>{{ jig.metrics?.parts_in_paint ?? (jig.metrics?.paint_ready || 0) }}</strong>
+                        </span>
+                        <span class="jig-metric-pill pill-asm" title="Completed Assembly Parts">
+                          <i class="fas fa-cogs me-1" style="font-size: 0.72rem;"></i>Asm: <strong>{{ jig.metrics?.assembly_completed || 0 }}</strong>
                         </span>
                       </div>
 
@@ -2522,6 +2541,47 @@ const exportKpiExcel = async () => {
   }
 };
 
+const exportingJigs = ref(false);
+
+const exportProjectJigs = async () => {
+  if (!filters.value.project_id) return;
+  exportingJigs.value = true;
+  try {
+    const params = new URLSearchParams();
+    params.append('project_id', filters.value.project_id);
+    if (filters.value.side) params.append('side', filters.value.side);
+    if (activeHierarchyBomType.value && activeHierarchyBomType.value !== 'ALL') {
+      params.append('part_type', activeHierarchyBomType.value);
+    }
+
+    const response = await axios.get(`/api/v1/export/project-jigs?${params.toString()}`, {
+      responseType: 'blob',
+    });
+
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    const contentDisposition = response.headers['content-disposition'];
+    const currentProj = hierarchyData.value.project || activeProject.value;
+    const projectCode = currentProj?.project_code || `Project_${filters.value.project_id}`;
+    let filename = `${projectCode}-Jig-Material-Status.xlsx`;
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename="?([^"]+)"?/);
+      if (match && match[1]) filename = match[1];
+    }
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Failed to export Project Jigs Excel:', err);
+    alert('Could not generate Project Jigs Excel export.');
+  } finally {
+    exportingJigs.value = false;
+  }
+};
+
 const loading = ref(false);
 
 const filters = ref({
@@ -2957,12 +3017,21 @@ const renderTopProjectsChart = () => {
       topProjectsChart = null;
     }
     if (topProjectsChartCanvas.value && topProjectsData.value.labels?.length) {
-      const colors = (topProjectsData.value.percentages || []).map(pct => {
-        if (pct >= 85) return '#10b981'; // Green
-        if (pct >= 60) return '#3b82f4'; // Blue
-        if (pct >= 30) return '#f59e0b'; // Amber
-        return '#ef4444'; // Red
-      });
+      // Map authoritative project health/status to canonical colors:
+      // Near Completion = green (#16a34a), On Track = blue (#2563eb), At Risk = yellow (#eab308), Delayed = red (#dc2626)
+      const colors = (topProjectsData.value.health_colors && topProjectsData.value.health_colors.length)
+        ? topProjectsData.value.health_colors
+        : (topProjectsData.value.projects || []).map((p, idx) => {
+            const status = p.health_status 
+              || (topProjectsData.value.health_statuses && topProjectsData.value.health_statuses[idx])
+              || 'on_track';
+            if (status === 'near_completion') return '#16a34a'; // Green
+            if (status === 'delayed') return '#dc2626';         // Red
+            if (status === 'at_risk') return '#eab308';         // Yellow
+            return '#2563eb';                                   // Blue (On Track)
+          });
+
+      const finalColors = colors.length ? colors : (topProjectsData.value.percentages || []).map(() => '#2563eb');
 
       topProjectsChart = new Chart(topProjectsChartCanvas.value, {
         type: 'bar',
@@ -2971,8 +3040,9 @@ const renderTopProjectsChart = () => {
           datasets: [{
             label: 'Completion %',
             data: topProjectsData.value.percentages,
-            backgroundColor: colors,
+            backgroundColor: finalColors,
             borderRadius: 4,
+            minBarLength: 4, // Ensures low or 0% completion active projects remain clearly visible in their health color
           }]
         },
         options: {
@@ -2992,8 +3062,19 @@ const renderTopProjectsChart = () => {
                   const req = topProjectsData.value.required?.[idx] ?? 0;
                   const rec = topProjectsData.value.received?.[idx] ?? 0;
                   const pend = topProjectsData.value.pending?.[idx] ?? 0;
+                  const statusRaw = topProjectsData.value.health_statuses?.[idx] 
+                    || topProjectsData.value.projects?.[idx]?.health_status 
+                    || '';
+                  const statusMap = {
+                    'near_completion': 'Near Completion',
+                    'on_track': 'On Track',
+                    'at_risk': 'At Risk',
+                    'delayed': 'Delayed',
+                  };
+                  const statusLabel = statusMap[statusRaw] || (statusRaw ? statusRaw.replace('_', ' ').toUpperCase() : '');
                   return [
-                    ` Completion: ${ctx.raw}%`,
+                    ` Completion: ${ctx.raw}%${statusLabel ? ' (' + statusLabel + ')' : ''}`,
+                    ` Health: ${statusLabel || 'On Track'}`,
                     ` Required: ${req} pcs`,
                     ` Received: ${rec} pcs`,
                     ` Pending: ${pend} pcs`
@@ -3336,5 +3417,70 @@ onUnmounted(() => {
 
 .bom-type-column .bom-type-column-header {
   border-bottom: 1.5px solid #0f172a !important;
+}
+
+/* Enterprise MES Jig Metric Pills */
+.jig-metric-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.jig-metric-pill strong {
+  font-weight: 700;
+  margin-left: 2px;
+}
+
+.jig-metric-pill.pill-req {
+  background-color: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+.jig-metric-pill.pill-rec {
+  background-color: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.jig-metric-pill.pill-pend {
+  background-color: #fff1f2;
+  color: #9f1239;
+  border: 1px solid #fecdd3;
+}
+
+.jig-metric-pill.pill-store {
+  background-color: #fefce8;
+  color: #854d0e;
+  border: 1px solid #fef08a;
+}
+
+.jig-metric-pill.pill-qc {
+  background-color: #f0f9ff;
+  color: #075985;
+  border: 1px solid #bae6fd;
+}
+
+.jig-metric-pill.pill-rew {
+  background-color: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+}
+
+.jig-metric-pill.pill-paint {
+  background-color: #f5f3ff;
+  color: #5b21b6;
+  border: 1px solid #ddd6fe;
+}
+
+.jig-metric-pill.pill-asm {
+  background-color: #f0fdfa;
+  color: #115e59;
+  border: 1px solid #99f6e4;
 }
 </style>
