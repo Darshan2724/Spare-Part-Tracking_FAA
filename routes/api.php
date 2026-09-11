@@ -23,6 +23,7 @@ use App\Http\Controllers\EcnDashboardController;
 use App\Http\Controllers\EcnWorkflowController;
 use App\Http\Controllers\BopIntakeController;
 use App\Http\Controllers\StdIntakeController;
+use App\Http\Controllers\PendingPartDeletionController;
 use App\Http\Middleware\CaptureSystemLogsMiddleware;
 
 /*
@@ -115,6 +116,16 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::get('/history', [BomImportController::class, 'history']);
             Route::get('/history/{id}/impact', [BomImportController::class, 'impactPreview']);
             Route::delete('/history/{id}', [BomImportController::class, 'destroy']);
+        });
+
+        // Pending Part Deletion (Admin/Manager Only)
+        Route::prefix('pending-parts')->group(function () {
+            Route::get('/projects', [PendingPartDeletionController::class, 'projects']);
+            Route::get('/jigs', [PendingPartDeletionController::class, 'jigs']);
+            Route::get('/units', [PendingPartDeletionController::class, 'units']);
+            Route::get('/sides', [PendingPartDeletionController::class, 'sides']);
+            Route::get('/eligible', [PendingPartDeletionController::class, 'eligibleParts']);
+            Route::delete('/{id}', [PendingPartDeletionController::class, 'destroy']);
         });
 
         // Store Operations

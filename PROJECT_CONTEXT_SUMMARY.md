@@ -6,8 +6,8 @@ Document: PROJECT_CONTEXT_SUMMARY.md
 Status: Canonical Project Context & Universal AI Knowledge Base
 Last Updated: September 11, 2026
 Last Updated By: Antigravity
-Version: 2.12.0
-Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment - 249/249 Tests Passing)
+Version: 2.13.0
+Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment - 261/261 Tests Passing)
 ```
 
 > [!IMPORTANT]
@@ -217,6 +217,7 @@ SpareTrack/
 │   │   ├── ExportController.php             # PhpSpreadsheet (.xlsx) & PDF streaming
 │   │   ├── HealthController.php             # Docker / DB / Redis health check API
 │   │   ├── PaintController.php              # Paint shop batch recording
+│   │   ├── PendingPartDeletionController.php# Admin/Manager untouched pending part purge & partial qty reduction
 │   │   ├── PurchaseQueueController.php      # QC rejected reorder queue & export
 │   │   ├── QcController.php                 # QC arrival verification & inspection split
 │   │   ├── ReworkController.php             # Rework completion & return to QC
@@ -263,6 +264,7 @@ SpareTrack/
 │       ├── ExportService.php                # PhpSpreadsheet (.xlsx) & DomPDF generator
 │       ├── HierarchyService.php             # 5-level mechanical tree & green status propagation
 │       ├── KpiDrilldownService.php          # 11 KPI drill-down dataset queries
+│       ├── PendingPartDeletionService.php   # Progressive filtering, ACID transactional locking, zero downstream eligibility & partial quantity decrement
 │       ├── ProjectIdentityResolver.php      # Project matching & code normalization
 │       ├── QuantityCalculationService.php   # Authoritative mathematical ledger & invariants
 │       ├── SupplierAnalyticsService.php     # Vendor ranking & fulfillment analytics
@@ -319,6 +321,7 @@ SpareTrack/
 │   ├── KpiDrilldownTest.php
 │   ├── MainDashboardEcnIndicatorTest.php
 │   ├── MobileConnectivityAndStoreQcArrivalTest.php
+│   ├── PendingPartDeletionTest.php          # Pending part progressive filtering, eligibility, partial quantity deletion & audit
 │   ├── QuantityCalculationHierarchyTest.php
 │   ├── SupplierLoadAndMultiUnitAllocationTest.php
 │   ├── SupplierManagementAndAllocationTest.php
@@ -858,6 +861,14 @@ Authenticated Endpoints (Bearer Token Required):
 
   # Diagnostic Logs (Admin Only)
   GET  /api/v1/admin/logs                      -> Query system diagnostic logs
+
+  # Pending Part Deletion (Admin & Manager Only)
+  GET    /api/v1/pending-parts/projects        -> Distinct projects with pending parts
+  GET    /api/v1/pending-parts/jigs            -> Distinct Jigs by project & BOM type
+  GET    /api/v1/pending-parts/units           -> Distinct Units by project, BOM type & Jig
+  GET    /api/v1/pending-parts/sides           -> Distinct Sides by project, BOM type, Jig & Unit
+  GET    /api/v1/pending-parts/eligible        -> Untouched pending parts matching hierarchy
+  DELETE /api/v1/pending-parts/{id}            -> Delete or decrement pending part requirement
 ```
 
 ---
@@ -996,6 +1007,18 @@ New-Item -ItemType Directory -Force -Path "./backups" | Out-Null; $ts = Get-Date
 2. Historical assignment audit records $\rightarrow$ **Deactivate only** (`is_active = false`). Hard delete blocked.
 3. Truly unused supplier $\rightarrow$ Soft deleted safely.
 
+### 32.3 Pending Part Deletion Rules & Safeguards (Website Admin/Manager Only)
+* **Purpose:** Allows ADMIN and MANAGER users to permanently remove or partially decrement incorrectly-added BOM Parts (MFG, BOP, STD, and ECN) that are still in Pending state and have never entered downstream processing.
+* **Eligibility Constraints (Strict Production Rule):**
+  1. Regular BOM (`MFG`, `BOP`, `STD`): `required_quantity > 0` AND zero `receipt_items`, `qc_inspections`, `rework_records`, `paint_records`, `assembly_records`, and `purchase_queue_items` for that `(bom_item_id, side)`.
+  2. ECN: `current_state = 'PENDING'` AND `received_qty = 0` AND zero `ecn_receipt_items`, `ecn_workflow_records`, and `ecn_workflow_events`.
+* **Partial Quantity Deletion Support:**
+  - If requested `quantity < required_quantity`: Decrements `bom_requirements.required_quantity` (or `ecn_requirements.required_qty`) in place. The requirement row remains with the reduced quantity.
+  - If requested `quantity == required_quantity`: Deletes the `bom_requirements` row. If no other requirements remain for that `BomItem` across any side and no downstream records exist, `BomItem` is permanently purged (`forceDelete()`). For ECN, the `ecn_requirements` row is force-deleted.
+  - Immediate systemwide reflection: All dashboard metrics, reports, and mobile store views derive totals from `SUM(bom_requirements.required_quantity)` at query time, guaranteeing instant synchronization with zero counter drift.
+* **ACID Concurrency:** Wrapped in `DB::transaction()` with pessimistic row locks (`lockForUpdate()`) preventing race conditions.
+* **Audit Trail:** Every deletion/reduction logs an immutable WARNING entry in `system_logs` via `SystemLogService::log()` under module `PENDING_PART_DELETION`.
+
 ---
 
 ## 33. Test Data Rules `[VERIFIED]`
@@ -1106,7 +1129,7 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Issue | Severity | Affected Area | Known Root Cause | Status | Last Updated |
 |---|---|---|---|---|---|
-| None | N/A | None | All 19 historical anomalies resolved and backed by 249 automated feature tests (2,878 assertions). | **ALL FIXED (0 Open Issues)** | September 11, 2026 |
+| None | N/A | None | All 19 historical anomalies resolved and backed by 261 automated feature tests (3,037 assertions). | **ALL FIXED (0 Open Issues)** | September 11, 2026 |
 
 ---
 
@@ -1114,6 +1137,7 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Date | Change Summary | Files / Modules Affected | Database Schema Changes | Behavioral Impact | Testing Status |
 |---|---|---|---|---|---|
+| **2026-09-11** | Production-Safe Pending Part Deletion & Partial Quantity Decrement (Website Admin & Manager Only) | `PendingPartDeletionService.php`, `PendingPartDeletionController.php`, `DeletePendingParts.vue`, `routes/api.php`, `router/index.js`, `App.vue`, `PendingPartDeletionTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Service, API Endpoints, Vue 3 Component & Feature Tests) | Implements production-safe administrative workflow for purging or decrementing untouched BOM parts (MFG, BOP, STD, ECN). Strictly enforces 0 downstream operations (no Store receipts, QC, rework, paint, assembly, or purchase queue records). Supports partial quantity deletion with modal stepper, real-time remaining preview, instant UI updates, ACID row locks (`lockForUpdate()`), and structured audit logging (`SystemLogService`). | Passing (261 tests, 3037 assertions) |
 | **2026-09-10** | Server Deployment SOP & Pre-Update Automated Backup Script Hardening (Zero Data Loss SOP) | `SERVER_UPDATE_COMMANDS.md`, `update_server.bat`, `update_server.ps1`, `update_server.sh` | None (Deployment Scripts & Host Disaster Recovery SOP) | Automates pre-flight PostgreSQL database dumps (`pg_dump`) to `./backups/` before any git pull or schema update; standardizes 3-step git pull (`git stash --include-untracked`, `git fetch origin main`, `git reset --hard origin/main`); establishes strict production rules forbidding `migrate:fresh`, `migrate:reset`, or `db:wipe`; synchronizes `main` and `branch-a` at commit `ab25af1` | Verified (Manual execution & script testing) |
 | **2026-09-10** | Project Jig Excel Export Layout Alignment (Per-Jig Tables, Merged Banners, Gold Headers `#F5E6CB`, Formula Totals, Blank Missing Data) | `ExportService.php`, `ProjectJigExcelExportTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Export Service & Test Suite) | Formats project Jig Excel export (`/api/v1/projects/{id}/export-jigs`) to match customer production layout: individual table per Jig with 14pt bold merged title banner, gold/tan headers (`#F5E6CB`), fixture rows `{Jig}-{Side}`, blank cells for missing date/supplier records, and dedicated `TOTAL` row computing `=SUM(...)` formulas for BOP, STD, MFG, and Total Qty | Passing (249 tests, 2878 assertions) |
 | **2026-09-10** | Top Projects Near Completion All Active Projects Chart, Project Jig Excel Export & Jig Card Paint Badge Modernization | `DashboardController.php`, `ExportController.php`, `ExportService.php`, `QuantityCalculationService.php`, `Dashboard.vue`, `routes/api.php`, `ProjectJigExcelExportTest.php`, `TopProjectsNearCompletionTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (API Endpoints, Domain Services, Chart.js Visualizations & Vue 3 Component Polish) | (1) Displays all qualifying active projects on horizontal bar chart with 4 health colors (`#16a34a`, `#2563eb`, `#eab308`, `#dc2626`) and `minBarLength: 4` for 0% visibility; (2) implements Project Jig Excel streaming download; (3) adds Paint metric pill to Jig card header badge list and converts all badges to uniform `.jig-metric-pill` enterprise MES palette | Passing (249 tests, 2878 assertions) |

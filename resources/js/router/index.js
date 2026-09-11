@@ -97,6 +97,12 @@ const routes = [
         meta: { requiresAuth: true, requiresAdmin: true }
     },
     {
+        path: '/delete-pending-parts',
+        name: 'delete-pending-parts',
+        component: () => import('@/views/DeletePendingParts.vue'),
+        meta: { requiresAuth: true, roles: ['ADMIN', 'MANAGER'] }
+    },
+    {
         path: '/workflow-hub',
         name: 'workflow-hub',
         component: () => import('@/views/WorkflowHub.vue'),
@@ -121,6 +127,10 @@ router.beforeEach((to, from, next) => {
     }
     
     if (to.meta.guestOnly && authStore.isAuthenticated) {
+        return next({ name: 'dashboard' });
+    }
+
+    if (to.meta.roles && !to.meta.roles.includes(authStore.userRole)) {
         return next({ name: 'dashboard' });
     }
 

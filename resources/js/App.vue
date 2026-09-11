@@ -250,6 +250,22 @@
             </router-link>
           </li>
 
+          <!-- 10.5. Delete Pending Parts (Admin & Manager) -->
+          <li v-if="['ADMIN', 'MANAGER'].includes(authStore.userRole)" class="nav-item">
+            <router-link 
+              class="sidebar-nav-link" 
+              :class="{ 'active': route.name === 'delete-pending-parts' }" 
+              :to="{ name: 'delete-pending-parts' }"
+              :aria-label="isSidebarCollapsed ? 'Delete Pending Parts' : undefined"
+            >
+              <span class="nav-icon-wrap">
+                <i class="fas fa-trash-alt" style="color: #ef4444;"></i>
+              </span>
+              <span v-if="!isSidebarCollapsed" class="nav-label">Delete Pending Parts</span>
+              <span v-if="isSidebarCollapsed" class="sidebar-tooltip">Delete Pending Parts</span>
+            </router-link>
+          </li>
+
           <!-- 11. System Logs (Admin Only) -->
           <li v-if="authStore.userRole === 'ADMIN'" class="nav-item">
             <router-link 
