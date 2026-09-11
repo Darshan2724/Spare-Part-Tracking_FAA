@@ -114,7 +114,7 @@ class ProjectJigExcelExportTest extends TestCase
                 'K2' => 'Assembly',
                 'L2' => 'Assembly Completed',
                 'M2' => 'ECN',
-                'N2' => 'Project Completion %',
+                'N2' => 'Jig Completion %',
             ];
 
             foreach ($expectedHeaders as $cell => $expectedText) {
@@ -259,6 +259,7 @@ class ProjectJigExcelExportTest extends TestCase
             // Check headers
             $this->assertEquals('Assembly', $sheet->getCell('K2')->getValue());
             $this->assertEquals('Assembly Completed', $sheet->getCell('L2')->getValue());
+            $this->assertEquals('Jig Completion %', $sheet->getCell('N2')->getValue());
 
             // Check Row 3 (Fixture RH row)
             $this->assertEquals(10, (int)$sheet->getCell('E3')->getValue()); // Total
@@ -266,7 +267,7 @@ class ProjectJigExcelExportTest extends TestCase
             $this->assertEquals(0, (int)$sheet->getCell('G3')->getValue());  // Pending
             $this->assertEquals(6, (int)$sheet->getCell('K3')->getValue());  // Assembly (in department)
             $this->assertEquals(4, (int)$sheet->getCell('L3')->getValue());  // Assembly Completed
-            $this->assertEquals(0.4, round((float)$sheet->getCell('N3')->getValue(), 4)); // Project Completion % (4 / 10 = 40.0%)
+            $this->assertEquals(0.4, round((float)$sheet->getCell('N3')->getValue(), 4)); // Jig Completion % (4 / 10 = 40.0%)
 
             // Check Row 4 (TOTAL row)
             $this->assertEquals('TOTAL', $sheet->getCell('A4')->getValue());
@@ -281,7 +282,7 @@ class ProjectJigExcelExportTest extends TestCase
         }
     }
 
-    public function test_single_combined_project_completion_percentage_matches_website()
+    public function test_single_combined_jig_completion_percentage_matches_website()
     {
         $user = $this->getAdminUser();
         $this->actingAs($user, 'sanctum');
@@ -406,9 +407,6 @@ class ProjectJigExcelExportTest extends TestCase
             'completed_at' => now(),
         ]);
 
-        // Combined Project Completion: (6 + 2) / (10 + 30) = 8 / 40 = 20.0% (0.2)
-        $expectedRatio = 0.2;
-
         $response = $this->getJson('/api/v1/export/project-jigs?project_id=' . $project->id);
         $response->assertStatus(200);
 
@@ -420,24 +418,42 @@ class ProjectJigExcelExportTest extends TestCase
             $sheet = $spreadsheet->getActiveSheet();
 
             $highestRow = $sheet->getHighestRow();
-            $checkedRows = 0;
+            $jig1Values = [];
+            $jig2Values = [];
+            $currentJig = null;
 
-            for ($r = 3; $r <= $highestRow; $r++) {
-                $fixNo = $sheet->getCell("A{$r}")->getValue();
-                // Skip header banner rows
-                if ($sheet->getCell("B{$r}")->getValue() === null && $fixNo !== null && $sheet->getCell("E{$r}")->getValue() === null) {
-                    continue;
-                }
-                // Check data rows and TOTAL rows
-                if ($fixNo !== null && $fixNo !== 'Fix No.') {
-                    $pctVal = (float)$sheet->getCell("N{$r}")->getValue();
-                    $this->assertEquals($expectedRatio, round($pctVal, 4), "Row {$r} Column N should match project completion ratio of 0.20");
-                    $this->assertEquals('0.0%', $sheet->getStyle("N{$r}")->getNumberFormat()->getFormatCode());
-                    $checkedRows++;
+            for ($r = 1; $r <= $highestRow; $r++) {
+                $valA = $sheet->getCell("A{$r}")->getValue();
+                if ($valA === 'JIG-01') {
+                    $currentJig = 'JIG-01';
+                } elseif ($valA === 'JIG-02') {
+                    $currentJig = 'JIG-02';
+                } elseif ($valA !== null && $valA !== 'Fix No.' && !empty($sheet->getCell("E{$r}")->getValue())) {
+                    $valN = (float)$sheet->getCell("N{$r}")->getValue();
+                    if ($currentJig === 'JIG-01') {
+                        $jig1Values[] = $valN;
+                    } elseif ($currentJig === 'JIG-02') {
+                        $jig2Values[] = $valN;
+                    }
                 }
             }
 
-            $this->assertGreaterThanOrEqual(4, $checkedRows, 'Should have checked at least 4 rows (2 fixture rows + 2 TOTAL rows)');
+            $this->assertNotEmpty($jig1Values, 'Should have values for JIG-01');
+            $this->assertNotEmpty($jig2Values, 'Should have values for JIG-02');
+
+            // Jig 1: 6 / 10 = 60.0% (0.60)
+            foreach ($jig1Values as $val) {
+                $this->assertEquals(0.60, round($val, 4), 'JIG-01 rows must show 60.0%');
+            }
+
+            // Jig 2: 2 / 30 = 6.7% (0.067)
+            foreach ($jig2Values as $val) {
+                $this->assertEquals(0.067, round($val, 4), 'JIG-02 rows must show 6.7%');
+            }
+
+            // Neither Jig repeats the overall project completion of 20.0%
+            $this->assertNotEquals(0.20, round($jig1Values[0], 4));
+            $this->assertNotEquals(0.20, round($jig2Values[0], 4));
         } finally {
             if (file_exists($tempFile)) {
                 unlink($tempFile);
@@ -561,6 +577,41 @@ class ProjectJigExcelExportTest extends TestCase
         } finally {
             if (file_exists($tempHundred)) {
                 unlink($tempHundred);
+            }
+        }
+
+        // Project with 0 required parts: must evaluate to 0.0%, never a misleading 100%
+        $projectEmpty = Project::create([
+            'project_code' => 'TEST-EMPTY-' . uniqid(),
+            'name' => 'Empty Requirement Project',
+            'status' => 'active',
+        ]);
+        $bomEmpty = BomItem::create([
+            'project_id' => $projectEmpty->id,
+            'standard_part_no' => 'PART-EMPTY-001',
+            'item_no' => '1',
+            'jig_no' => 'JIG-EMPTY',
+            'unit_no' => 'Unit 01',
+        ]);
+        BomRequirement::create([
+            'bom_item_id' => $bomEmpty->id,
+            'side' => 'RH',
+            'required_quantity' => 0,
+        ]);
+
+        $resEmpty = $this->getJson('/api/v1/export/project-jigs?project_id=' . $projectEmpty->id);
+        $resEmpty->assertStatus(200);
+        $tempEmpty = tempnam(sys_get_temp_dir(), 'jig_empty_') . '.xlsx';
+        file_put_contents($tempEmpty, $resEmpty->streamedContent());
+
+        try {
+            $spreadsheet = IOFactory::load($tempEmpty);
+            $sheet = $spreadsheet->getActiveSheet();
+            $this->assertEquals(0.0, (float)$sheet->getCell('N3')->getValue());
+            $this->assertEquals(0.0, (float)$sheet->getCell('N4')->getValue());
+        } finally {
+            if (file_exists($tempEmpty)) {
+                unlink($tempEmpty);
             }
         }
     }

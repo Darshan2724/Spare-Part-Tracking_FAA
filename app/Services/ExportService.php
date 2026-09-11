@@ -389,7 +389,7 @@ class ExportService
             'Assembly',
             'Assembly Completed',
             'ECN',
-            'Project Completion %'
+            'Jig Completion %'
         ];
 
         $currentRow = 1;
@@ -507,6 +507,13 @@ class ExportService
                 'ecn' => 0,
             ];
 
+            $jigReq = (int)($jig['total_required'] ?? array_sum(array_column($sidesMap, 'total_required')));
+            $jigAsmComp = (int)($jig['metrics']['assembly_completed'] ?? array_sum(array_column($sidesMap, 'assembly_completed')));
+            $jigCompletionPct = isset($jig['completion_pct'])
+                ? (float)$jig['completion_pct']
+                : ($jigReq > 0 ? min(100.0, round(($jigAsmComp / $jigReq) * 100, 1)) : 0.0);
+            $jigCompletionRatio = round($jigCompletionPct / 100, 4);
+
             foreach ($sidesMap as $sKey => $vals) {
                 $fixNo = ($sKey === 'COMMON' || empty($sKey)) ? $jigName : "{$jigName}-{$sKey}";
                 $jSideKey = "{$jKey}|{$sKey}";
@@ -586,7 +593,7 @@ class ExportService
                 $sheet->setCellValueExplicit('K' . $currentRow, $assembly, DataType::TYPE_NUMERIC);
                 $sheet->setCellValueExplicit('L' . $currentRow, $assemblyCompleted, DataType::TYPE_NUMERIC);
                 $sheet->setCellValueExplicit('M' . $currentRow, $ecn, DataType::TYPE_NUMERIC);
-                $sheet->setCellValueExplicit('N' . $currentRow, $projCompletionRatio, DataType::TYPE_NUMERIC);
+                $sheet->setCellValueExplicit('N' . $currentRow, $jigCompletionRatio, DataType::TYPE_NUMERIC);
                 $sheet->getStyle('N' . $currentRow)->getNumberFormat()->setFormatCode('0.0%');
 
                 // Row formatting & borders
@@ -616,7 +623,7 @@ class ExportService
             $sheet->setCellValueExplicit('K' . $totalRow, $jigTotals['assembly'], DataType::TYPE_NUMERIC);
             $sheet->setCellValueExplicit('L' . $totalRow, $jigTotals['assembly_completed'], DataType::TYPE_NUMERIC);
             $sheet->setCellValueExplicit('M' . $totalRow, $jigTotals['ecn'], DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit('N' . $totalRow, $projCompletionRatio, DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit('N' . $totalRow, $jigCompletionRatio, DataType::TYPE_NUMERIC);
             $sheet->getStyle('N' . $totalRow)->getNumberFormat()->setFormatCode('0.0%');
 
             $totalRange = "A{$totalRow}:N{$totalRow}";
@@ -646,7 +653,7 @@ class ExportService
         $sheet->getColumnDimension('K')->setWidth(14); // Assembly
         $sheet->getColumnDimension('L')->setWidth(20); // Assembly Completed
         $sheet->getColumnDimension('M')->setWidth(12); // ECN
-        $sheet->getColumnDimension('N')->setWidth(22); // Project Completion %
+        $sheet->getColumnDimension('N')->setWidth(22); // Jig Completion %
 
         $filename = "{$project->project_code}-Jig-Material-Status.xlsx";
         $writer = new Xlsx($spreadsheet);

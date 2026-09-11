@@ -1464,11 +1464,11 @@ class HierarchyService
                 ];
 
                 $unitData['completion_pct'] = match ($department) {
-                    'store' => ($req > 0 ? min(100, round(($rec / $req) * 100, 1)) : 100),
-                    'qc' => ($req > 0 ? min(100, round(($unitData['metrics']['qc_approved'] / $req) * 100, 1)) : 100),
-                    'rework' => ($unitData['metrics']['qc_rework'] > 0 ? min(100, round(($unitData['metrics']['rework_completed'] / $unitData['metrics']['qc_rework']) * 100, 1)) : 100),
-                    'paint' => ($req > 0 ? min(100, round(($unitData['metrics']['paint_completed'] / $req) * 100, 1)) : 100),
-                    default => ($req > 0 ? min(100, round(($unitData['metrics']['assembly_completed'] / $req) * 100, 1)) : 100),
+                    'store' => ($req > 0 ? min(100, round(($rec / $req) * 100, 1)) : 0.0),
+                    'qc' => ($req > 0 ? min(100, round(($unitData['metrics']['qc_approved'] / $req) * 100, 1)) : 0.0),
+                    'rework' => ($unitData['metrics']['qc_rework'] > 0 ? min(100, round(($unitData['metrics']['rework_completed'] / $unitData['metrics']['qc_rework']) * 100, 1)) : 0.0),
+                    'paint' => ($req > 0 ? min(100, round(($unitData['metrics']['paint_completed'] / $req) * 100, 1)) : 0.0),
+                    default => ($req > 0 ? min(100, round(($unitData['metrics']['assembly_completed'] / $req) * 100, 1)) : 0.0),
                 };
                 $unitData['is_complete'] = $unitIsComplete;
 
@@ -1520,11 +1520,11 @@ class HierarchyService
             $jigRec = $jigData['total_received'];
 
             $jigData['completion_pct'] = match ($department) {
-                'store' => ($jigReq > 0 ? min(100, round(($jigRec / $jigReq) * 100, 1)) : 100),
-                'qc' => ($jigReq > 0 ? min(100, round(($jigData['metrics']['qc_approved'] / $jigReq) * 100, 1)) : 100),
-                'rework' => ($jigData['metrics']['qc_rework'] > 0 ? min(100, round(($jigData['metrics']['rework_completed'] / $jigData['metrics']['qc_rework']) * 100, 1)) : 100),
-                'paint' => ($jigReq > 0 ? min(100, round(($jigData['metrics']['paint_completed'] / $jigReq) * 100, 1)) : 100),
-                default => ($jigReq > 0 ? min(100, round(($jigData['metrics']['assembly_completed'] / $jigReq) * 100, 1)) : 100),
+                'store' => ($jigReq > 0 ? min(100, round(($jigRec / $jigReq) * 100, 1)) : 0.0),
+                'qc' => ($jigReq > 0 ? min(100, round(($jigData['metrics']['qc_approved'] / $jigReq) * 100, 1)) : 0.0),
+                'rework' => ($jigData['metrics']['qc_rework'] > 0 ? min(100, round(($jigData['metrics']['rework_completed'] / $jigData['metrics']['qc_rework']) * 100, 1)) : 0.0),
+                'paint' => ($jigReq > 0 ? min(100, round(($jigData['metrics']['paint_completed'] / $jigReq) * 100, 1)) : 0.0),
+                default => ($jigReq > 0 ? min(100, round(($jigData['metrics']['assembly_completed'] / $jigReq) * 100, 1)) : 0.0),
             };
 
             $jigData['units'] = $formattedUnits;
@@ -1721,11 +1721,11 @@ class HierarchyService
             $totalUnitsCount = count($filteredUnits);
             $jigIsComplete = ($totalUnitsCount > 0 && $completeUnitsCount === $totalUnitsCount);
             $jigCompletionPct = match ($department) {
-                'store' => ($jigRequired > 0 ? min(100, round(($jigReceived / $jigRequired) * 100, 1)) : 100),
-                'qc' => ($jigRequired > 0 ? min(100, round(($jigMetrics['qc_approved'] / $jigRequired) * 100, 1)) : 100),
-                'rework' => ($jigMetrics['qc_rework'] > 0 ? min(100, round(($jigMetrics['rework_completed'] / $jigMetrics['qc_rework']) * 100, 1)) : 100),
-                'paint' => ($jigRequired > 0 ? min(100, round(($jigMetrics['paint_completed'] / $jigRequired) * 100, 1)) : 100),
-                default => ($jigRequired > 0 ? min(100, round(($jigMetrics['assembly_completed'] / $jigRequired) * 100, 1)) : 100),
+                'store' => ($jigRequired > 0 ? min(100, round(($jigReceived / $jigRequired) * 100, 1)) : 0.0),
+                'qc' => ($jigRequired > 0 ? min(100, round(($jigMetrics['qc_approved'] / $jigRequired) * 100, 1)) : 0.0),
+                'rework' => ($jigMetrics['qc_rework'] > 0 ? min(100, round(($jigMetrics['rework_completed'] / $jigMetrics['qc_rework']) * 100, 1)) : 0.0),
+                'paint' => ($jigRequired > 0 ? min(100, round(($jigMetrics['paint_completed'] / $jigRequired) * 100, 1)) : 0.0),
+                default => ($jigRequired > 0 ? min(100, round(($jigMetrics['assembly_completed'] / $jigRequired) * 100, 1)) : 0.0),
             };
 
             $newJig = $jig;
