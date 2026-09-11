@@ -1,7 +1,7 @@
 # 🚀 SpareTrack Server Deployment Commands
-## (Top Projects Chart + Per-Jig Excel Export + Jig Card Paint Badge + Zero Data Loss SOP)
+## (Pending Part Deletion + 14-Col Jig Excel Export + Jig Completion % Parity + Zero Data Loss SOP)
 
-> **Release Reference:** Latest merged commit `ae530de` (`main` / `branch-a`)
+> **Release Reference:** Latest merged commit `33101f7` (`main` / `branch-a`)
 
 This document contains the exact 1-click scripts and Docker commands to deploy the latest verified changes to the SpareTrack production server (`192.168.9.200:8080`) with **100% data preservation and zero database corruption risk**.
 
@@ -15,20 +15,33 @@ This document contains the exact 1-click scripts and Docker commands to deploy t
 
 ---
 
-## ⚡ Option 1: Run 1-Click Script on Server (Recommended)
+## ⚡ Option 1: 1-Click Script on Server (Recommended)
 
-### If your server is **Windows**:
-Open PowerShell as Administrator in the `SpareTrack` folder and run:
-```powershell
-.\update_server.ps1
+### Step 1: Open Terminal / CMD on the Server PC
+Navigate to the SpareTrack directory:
+```cmd
+cd "C:\path\to\SpareTrack"
 ```
-*Or in Command Prompt (CMD):*
+
+### Step 2: Fetch & Pull Latest Code
+```cmd
+git fetch origin main
+git reset --hard origin/main
+```
+
+### Step 3: Run the Update Script
+
+#### If your server is **Windows Command Prompt (CMD)**:
 ```cmd
 update_server.bat
 ```
 
-### If your server is **Linux / macOS**:
-Open terminal in the `SpareTrack` folder and run:
+#### If your server is **Windows PowerShell**:
+```powershell
+.\update_server.ps1
+```
+
+#### If your server is **Linux / macOS**:
 ```bash
 chmod +x update_server.sh
 ./update_server.sh
@@ -40,12 +53,12 @@ chmod +x update_server.sh
 
 ### For **Windows PowerShell**:
 ```powershell
-New-Item -ItemType Directory -Force -Path "./backups" | Out-Null; $ts = Get-Date -Format "yyyyMMdd_HHmmss"; docker exec -t sparetrack-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | Out-File -FilePath "./backups/sparetrack_pre_update_$ts.sql" -Encoding utf8; git stash --include-untracked; git fetch origin main; git reset --hard origin/main; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx; Start-Sleep -Seconds 3; curl.exe -s http://127.0.0.1:8080/api/v1/health
+New-Item -ItemType Directory -Force -Path "./backups" | Out-Null; $ts = Get-Date -Format "yyyyMMdd_HHmmss"; docker exec -t sparetrack-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | Out-File -FilePath "./backups/sparetrack_pre_update_$ts.sql" -Encoding utf8; Copy-Item -Path "./backups/sparetrack_pre_update_$ts.sql" -Destination "./backups/sparetrack_pre_update_latest.sql" -Force; git stash --include-untracked; git fetch origin main; git reset --hard origin/main; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx; Start-Sleep -Seconds 3; curl.exe -s http://127.0.0.1:8080/api/v1/health
 ```
 
 ### For **Linux / macOS Bash**:
 ```bash
-mkdir -p ./backups && docker exec -t sparetrack-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "./backups/sparetrack_pre_update_$(date +%Y%m%d_%H%M%S).sql" && git stash --include-untracked && git fetch origin main && git reset --hard origin/main && docker exec -t sparetrack-app php artisan migrate --force && docker exec -t sparetrack-app php artisan optimize:clear && docker exec -t sparetrack-app php artisan config:cache && docker exec -t sparetrack-app php artisan route:cache && docker exec -t sparetrack-app php artisan view:cache && docker exec -t sparetrack-app php artisan queue:restart && docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx && sleep 3 && curl -s http://127.0.0.1:8080/api/v1/health
+mkdir -p ./backups && docker exec -t sparetrack-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "./backups/sparetrack_pre_update_$(date +%Y%m%d_%H%M%S).sql" && cp "./backups/sparetrack_pre_update_$(date +%Y%m%d_%H%M%S).sql" "./backups/sparetrack_pre_update_latest.sql" 2>/dev/null || true && git stash --include-untracked && git fetch origin main && git reset --hard origin/main && docker exec -t sparetrack-app php artisan migrate --force && docker exec -t sparetrack-app php artisan optimize:clear && docker exec -t sparetrack-app php artisan config:cache && docker exec -t sparetrack-app php artisan route:cache && docker exec -t sparetrack-app php artisan view:cache && docker exec -t sparetrack-app php artisan queue:restart && docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx && sleep 3 && curl -s http://127.0.0.1:8080/api/v1/health
 ```
 
 ---
@@ -73,8 +86,8 @@ git fetch origin main
 git reset --hard origin/main
 ```
 
-### Step 3: Run Additive Database Migrations (Zero Data Loss)
-Applies any pending structural additions without dropping existing data.
+### Step 3: Run Safe Additive Migrations (Zero Data Loss)
+Applies pending structural additions without modifying or dropping existing rows.
 ```bash
 docker exec -t sparetrack-app php artisan migrate --force
 ```
@@ -94,7 +107,7 @@ Signals active background queue workers to safely reload code, and reloads PHP-F
 docker exec -t sparetrack-app php artisan queue:restart
 docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx
 ```
-*(Notice: The `sparetrack-postgres` container remains active and is not restarted, preventing database connection drops).*
+*(Notice: The `sparetrack-postgres` and `sparetrack-redis` containers remain active and are not restarted, preventing database connection drops).*
 
 ### Step 6: Verify Backend Health
 ```bash
@@ -109,17 +122,17 @@ Expected output: `{"status":"ok", ...}`
 ---
 
 ## 📦 What This Update Delivers to the Server:
-1. **Top Projects Near Completion Chart**:
-   - Displays all qualifying active projects (not capped at 5).
-   - Authoritative 4-tier health color styling (`#16a34a`, `#2563eb`, `#eab308`, `#dc2626`).
-   - `minBarLength: 4` ensuring $0\%$ completion projects remain clickable and visible.
-2. **Project Jig Excel Export (`/api/v1/projects/{id}/export-jigs`)**:
-   - Production-matched visual layout matching customer specification.
-   - Merged 14pt Jig Name banner at the top of each section.
-   - Gold/Tan header styling (`#F5E6CB`) with dark bold typography and thin cell borders.
-   - Proper fixture numbering format: `{Jig Name}-{Side}`.
-   - Dedicated `TOTAL` row per Jig calculating numeric sums for `BOP`, `STD`, `MFG`, and `Total`.
-   - Blank date and supplier cells when records do not exist in the database (no fake or placeholder data).
-3. **Jig Card Paint Badge & Modernization**:
-   - Added `Paint` metric pill to the Jig card header badge list.
-   - Standardized all card badges with high-contrast, clean enterprise styling.
+1. **Pending Part Deletion (Single & Multi-Select Bulk Purge/Decrement)**:
+   - Purges or decrements mistaken untouched BOM parts across MFG, BOP, STD, and ECN.
+   - Enforces 0 downstream activity before allowing deletion.
+   - Scoped "Select All" checkbox, selection counter, and all-or-nothing atomic rollback.
+2. **14-Column Project Jig Excel Export (`/api/v1/projects/{id}/export-jigs`)**:
+   - Distinct columns for Assembly department queue (Col K: `Assembly`) and finished assemblies (Col L: `Assembly Completed`).
+   - Merged 14pt Jig Name banner (`A..N`), gold headers (`#F5E6CB`), and dedicated `TOTAL` summary rows.
+   - Zero N+1 query latency via preloading.
+3. **Jig Completion % Formula Alignment**:
+   - Column N labeled `Jig Completion %`.
+   - Populated **strictly in the `TOTAL` summary row only**; fixture rows (LH/RH) left cleanly blank to prevent redundant repetition.
+   - Authoritative formula: `Assembly Completed / Total Required * 100` matching website Jig cards.
+4. **Top Projects Near Completion Chart**:
+   - Full horizontal bar chart displaying all qualifying active projects.
