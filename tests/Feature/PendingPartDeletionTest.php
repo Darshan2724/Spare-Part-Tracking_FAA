@@ -569,4 +569,248 @@ class PendingPartDeletionTest extends TestCase
         $this->assertStringContainsString('PART-AUDIT-LOG', $log->message);
         $this->assertEquals('Audit test verification reason', $log->details['reason']);
     }
+
+    public function test_bulk_delete_unauthenticated_and_unauthorized(): void
+    {
+        $payload = [
+            'items' => [
+                ['id' => 1, 'bom_type' => 'MFG'],
+            ],
+        ];
+
+        $this->postJson('/api/v1/pending-parts/bulk-delete', $payload)->assertStatus(401);
+
+        $storeUser = $this->getStoreUser();
+        $this->actingAs($storeUser, 'sanctum');
+        $this->postJson('/api/v1/pending-parts/bulk-delete', $payload)->assertStatus(403);
+    }
+
+    public function test_bulk_delete_multiple_parts_atomically(): void
+    {
+        $admin = $this->getAdminUser();
+        $this->actingAs($admin, 'sanctum');
+
+        $project = $this->createTestProject('BULK_DEL');
+
+        $item1 = BomItem::create([
+            'project_id'       => $project->id,
+            'jig_no'           => 'J-BULK-1',
+            'unit_no'          => 'U-01',
+            'part_type'        => 'MFG',
+            'item_no'          => 'BULK-ITEM-1',
+            'standard_part_no' => 'P-BULK-1',
+        ]);
+        $req1 = BomRequirement::create([
+            'bom_item_id'       => $item1->id,
+            'side'              => 'RH',
+            'required_quantity' => 2,
+        ]);
+
+        $item2 = BomItem::create([
+            'project_id'       => $project->id,
+            'jig_no'           => 'J-BULK-2',
+            'unit_no'          => 'U-02',
+            'part_type'        => 'MFG',
+            'item_no'          => 'BULK-ITEM-2',
+            'standard_part_no' => 'P-BULK-2',
+        ]);
+        $req2 = BomRequirement::create([
+            'bom_item_id'       => $item2->id,
+            'side'              => 'LH',
+            'required_quantity' => 3,
+        ]);
+
+        $response = $this->postJson('/api/v1/pending-parts/bulk-delete', [
+            'items' => [
+                ['id' => $req1->id, 'bom_type' => 'MFG'],
+                ['id' => $req2->id, 'bom_type' => 'MFG'],
+            ],
+            'reason' => 'Bulk cleanup test',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success'          => true,
+            'deleted_count'    => 2,
+            'total_quantity'   => 5,
+            'purged_bom_items' => 2,
+        ]);
+
+        $this->assertDatabaseMissing('bom_requirements', ['id' => $req1->id]);
+        $this->assertDatabaseMissing('bom_requirements', ['id' => $req2->id]);
+        $this->assertDatabaseMissing('bom_items', ['id' => $item1->id]);
+        $this->assertDatabaseMissing('bom_items', ['id' => $item2->id]);
+
+        // Verify project still exists intact
+        $this->assertDatabaseHas('projects', ['id' => $project->id]);
+    }
+
+    public function test_bulk_delete_atomic_rollback_when_one_part_is_ineligible(): void
+    {
+        $admin = $this->getAdminUser();
+        $this->actingAs($admin, 'sanctum');
+
+        $project = $this->createTestProject('ROLLBACK_TEST');
+
+        // Part 1 is eligible (untouched)
+        $item1 = BomItem::create([
+            'project_id'       => $project->id,
+            'jig_no'           => 'J-ROLLBACK',
+            'unit_no'          => 'U-01',
+            'part_type'        => 'MFG',
+            'item_no'          => 'ELIGIBLE-1',
+            'standard_part_no' => 'P-ELIGIBLE-1',
+        ]);
+        $req1 = BomRequirement::create([
+            'bom_item_id'       => $item1->id,
+            'side'              => 'RH',
+            'required_quantity' => 2,
+        ]);
+
+        // Part 2 is INELIGIBLE (has a receipt item in store)
+        $item2 = BomItem::create([
+            'project_id'       => $project->id,
+            'jig_no'           => 'J-ROLLBACK',
+            'unit_no'          => 'U-01',
+            'part_type'        => 'MFG',
+            'item_no'          => 'INELIGIBLE-2',
+            'standard_part_no' => 'P-INELIGIBLE-2',
+        ]);
+        $req2 = BomRequirement::create([
+            'bom_item_id'       => $item2->id,
+            'side'              => 'RH',
+            'required_quantity' => 2,
+        ]);
+        $receipt = Receipt::create([
+            'project_id'     => $project->id,
+            'receipt_number' => 'REC-ROLLBACK-TEST',
+            'receipt_date'   => now(),
+            'received_by'    => $admin->id,
+            'status'         => 'received',
+        ]);
+        ReceiptItem::create([
+            'receipt_id'        => $receipt->id,
+            'bom_item_id'       => $item2->id,
+            'side'              => 'RH',
+            'received_quantity' => 1,
+            'status'            => 'received',
+        ]);
+
+        // Attempt bulk delete: must fail and rollback Part 1
+        $response = $this->postJson('/api/v1/pending-parts/bulk-delete', [
+            'items' => [
+                ['id' => $req1->id, 'bom_type' => 'MFG'],
+                ['id' => $req2->id, 'bom_type' => 'MFG'],
+            ],
+        ]);
+
+        $response->assertStatus(422);
+        $this->assertFalse($response->json('success'));
+
+        // CRITICAL ATOMICITY CHECK: Part 1 must NOT have been deleted
+        $this->assertDatabaseHas('bom_requirements', [
+            'id'                => $req1->id,
+            'required_quantity' => 2,
+        ]);
+        $this->assertDatabaseHas('bom_items', ['id' => $item1->id]);
+
+        // Part 2 must also remain untouched
+        $this->assertDatabaseHas('bom_requirements', [
+            'id'                => $req2->id,
+            'required_quantity' => 2,
+        ]);
+    }
+
+    public function test_bulk_delete_ecn_parts(): void
+    {
+        $admin = $this->getAdminUser();
+        $this->actingAs($admin, 'sanctum');
+
+        $project = $this->createTestProject('BULK_ECN');
+
+        $ecn1 = EcnRequirement::create([
+            'project_id'    => $project->id,
+            'ecn_number'    => 'ECN-BLK-1',
+            'jig_no'        => 'J-ECN',
+            'unit_no'       => 'U-ECN',
+            'part_no'       => 'P-ECN-1',
+            'side'          => 'LH',
+            'side_display'  => 'LH',
+            'required_qty'  => 2,
+            'received_qty'  => 0,
+            'current_state' => 'PENDING',
+        ]);
+
+        $ecn2 = EcnRequirement::create([
+            'project_id'    => $project->id,
+            'ecn_number'    => 'ECN-BLK-2',
+            'jig_no'        => 'J-ECN',
+            'unit_no'       => 'U-ECN',
+            'part_no'       => 'P-ECN-2',
+            'side'          => 'RH',
+            'side_display'  => 'RH',
+            'required_qty'  => 1,
+            'received_qty'  => 0,
+            'current_state' => 'PENDING',
+        ]);
+
+        $response = $this->postJson('/api/v1/pending-parts/bulk-delete', [
+            'items' => [
+                ['id' => $ecn1->id, 'bom_type' => 'ECN'],
+                ['id' => $ecn2->id, 'bom_type' => 'ECN'],
+            ],
+            'reason' => 'Bulk ECN deletion',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success'        => true,
+            'deleted_count'  => 2,
+            'total_quantity' => 3,
+        ]);
+
+        $this->assertDatabaseMissing('ecn_requirements', ['id' => $ecn1->id]);
+        $this->assertDatabaseMissing('ecn_requirements', ['id' => $ecn2->id]);
+    }
+
+    public function test_bulk_delete_creates_consolidated_system_log(): void
+    {
+        $admin = $this->getAdminUser();
+        $this->actingAs($admin, 'sanctum');
+
+        $project = $this->createTestProject('BULK_LOG');
+
+        $item = BomItem::create([
+            'project_id'       => $project->id,
+            'jig_no'           => 'J-LOG',
+            'unit_no'          => 'U-LOG',
+            'part_type'        => 'BOP',
+            'item_no'          => 'LOG-1',
+            'standard_part_no' => 'P-LOG-BOP',
+        ]);
+        $req = BomRequirement::create([
+            'bom_item_id'       => $item->id,
+            'side'              => 'COMMON',
+            'required_quantity' => 4,
+        ]);
+
+        $this->postJson('/api/v1/pending-parts/bulk-delete', [
+            'items' => [
+                ['id' => $req->id, 'bom_type' => 'BOP'],
+            ],
+            'reason' => 'Consolidated log test reason',
+        ]);
+
+        $log = SystemLog::where('module', 'PENDING_PART_DELETION')
+            ->where('details->event', 'PENDING_PARTS_BULK_DELETED')
+            ->latest('id')
+            ->first();
+
+        $this->assertNotNull($log);
+        $this->assertEquals('WARNING', $log->severity);
+        $this->assertEquals(1, $log->details['total_parts']);
+        $this->assertEquals(4, $log->details['total_quantity']);
+        $this->assertEquals('Consolidated log test reason', $log->details['reason']);
+    }
 }
+

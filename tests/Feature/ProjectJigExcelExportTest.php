@@ -101,6 +101,7 @@ class ProjectJigExcelExportTest extends TestCase
                 'J2' => 'Paintshop',
                 'K2' => 'Assembly',
                 'L2' => 'ECN',
+                'M2' => 'Project Completion %',
             ];
 
             foreach ($expectedHeaders as $cell => $expectedText) {
@@ -139,6 +140,13 @@ class ProjectJigExcelExportTest extends TestCase
                         $actualSum = (int) $sheet->getCell("{$col}{$totalRow}")->getValue();
                         $this->assertEquals($expectedSum, $actualSum, "TOTAL mismatch at row {$totalRow} column {$col}");
                     }
+
+                    // Verify Project Completion % in column M is numeric and properly formatted
+                    $pctVal = $sheet->getCell("M{$totalRow}")->getValue();
+                    $this->assertIsNumeric($pctVal, "Column M in TOTAL row should be numeric ratio");
+                    $this->assertGreaterThanOrEqual(0, (float)$pctVal);
+                    $this->assertLessThanOrEqual(1.0, (float)$pctVal);
+                    $this->assertEquals('0.0%', $sheet->getStyle("M{$totalRow}")->getNumberFormat()->getFormatCode());
                 }
                 $currentRow++;
             }

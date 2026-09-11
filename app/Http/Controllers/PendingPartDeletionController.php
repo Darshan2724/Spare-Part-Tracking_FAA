@@ -192,4 +192,39 @@ class PendingPartDeletionController extends Controller
             ], 422);
         }
     }
+
+    /**
+     * Atomically delete multiple eligible pending parts in one transaction.
+     */
+    public function destroyBulk(Request $request): JsonResponse
+    {
+        $this->authorizeAdminOrManager($request);
+
+        $validated = $request->validate([
+            'items'            => 'required|array|min:1',
+            'items.*.id'       => 'required|integer|min:1',
+            'items.*.bom_type' => ['required', 'string', Rule::in(PendingPartDeletionService::VALID_BOM_TYPES)],
+            'reason'           => 'nullable|string|max:500',
+        ]);
+
+        try {
+            $result = $this->deletionService->deleteBulkPendingParts(
+                $validated['items'],
+                $validated['reason'] ?? null,
+                $request->user()
+            );
+
+            return response()->json($result);
+        } catch (Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Bulk pending part deletion failed: " . $e->getMessage(), [
+                'count' => count($validated['items'] ?? []),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
 }
+

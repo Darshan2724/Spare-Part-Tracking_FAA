@@ -9,13 +9,7 @@
             <i class="fas fa-trash-alt fa-lg"></i>
           </div>
           <div>
-            <div class="d-flex align-items-center gap-2">
-              <h4 class="mb-0 fw-bold text-dark">Pending Part Deletion</h4>
-              <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-0.5 fs-7 fw-semibold">
-                <i class="fas fa-shield-alt me-1"></i>Admin / Manager Only
-              </span>
-            </div>
-            <small class="text-muted">Production Safeguard &bull; Purge or Reduce Incorrectly Added Untouched BOM Parts</small>
+            <h4 class="mb-0 fw-bold text-dark">Pending Part Deletion</h4>
           </div>
         </div>
         <div class="d-flex gap-2">
@@ -171,35 +165,52 @@
       <!-- Parts Results Card -->
       <div class="card border-0 shadow-sm">
         <div class="card-header bg-white border-bottom py-3 px-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
-          <div class="d-flex align-items-center gap-2">
+          <div class="d-flex align-items-center gap-2 flex-wrap">
             <h6 class="mb-0 fw-bold text-dark">
               Eligible Pending Parts
             </h6>
             <span v-if="eligibleParts.length" class="badge bg-secondary-subtle text-secondary px-2 py-1 fs-7">
               {{ filteredParts.length }} of {{ eligibleParts.length }} parts
             </span>
+            <!-- Selected count indicator -->
+            <span v-if="selectedPartsList.length > 0" class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 fs-7 fw-semibold">
+              <i class="fas fa-check-square me-1"></i>{{ selectedPartsList.length }} selected ({{ selectedPartsTotalQty }} pcs)
+            </span>
           </div>
 
-          <!-- Quick In-Table Search Filter -->
-          <div v-if="eligibleParts.length" class="d-flex align-items-center" style="max-width: 280px; width: 100%;">
-            <div class="input-group input-group-sm">
-              <span class="input-group-text bg-light border-end-0 text-muted">
-                <i class="fas fa-search"></i>
-              </span>
-              <input 
-                type="text" 
-                v-model="tableSearchQuery" 
-                class="form-control border-start-0" 
-                placeholder="Filter by part / item no..."
-              />
-              <button 
-                v-if="tableSearchQuery" 
-                @click="tableSearchQuery = ''" 
-                class="btn btn-outline-secondary border-start-0 border-secondary-subtle" 
-                type="button"
-              >
-                &times;
-              </button>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <!-- Bulk Delete Action Button -->
+            <button 
+              v-if="selectedPartsList.length > 0"
+              type="button" 
+              class="btn btn-danger btn-sm text-nowrap shadow-xs fw-semibold"
+              @click="openBulkDeleteModal"
+              :disabled="isDeleting"
+            >
+              <i class="fas fa-trash-alt me-1"></i>Delete Selected ({{ selectedPartsList.length }})
+            </button>
+
+            <!-- Quick In-Table Search Filter -->
+            <div v-if="eligibleParts.length" class="d-flex align-items-center" style="max-width: 260px; width: 100%;">
+              <div class="input-group input-group-sm">
+                <span class="input-group-text bg-light border-end-0 text-muted">
+                  <i class="fas fa-search"></i>
+                </span>
+                <input 
+                  type="text" 
+                  v-model="tableSearchQuery" 
+                  class="form-control border-start-0" 
+                  placeholder="Filter by part / item no..."
+                />
+                <button 
+                  v-if="tableSearchQuery" 
+                  @click="tableSearchQuery = ''" 
+                  class="btn btn-outline-secondary border-start-0 border-secondary-subtle" 
+                  type="button"
+                >
+                  &times;
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -231,7 +242,21 @@
             <table class="table table-sm table-hover align-middle mb-0 font-sans" style="font-size: 0.85rem;">
               <thead class="table-light border-bottom text-uppercase extra-small text-muted fw-bold">
                 <tr>
-                  <th class="ps-3 py-2.5">Item No / Part No</th>
+                  <!-- Selection Checkbox / Select All Column -->
+                  <th class="ps-3 py-2.5 text-center" style="width: 44px;">
+                    <div class="form-check m-0 p-0 d-flex align-items-center justify-content-center">
+                      <input 
+                        type="checkbox" 
+                        class="form-check-input" 
+                        :checked="isAllSelected"
+                        :indeterminate.prop="isIndeterminate"
+                        @change="toggleSelectAll"
+                        title="Select all displayed pending parts"
+                        style="cursor: pointer; width: 16px; height: 16px;"
+                      />
+                    </div>
+                  </th>
+                  <th class="py-2.5">Item No / Part No</th>
                   <th class="py-2.5">Standard Part No</th>
                   <th class="py-2.5">Type</th>
                   <th class="py-2.5">Jig</th>
@@ -244,9 +269,26 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="part in filteredParts" :key="part.bom_type + '-' + part.id">
+                <tr 
+                  v-for="part in filteredParts" 
+                  :key="part.bom_type + '-' + part.id"
+                  :class="{ 'table-danger bg-danger-subtle bg-opacity-25': isSelected(part) }"
+                >
+                  <!-- Row Checkbox -->
+                  <td class="ps-3 py-2 text-center">
+                    <div class="form-check m-0 p-0 d-flex align-items-center justify-content-center">
+                      <input 
+                        type="checkbox" 
+                        class="form-check-input" 
+                        :checked="isSelected(part)"
+                        @change="toggleSelectPart(part)"
+                        style="cursor: pointer; width: 16px; height: 16px;"
+                      />
+                    </div>
+                  </td>
+
                   <!-- Item No -->
-                  <td class="ps-3 fw-bold text-dark font-monospace">
+                  <td class="fw-bold text-dark font-monospace">
                     {{ part.item_no || '—' }}
                   </td>
 
@@ -327,7 +369,7 @@
                 </tr>
 
                 <tr v-if="tableSearchQuery && !filteredParts.length">
-                  <td colspan="10" class="text-center py-4 text-muted small">
+                  <td colspan="11" class="text-center py-4 text-muted small">
                     No parts match "{{ tableSearchQuery }}".
                   </td>
                 </tr>
@@ -340,7 +382,120 @@
 
     </div>
 
-    <!-- PARTIAL & FULL QUANTITY DELETION CONFIRMATION MODAL -->
+    <!-- BULK DELETION CONFIRMATION MODAL -->
+    <div 
+      v-if="showBulkDeleteModal" 
+      class="modal fade show d-block" 
+      tabindex="-1" 
+      style="background-color: rgba(15, 23, 42, 0.65); z-index: 1055;" 
+      role="dialog" 
+      aria-modal="true"
+    >
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-lg">
+          
+          <!-- Modal Header -->
+          <div class="modal-header bg-danger text-white border-0 py-2.5 px-3">
+            <h6 class="modal-title fw-bold mb-0">
+              <i class="fas fa-trash-alt me-2"></i>Confirm Bulk Pending Part Deletion
+            </h6>
+            <button 
+              type="button" 
+              class="btn-close btn-close-white" 
+              :disabled="isDeleting" 
+              @click="closeBulkDeleteModal" 
+              aria-label="Close"
+            ></button>
+          </div>
+
+          <!-- Modal Body -->
+          <div class="modal-body p-3">
+            
+            <div v-if="bulkModalError" class="alert alert-danger shadow-sm py-2 px-3 mb-3 small d-flex align-items-center">
+              <i class="fas fa-exclamation-triangle me-2"></i>
+              <div class="flex-grow-1">{{ bulkModalError }}</div>
+            </div>
+
+            <!-- Danger Alert Warning -->
+            <div class="alert alert-danger border-danger border-opacity-25 bg-danger-subtle text-danger py-2 px-3 mb-3 small">
+              <i class="fas fa-exclamation-triangle me-1.5 fw-bold"></i>
+              <strong>Permanent Destructive Action:</strong> You are about to permanently delete 
+              <strong>{{ selectedPartsList.length }}</strong> pending part(s) totaling 
+              <strong>{{ selectedPartsTotalQty }} pcs</strong>. This action is atomic and irreversible.
+            </div>
+
+            <!-- Summary Table of Selected Parts -->
+            <div class="border rounded bg-white mb-3" style="max-height: 240px; overflow-y: auto;">
+              <table class="table table-sm table-striped align-middle mb-0 font-sans" style="font-size: 0.8rem;">
+                <thead class="table-light sticky-top text-uppercase extra-small text-muted fw-bold">
+                  <tr>
+                    <th class="ps-2 py-1.5">#</th>
+                    <th class="py-1.5">Part / Item No</th>
+                    <th class="py-1.5">BOM Type</th>
+                    <th class="py-1.5">Jig</th>
+                    <th class="py-1.5">Unit</th>
+                    <th class="py-1.5">Side</th>
+                    <th class="pe-2 py-1.5 text-center">Qty to Delete</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(p, idx) in selectedPartsList" :key="p.bom_type + '-' + p.id">
+                    <td class="ps-2 text-muted font-monospace">{{ idx + 1 }}</td>
+                    <td class="fw-bold font-monospace text-dark">{{ p.item_no || p.standard_part_no }}</td>
+                    <td><span class="badge bg-secondary extra-small">{{ p.bom_type }}</span></td>
+                    <td class="font-monospace text-muted">{{ p.jig_no }}</td>
+                    <td class="font-monospace text-muted">{{ p.unit_no }}</td>
+                    <td><span class="badge bg-light text-dark border extra-small">{{ p.side || 'COMMON' }}</span></td>
+                    <td class="pe-2 text-center fw-bold text-danger">{{ p.required_quantity }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Audit Reason (Optional) -->
+            <div class="mb-2">
+              <label class="form-label extra-small fw-bold text-uppercase text-muted mb-1">
+                Audit Reason / Note (Optional):
+              </label>
+              <input 
+                type="text" 
+                v-model="bulkDeleteReason" 
+                class="form-control form-control-sm" 
+                placeholder="e.g., Inadvertent BOM import duplicates, engineering revision cancellation..."
+                maxlength="250"
+                :disabled="isDeleting"
+              />
+            </div>
+
+          </div>
+
+          <!-- Modal Footer -->
+          <div class="modal-footer bg-light border-0 py-2.5 px-3 d-flex justify-content-between">
+            <button 
+              type="button" 
+              class="btn btn-outline-secondary btn-sm" 
+              :disabled="isDeleting" 
+              @click="closeBulkDeleteModal"
+            >
+              Cancel
+            </button>
+            <button 
+              type="button" 
+              class="btn btn-danger btn-sm px-3 fw-bold" 
+              :disabled="isDeleting || selectedPartsList.length === 0"
+              @click="confirmBulkDelete"
+            >
+              <span v-if="isDeleting" class="spinner-border spinner-border-sm me-1"></span>
+              <i v-else class="fas fa-trash-alt me-1"></i>
+              Permanently Delete {{ selectedPartsList.length }} Selected Part(s)
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- INDIVIDUAL PARTIAL & FULL QUANTITY DELETION CONFIRMATION MODAL -->
     <div 
       v-if="showDeleteModal" 
       class="modal fade show d-block" 
@@ -448,45 +603,41 @@
                   <i class="fas fa-info-circle"></i>
                   <span>
                     <strong>Partial Deletion:</strong> Deleting {{ deleteQuantity }} part(s). 
-                    Remaining quantity will be <strong>{{ remainingQuantityPreview }}</strong>.
+                    Remaining required quantity: <strong>{{ remainingQuantityPreview }}</strong>.
                   </span>
                 </div>
                 <div v-else class="d-flex align-items-center gap-1.5">
-                  <i class="fas fa-exclamation-triangle"></i>
+                  <i class="fas fa-exclamation-circle"></i>
                   <span>
-                    <strong>Full Deletion:</strong> All {{ deleteQuantity }} part(s) will be permanently deleted.
+                    <strong>Complete Purge:</strong> Deleting all {{ targetPart?.required_quantity }} part(s). 
+                    The requirement will be completely removed.
                   </span>
                 </div>
               </div>
             </div>
 
-            <!-- Optional Reason for Audit Log -->
+            <!-- Audit Reason (Optional) -->
             <div class="mb-2">
-              <label class="form-label extra-small fw-semibold text-muted mb-1">
-                Reason for Audit Trail (Optional):
+              <label class="form-label extra-small fw-bold text-uppercase text-muted mb-1">
+                Audit Reason / Note (Optional):
               </label>
               <input 
                 type="text" 
                 v-model="deleteReason" 
                 class="form-control form-control-sm" 
-                placeholder="e.g., Incorrect BOM item line, quantity reduction..."
-                maxlength="500"
+                placeholder="e.g., Inadvertent BOM import duplicate, wrong requirement..."
+                maxlength="250"
                 :disabled="isDeleting"
               />
             </div>
 
-            <!-- Irreversible Warning -->
-            <p class="extra-small text-muted text-center mb-0 mt-2">
-              <i class="fas fa-lock me-1"></i>This action modifies authoritative project BOM requirements and cannot be undone.
-            </p>
-
           </div>
 
           <!-- Modal Footer -->
-          <div class="modal-footer bg-light border-0 py-2.5 px-3">
+          <div class="modal-footer bg-light border-0 py-2.5 px-3 d-flex justify-content-between">
             <button 
               type="button" 
-              class="btn btn-secondary btn-sm" 
+              class="btn btn-outline-secondary btn-sm" 
               :disabled="isDeleting" 
               @click="closeDeleteModal"
             >
@@ -494,8 +645,8 @@
             </button>
             <button 
               type="button" 
-              class="btn btn-danger btn-sm fw-bold px-3" 
-              :disabled="isDeleting || !isValidDeleteQuantity" 
+              class="btn btn-danger btn-sm px-3 fw-bold" 
+              :disabled="isDeleting || !isValidDeleteQuantity"
               @click="confirmDelete"
             >
               <span v-if="isDeleting" class="spinner-border spinner-border-sm me-1"></span>
@@ -541,12 +692,21 @@ const isDeleting = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
 const modalError = ref('');
+const bulkModalError = ref('');
 
-// Modal states
+// Single Delete Modal states
 const showDeleteModal = ref(false);
 const targetPart = ref(null);
 const deleteQuantity = ref(1);
 const deleteReason = ref('');
+
+// Bulk Delete states
+const showBulkDeleteModal = ref(false);
+const bulkDeleteReason = ref('');
+const selectedPartKeys = ref(new Set());
+
+// Key generator for parts to isolate multi-type / duplicate IDs safely
+const getPartKey = (part) => `${part.bom_type}_${part.id}`;
 
 // Computed filtered parts for quick search input
 const filteredParts = computed(() => {
@@ -563,7 +723,51 @@ const filteredParts = computed(() => {
   });
 });
 
-// Real-time remaining preview in modal
+// Selection helpers
+const isSelected = (part) => selectedPartKeys.value.has(getPartKey(part));
+
+const toggleSelectPart = (part) => {
+  const key = getPartKey(part);
+  const next = new Set(selectedPartKeys.value);
+  if (next.has(key)) {
+    next.delete(key);
+  } else {
+    next.add(key);
+  }
+  selectedPartKeys.value = next;
+};
+
+const isAllSelected = computed(() => {
+  if (!filteredParts.value.length) return false;
+  return filteredParts.value.every(p => selectedPartKeys.value.has(getPartKey(p)));
+});
+
+const isIndeterminate = computed(() => {
+  if (!filteredParts.value.length || isAllSelected.value) return false;
+  return filteredParts.value.some(p => selectedPartKeys.value.has(getPartKey(p)));
+});
+
+const toggleSelectAll = () => {
+  const next = new Set(selectedPartKeys.value);
+  if (isAllSelected.value) {
+    filteredParts.value.forEach(p => next.delete(getPartKey(p)));
+  } else {
+    filteredParts.value.forEach(p => next.add(getPartKey(p)));
+  }
+  selectedPartKeys.value = next;
+};
+
+// Selected parts objects list
+const selectedPartsList = computed(() => {
+  return eligibleParts.value.filter(p => selectedPartKeys.value.has(getPartKey(p)));
+});
+
+// Total selected quantity
+const selectedPartsTotalQty = computed(() => {
+  return selectedPartsList.value.reduce((acc, p) => acc + (p.required_quantity || 0), 0);
+});
+
+// Real-time remaining preview in single delete modal
 const remainingQuantityPreview = computed(() => {
   if (!targetPart.value) return 0;
   const current = targetPart.value.required_quantity || 0;
@@ -577,6 +781,11 @@ const isValidDeleteQuantity = computed(() => {
   const qty = deleteQuantity.value;
   return Number.isInteger(qty) && qty >= 1 && qty <= max;
 });
+
+// Clear selection state safely whenever filters or query change
+const clearSelection = () => {
+  selectedPartKeys.value = new Set();
+};
 
 // Fetch distinct projects
 const fetchProjects = async () => {
@@ -596,6 +805,7 @@ const fetchProjects = async () => {
 
 // Project change handler
 const onProjectChange = () => {
+  clearSelection();
   selectedBomType.value = '';
   selectedJig.value = '';
   selectedUnit.value = '';
@@ -608,6 +818,7 @@ const onProjectChange = () => {
 
 // BOM Type change handler
 const onBomTypeChange = async () => {
+  clearSelection();
   selectedJig.value = '';
   selectedUnit.value = '';
   selectedSide.value = '';
@@ -645,6 +856,7 @@ const fetchJigs = async () => {
 
 // Jig change handler
 const onJigChange = async () => {
+  clearSelection();
   selectedUnit.value = '';
   selectedSide.value = '';
   units.value = [];
@@ -680,6 +892,7 @@ const fetchUnits = async () => {
 
 // Unit change handler
 const onUnitChange = async () => {
+  clearSelection();
   selectedSide.value = '';
   sides.value = [];
 
@@ -714,6 +927,7 @@ const fetchSides = async () => {
 
 // Fetch eligible pending parts
 const fetchEligibleParts = async () => {
+  clearSelection();
   if (!selectedProject.value || !selectedBomType.value) {
     eligibleParts.value = [];
     return;
@@ -743,6 +957,7 @@ const fetchEligibleParts = async () => {
 
 // Reset all filters
 const resetAllFilters = () => {
+  clearSelection();
   selectedProject.value = null;
   selectedBomType.value = '';
   selectedJig.value = '';
@@ -757,7 +972,7 @@ const resetAllFilters = () => {
   successMessage.value = '';
 };
 
-// Open deletion confirmation modal
+// Open single deletion confirmation modal
 const openDeleteModal = (part) => {
   targetPart.value = part;
   deleteQuantity.value = part.required_quantity || 1;
@@ -766,7 +981,7 @@ const openDeleteModal = (part) => {
   showDeleteModal.value = true;
 };
 
-// Close deletion confirmation modal
+// Close single deletion confirmation modal
 const closeDeleteModal = () => {
   if (isDeleting.value) return;
   showDeleteModal.value = false;
@@ -776,7 +991,7 @@ const closeDeleteModal = () => {
   modalError.value = '';
 };
 
-// Confirm and execute delete/decrement request
+// Confirm and execute single delete/decrement request
 const confirmDelete = async () => {
   if (!targetPart.value || !isValidDeleteQuantity.value) return;
 
@@ -801,6 +1016,10 @@ const confirmDelete = async () => {
       } else {
         // Complete deletion: remove part row from eligible list
         eligibleParts.value = eligibleParts.value.filter(p => !(p.id === part.id && p.bom_type === part.bom_type));
+        // Remove from selection if was selected
+        const next = new Set(selectedPartKeys.value);
+        next.delete(getPartKey(part));
+        selectedPartKeys.value = next;
         successMessage.value = res.data.message || 'Part requirement successfully deleted.';
       }
       showDeleteModal.value = false;
@@ -810,6 +1029,56 @@ const confirmDelete = async () => {
     }
   } catch (err) {
     modalError.value = err.response?.data?.message || 'Error occurred while deleting part.';
+  } finally {
+    isDeleting.value = false;
+  }
+};
+
+// Open bulk deletion confirmation modal
+const openBulkDeleteModal = () => {
+  if (selectedPartsList.value.length === 0) return;
+  bulkDeleteReason.value = '';
+  bulkModalError.value = '';
+  showBulkDeleteModal.value = true;
+};
+
+// Close bulk deletion confirmation modal
+const closeBulkDeleteModal = () => {
+  if (isDeleting.value) return;
+  showBulkDeleteModal.value = false;
+  bulkDeleteReason.value = '';
+  bulkModalError.value = '';
+};
+
+// Confirm and execute bulk deletion request
+const confirmBulkDelete = async () => {
+  if (selectedPartsList.value.length === 0) return;
+
+  isDeleting.value = true;
+  bulkModalError.value = '';
+  try {
+    const itemsPayload = selectedPartsList.value.map(p => ({
+      id: p.id,
+      bom_type: p.bom_type,
+    }));
+
+    const res = await axios.post('/api/v1/pending-parts/bulk-delete', {
+      items: itemsPayload,
+      reason: bulkDeleteReason.value || undefined,
+    });
+
+    if (res.data.success) {
+      const deletedKeys = new Set(selectedPartsList.value.map(getPartKey));
+      // Remove all deleted parts immediately from local list
+      eligibleParts.value = eligibleParts.value.filter(p => !deletedKeys.has(getPartKey(p)));
+      clearSelection();
+      successMessage.value = res.data.message || `Successfully deleted ${res.data.deleted_count} pending part(s).`;
+      showBulkDeleteModal.value = false;
+    } else {
+      bulkModalError.value = res.data.message || 'Bulk deletion failed.';
+    }
+  } catch (err) {
+    bulkModalError.value = err.response?.data?.message || 'Error occurred during bulk deletion.';
   } finally {
     isDeleting.value = false;
   }

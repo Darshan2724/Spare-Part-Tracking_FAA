@@ -937,8 +937,11 @@
                   <span class="jig-metric-pill pill-paint" title="Parts in Paint Shop">
                     <i class="fas fa-paint-roller me-1" style="font-size: 0.72rem;"></i>Paint: <strong>{{ jig.metrics?.parts_in_paint ?? (jig.metrics?.paint_ready || 0) }}</strong>
                   </span>
+                  <span class="jig-metric-pill pill-asm-current" title="Parts currently in Assembly Department">
+                    <i class="fas fa-wrench me-1" style="font-size: 0.72rem;"></i>Asm: <strong>{{ jig.metrics?.parts_in_assembly ?? (jig.metrics?.assembly_ready || 0) }}</strong>
+                  </span>
                   <span class="jig-metric-pill pill-asm" title="Completed Assembly Parts">
-                    <i class="fas fa-cogs me-1" style="font-size: 0.72rem;"></i>Asm: <strong>{{ jig.metrics?.assembly_completed || 0 }}</strong>
+                    <i class="fas fa-cogs me-1" style="font-size: 0.72rem;"></i>Asm Comp: <strong>{{ jig.metrics?.assembly_completed || 0 }}</strong>
                   </span>
                 </div>
 
@@ -1531,8 +1534,11 @@
                         <span class="jig-metric-pill pill-paint" title="Parts in Paint Shop">
                           <i class="fas fa-paint-roller me-1" style="font-size: 0.72rem;"></i>Paint: <strong>{{ jig.metrics?.parts_in_paint ?? (jig.metrics?.paint_ready || 0) }}</strong>
                         </span>
+                        <span class="jig-metric-pill pill-asm-current" title="Parts currently in Assembly Department">
+                          <i class="fas fa-wrench me-1" style="font-size: 0.72rem;"></i>Asm: <strong>{{ jig.metrics?.parts_in_assembly ?? (jig.metrics?.assembly_ready || 0) }}</strong>
+                        </span>
                         <span class="jig-metric-pill pill-asm" title="Completed Assembly Parts">
-                          <i class="fas fa-cogs me-1" style="font-size: 0.72rem;"></i>Asm: <strong>{{ jig.metrics?.assembly_completed || 0 }}</strong>
+                          <i class="fas fa-cogs me-1" style="font-size: 0.72rem;"></i>Asm Comp: <strong>{{ jig.metrics?.assembly_completed || 0 }}</strong>
                         </span>
                       </div>
 
@@ -3476,6 +3482,12 @@ onUnmounted(() => {
   background-color: #f5f3ff;
   color: #5b21b6;
   border: 1px solid #ddd6fe;
+}
+
+.jig-metric-pill.pill-asm-current {
+  background-color: #fdf2f8;
+  color: #9d174d;
+  border: 1px solid #fbcfe8;
 }
 
 .jig-metric-pill.pill-asm {

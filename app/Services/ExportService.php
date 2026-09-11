@@ -9,6 +9,7 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Models\Project;
@@ -365,6 +366,10 @@ class ExportService
             ->pluck('min_assign_date', 'jig_no')
             ->mapWithKeys(fn($date, $jig) => [strtoupper(trim((string)$jig)) => $date]);
 
+        $projRequired = (int)($hierarchy['canonical_summary']['total_required'] ?? array_sum(array_column($jigs, 'total_required')));
+        $projAsmComp  = (int)($hierarchy['canonical_summary']['assembly_completed'] ?? array_sum(array_map(fn($j) => $j['metrics']['assembly_completed'] ?? 0, $jigs)));
+        $projCompletionRatio = $projRequired > 0 ? min(1.0, round($projAsmComp / $projRequired, 4)) : 0.0;
+
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
         $safeSheetTitle = substr(preg_replace('/[\\\\\\/?*\\[\\]]/', '', $project->project_code . ' Jigs'), 0, 31);
@@ -382,7 +387,8 @@ class ExportService
             'Rework',
             'Paintshop',
             'Assembly',
-            'ECN'
+            'ECN',
+            'Project Completion %'
         ];
 
         $currentRow = 1;
@@ -391,13 +397,13 @@ class ExportService
             $jigName = $jig['jig_name'] ?? 'N/A';
             $jKey = strtoupper(trim((string)$jigName));
 
-            // 1. Jig Name Header Row (Merged A to L, 14pt bold centered)
+            // 1. Jig Name Header Row (Merged A to M, 14pt bold centered)
             $bannerRow = $currentRow;
             $sheet->setCellValue('A' . $bannerRow, $jigName);
-            $sheet->mergeCells("A{$bannerRow}:L{$bannerRow}");
+            $sheet->mergeCells("A{$bannerRow}:M{$bannerRow}");
             $sheet->getStyle("A{$bannerRow}")->getFont()->setBold(true)->setSize(14)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
             $sheet->getStyle("A{$bannerRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
-            $sheet->getStyle("A{$bannerRow}:L{$bannerRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
+            $sheet->getStyle("A{$bannerRow}:M{$bannerRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
             $sheet->getRowDimension($bannerRow)->setRowHeight(28);
             $currentRow++;
 
@@ -408,10 +414,10 @@ class ExportService
                 $sheet->setCellValue($colChar . $headerRow, $h);
                 $colChar++;
             }
-            $sheet->getStyle("A{$headerRow}:L{$headerRow}")->getFont()->setBold(true)->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
-            $sheet->getStyle("A{$headerRow}:L{$headerRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF5E6CB');
-            $sheet->getStyle("A{$headerRow}:L{$headerRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(true);
-            $sheet->getStyle("A{$headerRow}:L{$headerRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
+            $sheet->getStyle("A{$headerRow}:M{$headerRow}")->getFont()->setBold(true)->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
+            $sheet->getStyle("A{$headerRow}:M{$headerRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF5E6CB');
+            $sheet->getStyle("A{$headerRow}:M{$headerRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(true);
+            $sheet->getStyle("A{$headerRow}:M{$headerRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
             $sheet->getRowDimension($headerRow)->setRowHeight(26);
             $currentRow++;
 
@@ -571,14 +577,16 @@ class ExportService
                 $sheet->setCellValueExplicit('J' . $currentRow, $paintshop, DataType::TYPE_NUMERIC);
                 $sheet->setCellValueExplicit('K' . $currentRow, $assembly, DataType::TYPE_NUMERIC);
                 $sheet->setCellValueExplicit('L' . $currentRow, $ecn, DataType::TYPE_NUMERIC);
+                $sheet->setCellValueExplicit('M' . $currentRow, $projCompletionRatio, DataType::TYPE_NUMERIC);
+                $sheet->getStyle('M' . $currentRow)->getNumberFormat()->setFormatCode('0.0%');
 
                 // Row formatting & borders
                 $sheet->getStyle('A' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
                 $sheet->getStyle('B' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
                 $sheet->getStyle('C' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT)->setVertical(Alignment::VERTICAL_CENTER);
                 $sheet->getStyle('D' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
-                $sheet->getStyle("E{$currentRow}:L{$currentRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT)->setVertical(Alignment::VERTICAL_CENTER);
-                $sheet->getStyle("A{$currentRow}:L{$currentRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
+                $sheet->getStyle("E{$currentRow}:M{$currentRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT)->setVertical(Alignment::VERTICAL_CENTER);
+                $sheet->getStyle("A{$currentRow}:M{$currentRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
                 $sheet->getRowDimension($currentRow)->setRowHeight(20);
                 $currentRow++;
             }
@@ -598,11 +606,13 @@ class ExportService
             $sheet->setCellValueExplicit('J' . $totalRow, $jigTotals['paintshop'], DataType::TYPE_NUMERIC);
             $sheet->setCellValueExplicit('K' . $totalRow, $jigTotals['assembly'], DataType::TYPE_NUMERIC);
             $sheet->setCellValueExplicit('L' . $totalRow, $jigTotals['ecn'], DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit('M' . $totalRow, $projCompletionRatio, DataType::TYPE_NUMERIC);
+            $sheet->getStyle('M' . $totalRow)->getNumberFormat()->setFormatCode('0.0%');
 
-            $totalRange = "A{$totalRow}:L{$totalRow}";
+            $totalRange = "A{$totalRow}:M{$totalRow}";
             $sheet->getStyle($totalRange)->getFont()->setBold(true)->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
             $sheet->getStyle('A' . $totalRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
-            $sheet->getStyle("E{$totalRow}:L{$totalRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT)->setVertical(Alignment::VERTICAL_CENTER);
+            $sheet->getStyle("E{$totalRow}:M{$totalRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT)->setVertical(Alignment::VERTICAL_CENTER);
             $sheet->getStyle($totalRange)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
             $sheet->getRowDimension($totalRow)->setRowHeight(22);
             $currentRow++;
@@ -625,6 +635,7 @@ class ExportService
         $sheet->getColumnDimension('J')->setWidth(12); // Paintshop
         $sheet->getColumnDimension('K')->setWidth(12); // Assembly
         $sheet->getColumnDimension('L')->setWidth(12); // ECN
+        $sheet->getColumnDimension('M')->setWidth(22); // Project Completion %
 
         $filename = "{$project->project_code}-Jig-Material-Status.xlsx";
         $writer = new Xlsx($spreadsheet);

@@ -6,8 +6,8 @@ Document: PROJECT_CONTEXT_SUMMARY.md
 Status: Canonical Project Context & Universal AI Knowledge Base
 Last Updated: September 11, 2026
 Last Updated By: Antigravity
-Version: 2.13.0
-Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment - 261/261 Tests Passing)
+Version: 2.14.0
+Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment - 266/266 Tests Passing)
 ```
 
 > [!IMPORTANT]
@@ -759,7 +759,7 @@ To eliminate congestion and prevent conflating custom fabricated parts with off-
 ## 25. Website Architecture `[VERIFIED]`
 
 * **Visual Alignment:** Built with Vue 3 and Bootstrap 5.3 following the visual design language of **WebErpMesv2** (clean topbar, collapsible dark sidebar, high-density data tables, status pill badges, modal drilldowns).
-* **Jig Status Badge Group:** Displays 8 concise, color-coded badges (`Req`, `Rec`, `Pend`, `Store`, `QC`, `Rew`, `Paint`, `Asm`) with FontAwesome icons, hover tooltips, and horizontal alignment alongside the completion percentage bar in a uniform `.jig-metric-pill` enterprise MES palette without card bloat.
+* **Jig Status Badge Group:** Displays concise, color-coded badges (`Req`, `Rec`, `Pend`, `Store`, `QC`, `Rew`, `Paint`, `Asm`, `Asm Comp`) with FontAwesome icons, hover tooltips, and horizontal alignment alongside the completion percentage bar in a uniform `.jig-metric-pill` enterprise MES palette without card bloat. Crucially distinguishes `Asm: <qty>` (parts currently queued in Assembly department) from `Asm Comp: <qty>` (completed mechanical assemblies).
 * **Streamlined Part Tables:** MFG, BOP, and STD Part tables display streamlined workflow columns (`#`, `PART NUMBER`, `SIDE`, `REQ`, `REC`, `PEND`, `STATUS`) with generous space allocated to part numbers and 1.5px black structural borders separating BOM type columns.
 * **Universal Export Engine (`app/Services/ExportService.php`):**
   - **Part Number Format:** Formats unique part identifier as a continuous string:
@@ -769,10 +769,11 @@ To eliminate congestion and prevent conflating custom fabricated parts with off-
     - High-performance streaming Excel export matching reference production layout.
     - **Per-Jig Visual Grouping:** Each Jig is rendered as a standalone table preceded by a 14pt bold merged title banner.
     - **Gold / Tan Header Banner (`#F5E6CB`):** 11pt bold dark text (`#1E293B`) with thin borders (`#CBD5E1`).
-    - **Columns:** `Fix No.`, `Part Number`, `Description`, `Qty/Fix`, `Total Qty`, `BOP`, `STD`, `MFG`, `Supplier Name`, `PO Date`, `Delivery Date`, `Unit Name`, `Remarks`.
+    - **Columns (A through M):** `Fix No.`, `Design Release date`, `Supplier Name`, `Mfg Receipt Date`, `Total`, `Received`, `Pending`, `Quality`, `Rework`, `Paintshop`, `Assembly`, `ECN`, and `Project Completion %` (Column M).
+    - **Project Completion % Formulation:** Strictly computed as $\text{Assembly Completed} / \text{Total Required}$ and formatted as an Excel percentage (`0.0%`).
     - **Fixture Row Format:** Formats `Fix No.` as `{Jig Name}-{Side}` (e.g. `JIG-01-RH`, `JIG-01-LH`).
     - **Missing Data Preservation:** If date, supplier, or remarks are not recorded in the database, cells remain cleanly blank (no dummy placeholders).
-    - **Dedicated `TOTAL` Summary Row:** Bottom row of each Jig table computes `=SUM(...)` formulas for `BOP`, `STD`, `MFG`, and `Total Qty` with bold styling and accounting double-underline.
+    - **Dedicated `TOTAL` Summary Row:** Bottom row of each Jig table computes `=SUM(...)` formulas for quantity columns with bold styling, accounting double-underline, and the overall Jig Completion ratio in Column M formatted as `0.0%`.
 
 ---
 
@@ -869,6 +870,7 @@ Authenticated Endpoints (Bearer Token Required):
   GET    /api/v1/pending-parts/sides           -> Distinct Sides by project, BOM type, Jig & Unit
   GET    /api/v1/pending-parts/eligible        -> Untouched pending parts matching hierarchy
   DELETE /api/v1/pending-parts/{id}            -> Delete or decrement pending part requirement
+  POST   /api/v1/pending-parts/bulk-delete     -> Atomic bulk deletion of multiple eligible pending parts
 ```
 
 ---
@@ -1017,7 +1019,13 @@ New-Item -ItemType Directory -Force -Path "./backups" | Out-Null; $ts = Get-Date
   - If requested `quantity == required_quantity`: Deletes the `bom_requirements` row. If no other requirements remain for that `BomItem` across any side and no downstream records exist, `BomItem` is permanently purged (`forceDelete()`). For ECN, the `ecn_requirements` row is force-deleted.
   - Immediate systemwide reflection: All dashboard metrics, reports, and mobile store views derive totals from `SUM(bom_requirements.required_quantity)` at query time, guaranteeing instant synchronization with zero counter drift.
 * **ACID Concurrency:** Wrapped in `DB::transaction()` with pessimistic row locks (`lockForUpdate()`) preventing race conditions.
-* **Audit Trail:** Every deletion/reduction logs an immutable WARNING entry in `system_logs` via `SystemLogService::log()` under module `PENDING_PART_DELETION`.
+* **Multi-Select Bulk Pending Part Deletion (`POST /api/v1/pending-parts/bulk-delete`):**
+  - **Purpose:** Enables selecting 2 or more mistaken parts at once and deleting them in a single operation.
+  - **Scoped "Select All" Checkbox:** The table header "Select All" checkbox is strictly scoped to the currently active filtered results (`filteredParts`), supporting an indeterminate state when only a subset is selected. It never selects hidden or cross-filter parts.
+  - **Live Selection Counter:** Visual badge displays exact count and total pieces selected (e.g. `3 selected (5 pcs)`).
+  - **Bulk Deletion Atomicity & Safety Guarantee:** All-or-nothing execution. The backend loops through all selected items within a single `DB::transaction()`, acquiring pessimistic row locks (`lockForUpdate()`) and independently re-verifying that zero downstream operations exist for each item. If even one selected item is ineligible, has moved downstream, or has changed state concurrently, the entire transaction rolls back completely and returns an explanatory 422 error.
+  - **Local State Reconciliation:** On successful bulk deletion, deleted items are removed locally from the reactive Vue array without requiring a jarring full-page refresh.
+* **Audit Trail:** Every single-part deletion/reduction logs an immutable WARNING entry in `system_logs` under module `PENDING_PART_DELETION`. Bulk deletions write a consolidated `PENDING_PARTS_BULK_DELETED` entry containing the list of deleted part numbers, quantities, requirement IDs, and user reason.
 
 ---
 
@@ -1137,6 +1145,7 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Date | Change Summary | Files / Modules Affected | Database Schema Changes | Behavioral Impact | Testing Status |
 |---|---|---|---|---|---|
+| **2026-09-11** | Multi-Select Bulk Pending Part Deletion, Header Text Cleanup, Jig Card Assembly Breakdown & Excel Completion % Column | `PendingPartDeletionService.php`, `PendingPartDeletionController.php`, `DeletePendingParts.vue`, `Dashboard.vue`, `ExportService.php`, `routes/api.php`, `PendingPartDeletionTest.php`, `ProjectJigExcelExportTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Services, API Endpoints, Frontend Components & Feature Tests) | (1) Adds multi-select row checkboxes, filtered-scoped header "Select All" with indeterminate state, bulk delete modal, and atomic backend endpoint `POST /api/v1/pending-parts/bulk-delete` with all-or-nothing rollback and consolidated audit logging; (2) cleans up redundant header subtitles in DeletePendingParts.vue; (3) breaks out `Asm` (in Assembly department) and `Asm Comp` (completed mechanical assemblies) on Jig cards; (4) adds numeric percentage Column M `Project Completion %` in single-worksheet project Jig Excel export strictly computed as `Assembly Completed / Total Required`. | Passing (266 tests, 3133 assertions) |
 | **2026-09-11** | Production-Safe Pending Part Deletion & Partial Quantity Decrement (Website Admin & Manager Only) | `PendingPartDeletionService.php`, `PendingPartDeletionController.php`, `DeletePendingParts.vue`, `routes/api.php`, `router/index.js`, `App.vue`, `PendingPartDeletionTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Service, API Endpoints, Vue 3 Component & Feature Tests) | Implements production-safe administrative workflow for purging or decrementing untouched BOM parts (MFG, BOP, STD, ECN). Strictly enforces 0 downstream operations (no Store receipts, QC, rework, paint, assembly, or purchase queue records). Supports partial quantity deletion with modal stepper, real-time remaining preview, instant UI updates, ACID row locks (`lockForUpdate()`), and structured audit logging (`SystemLogService`). | Passing (261 tests, 3037 assertions) |
 | **2026-09-10** | Server Deployment SOP & Pre-Update Automated Backup Script Hardening (Zero Data Loss SOP) | `SERVER_UPDATE_COMMANDS.md`, `update_server.bat`, `update_server.ps1`, `update_server.sh` | None (Deployment Scripts & Host Disaster Recovery SOP) | Automates pre-flight PostgreSQL database dumps (`pg_dump`) to `./backups/` before any git pull or schema update; standardizes 3-step git pull (`git stash --include-untracked`, `git fetch origin main`, `git reset --hard origin/main`); establishes strict production rules forbidding `migrate:fresh`, `migrate:reset`, or `db:wipe`; synchronizes `main` and `branch-a` at commit `ab25af1` | Verified (Manual execution & script testing) |
 | **2026-09-10** | Project Jig Excel Export Layout Alignment (Per-Jig Tables, Merged Banners, Gold Headers `#F5E6CB`, Formula Totals, Blank Missing Data) | `ExportService.php`, `ProjectJigExcelExportTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Export Service & Test Suite) | Formats project Jig Excel export (`/api/v1/projects/{id}/export-jigs`) to match customer production layout: individual table per Jig with 14pt bold merged title banner, gold/tan headers (`#F5E6CB`), fixture rows `{Jig}-{Side}`, blank cells for missing date/supplier records, and dedicated `TOTAL` row computing `=SUM(...)` formulas for BOP, STD, MFG, and Total Qty | Passing (249 tests, 2878 assertions) |

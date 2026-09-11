@@ -693,4 +693,91 @@ class PendingPartDeletionService
                 : "Successfully removed pending ECN part completely (deleted quantity: {$qtyToDelete}).",
         ];
     }
+
+    /**
+     * Bulk delete pending parts atomically in a single database transaction.
+     * All items must satisfy strict zero-downstream eligibility, or transaction rolls back.
+     *
+     * @param array $items Array of ['id' => int, 'bom_type' => string]
+     * @param string|null $reason Optional audit reason
+     * @param mixed $user Requesting user
+     * @return array
+     */
+    public function deleteBulkPendingParts(
+        array $items,
+        ?string $reason = null,
+        $user = null
+    ): array {
+        if (empty($items)) {
+            throw new InvalidArgumentException("No parts selected for deletion.");
+        }
+
+        return DB::transaction(function () use ($items, $reason, $user) {
+            $deletedItems = [];
+            $totalDeletedQty = 0;
+            $purgedBomItemsCount = 0;
+
+            foreach ($items as $index => $itemDef) {
+                $id = (int)($itemDef['id'] ?? 0);
+                $bomType = strtoupper(trim((string)($itemDef['bom_type'] ?? '')));
+
+                if ($id <= 0) {
+                    throw new RuntimeException("Item at index {$index} has invalid ID #{$id}.");
+                }
+
+                if (!in_array($bomType, self::VALID_BOM_TYPES, true)) {
+                    throw new InvalidArgumentException("Invalid BOM type '{$bomType}' for item #{$id}.");
+                }
+
+                if ($bomType === 'ECN') {
+                    $result = $this->deletePendingEcnPart($id, null, $reason, $user);
+                } else {
+                    $result = $this->deletePendingRegularPart($id, $bomType, null, $reason, $user);
+                }
+
+                $deletedQty = (int)($result['deleted_quantity'] ?? 0);
+                $totalDeletedQty += $deletedQty;
+                if (!empty($result['bom_item_deleted'])) {
+                    $purgedBomItemsCount++;
+                }
+
+                $deletedItems[] = [
+                    'id'               => $id,
+                    'bom_type'         => $bomType,
+                    'deleted_quantity' => $deletedQty,
+                ];
+            }
+
+            // Write consolidated bulk audit log
+            SystemLogService::log([
+                'severity'   => 'WARNING',
+                'category'   => 'admin_actions',
+                'module'     => 'PENDING_PART_DELETION',
+                'user_id'    => $user?->id,
+                'user_role'  => $user?->roles?->first()?->name ?? ($user?->role ?? 'ADMIN'),
+                'message'    => "PENDING_PARTS_BULK_DELETED: " . count($deletedItems) . " pending parts atomically deleted by {$user?->name}. Total deleted quantity: {$totalDeletedQty}.",
+                'details'    => [
+                    'event'              => 'PENDING_PARTS_BULK_DELETED',
+                    'total_parts'        => count($deletedItems),
+                    'total_quantity'     => $totalDeletedQty,
+                    'purged_bom_items'   => $purgedBomItemsCount,
+                    'deleted_items'      => $deletedItems,
+                    'reason'             => $reason,
+                    'deleted_by_user_id' => $user?->id,
+                    'deleted_by_name'    => $user?->name,
+                    'timestamp'          => now()->toIso8601String(),
+                ],
+            ]);
+
+            return [
+                'success'             => true,
+                'deleted_count'       => count($deletedItems),
+                'total_quantity'      => $totalDeletedQty,
+                'purged_bom_items'    => $purgedBomItemsCount,
+                'deleted_items'       => $deletedItems,
+                'message'             => "Successfully deleted " . count($deletedItems) . " pending part(s) (total quantity: {$totalDeletedQty}).",
+            ];
+        });
+    }
 }
+

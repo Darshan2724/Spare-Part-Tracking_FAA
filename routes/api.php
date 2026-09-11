@@ -125,6 +125,7 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::get('/units', [PendingPartDeletionController::class, 'units']);
             Route::get('/sides', [PendingPartDeletionController::class, 'sides']);
             Route::get('/eligible', [PendingPartDeletionController::class, 'eligibleParts']);
+            Route::post('/bulk-delete', [PendingPartDeletionController::class, 'destroyBulk']);
             Route::delete('/{id}', [PendingPartDeletionController::class, 'destroy']);
         });
 
