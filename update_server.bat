@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 
 echo ==========================================================
 echo          SpareTrack Production Server Update
-echo   (Pending Part Deletion, Jig Excel Parity, Zero Data Loss)
+echo   (BOM Filename Routing, Jig Excel Parity, Zero Data Loss)
 echo ==========================================================
 echo.
 
@@ -59,6 +59,9 @@ curl.exe -s http://127.0.0.1:8080/api/v1/health
 echo.
 echo ==========================================================
 echo     SpareTrack Server Successfully Updated & Verified!
+echo     - Strict Filename BOM Routing (MFG, BOP, STD) live
+echo     - Workbook-Authoritative Project Identity live
+echo     - Incremental Revision Intake for remaining parts live
 echo     - Pending Part Deletion (Single & Bulk) live
 echo     - 14-Column Jig Excel Export live with exact Jig %
 echo     - OPcache & Nginx gzip optimizations active

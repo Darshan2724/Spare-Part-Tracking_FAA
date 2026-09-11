@@ -1,6 +1,6 @@
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "         Updating SpareTrack Windows Server (Docker)      " -ForegroundColor Cyan
-Write-Host "  (Pending Part Deletion, Jig Excel Parity, Zero Data Loss)" -ForegroundColor Cyan
+Write-Host "  (BOM Filename Routing, Jig Excel Parity, Zero Data Loss)" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 Write-Host "`n[1/8] Creating pre-update database backup (Zero Data Loss Guarantee)..." -ForegroundColor Yellow
@@ -50,6 +50,9 @@ curl.exe -s http://127.0.0.1:8080/api/v1/health
 
 Write-Host "`n==========================================================" -ForegroundColor Green
 Write-Host "    SpareTrack Server Successfully Updated & Verified!   " -ForegroundColor Green
+Write-Host "    - Strict Filename BOM Routing (MFG, BOP, STD) live   " -ForegroundColor Green
+Write-Host "    - Workbook-Authoritative Project Identity live       " -ForegroundColor Green
+Write-Host "    - Incremental Revision Intake for remaining parts    " -ForegroundColor Green
 Write-Host "    - Pending Part Deletion (Single & Bulk) live         " -ForegroundColor Green
 Write-Host "    - 14-Column Jig Excel Export live with exact Jig %   " -ForegroundColor Green
 Write-Host "    - OPcache and Nginx optimizations active             " -ForegroundColor Green

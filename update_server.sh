@@ -3,7 +3,7 @@ set -e
 
 echo "=========================================================="
 echo "         Updating SpareTrack Production Server            "
-echo "  (Pending Part Deletion, Jig Excel Parity, Zero Data Loss)"
+echo "  (BOM Filename Routing, Jig Excel Parity, Zero Data Loss)"
 echo "=========================================================="
 
 echo ""
@@ -60,6 +60,9 @@ fi
 echo ""
 echo "=========================================================="
 echo "    SpareTrack Server Successfully Updated & Verified!   "
+echo "    - Strict Filename BOM Routing (MFG, BOP, STD) live   "
+echo "    - Workbook-Authoritative Project Identity live       "
+echo "    - Incremental Revision Intake for remaining parts    "
 echo "    - Pending Part Deletion (Single & Bulk) live         "
 echo "    - 14-Column Jig Excel Export live with exact Jig %   "
 echo "    - OPcache and Nginx optimizations active             "
