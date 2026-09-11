@@ -54,7 +54,49 @@ class BomImportService
     }
 
     /**
-     * Inspect sheet headers to auto-detect BOM Type: MFG, BOP, or STD.
+     * Determine BOM Type strictly from uploaded filename token (MFG, BOP, STD).
+     * Delimiters: _, -, space, (, ), [, ], ., ,, etc.
+     * Case-insensitive, lookaround to ensure whole token match.
+     */
+    public function detectBomTypeFromFilename(?string $filename): array
+    {
+        if (empty($filename)) {
+            return [
+                'valid' => false,
+                'type' => null,
+                'error' => "Invalid BOM filename: Filename must contain MFG, BOP, or STD to identify the BOM intake type (e.g. 'Project_BOP.xlsx').",
+            ];
+        }
+
+        $cleanFilename = basename(str_replace('\\', '/', $filename));
+        $baseNameWithoutExt = pathinfo($cleanFilename, PATHINFO_FILENAME);
+
+        if (preg_match_all('/(?<=^|[^a-zA-Z0-9])(MFG|BOP|STD)(?=[^a-zA-Z0-9]|$)/i', $baseNameWithoutExt, $matches)) {
+            $uniqueTokens = array_values(array_unique(array_map('strtoupper', $matches[1])));
+            if (count($uniqueTokens) === 1) {
+                return [
+                    'valid' => true,
+                    'type' => $uniqueTokens[0],
+                    'error' => null,
+                ];
+            }
+
+            return [
+                'valid' => false,
+                'type' => null,
+                'error' => "Ambiguous BOM type: Filename contains multiple BOM intake tokens (" . implode(', ', $uniqueTokens) . "). The filename must specify exactly one BOM type.",
+            ];
+        }
+
+        return [
+            'valid' => false,
+            'type' => null,
+            'error' => "Invalid BOM filename: Filename must contain MFG, BOP, or STD to identify the BOM intake type (e.g. 'Project_BOP.xlsx').",
+        ];
+    }
+
+    /**
+     * Inspect sheet headers to auto-detect BOM Type: MFG, BOP, or STD (Legacy fallback).
      */
     public function detectBomType(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet): string
     {
@@ -79,18 +121,16 @@ class BomImportService
     }
 
     /**
-     * Inspect workbook from file path to auto-detect BOM Type.
+     * Inspect workbook / filename to determine BOM Type.
      */
-    public function detectBomTypeFromPath(string $path): string
+    public function detectBomTypeFromPath(string $path, ?string $filename = null): string
     {
-        try {
-            $reader = IOFactory::createReaderForFile($path);
-            $reader->setReadDataOnly(true);
-            $spreadsheet = $reader->load($path);
-            return $this->detectBomType($spreadsheet->getActiveSheet());
-        } catch (\Throwable $e) {
-            return 'MFG';
+        $nameToCheck = $filename ?: basename($path);
+        $detected = $this->detectBomTypeFromFilename($nameToCheck);
+        if ($detected['valid']) {
+            return $detected['type'];
         }
+        return 'MFG';
     }
 
     /**
@@ -199,12 +239,32 @@ class BomImportService
             return $ecnPreview;
         }
 
-        // 1. Immediate duplicate check before parsing
+        // 1. Mandatory filename token check for BOM type (MFG, BOP, STD)
+        $typeDetection = $this->detectBomTypeFromFilename($filename);
+        if (!$typeDetection['valid']) {
+            return [
+                'success' => false,
+                'import_type' => 'REGULAR',
+                'is_invalid_filename' => true,
+                'error_title' => 'Invalid Filename',
+                'message' => $typeDetection['error'],
+                'filename' => $filename,
+                'sheet' => 'N/A',
+                'summary' => $this->emptySummary(),
+                'rows' => [],
+                'errors' => [$typeDetection['error']],
+                'warnings' => [],
+            ];
+        }
+        $bomType = $typeDetection['type'];
+
+        // 2. Immediate duplicate check before parsing
         $duplicateInfo = $this->checkDuplicateFile($path, $filename);
         if ($duplicateInfo) {
             return [
                 'success' => false,
                 'import_type' => 'REGULAR',
+                'bom_type' => $bomType,
                 'is_duplicate' => true,
                 'is_duplicate_filename' => $duplicateInfo['is_duplicate_filename'] ?? false,
                 'error_title' => $duplicateInfo['error_title'] ?? 'Duplicate Filename',
@@ -220,8 +280,7 @@ class BomImportService
             ];
         }
 
-        $extracted = $this->extractAndValidateRows($path, $filename);
-        $bomType = $extracted['bom_type'] ?? 'MFG';
+        $extracted = $this->extractAndValidateRows($path, $filename, $bomType);
 
         if (!empty($extracted['errors'])) {
             return [
@@ -619,11 +678,26 @@ class BomImportService
             return $ecnRes;
         }
 
-        // 1. Strict duplicate filename and content check before transaction
+        // 1. Mandatory filename token check for BOM type (MFG, BOP, STD)
+        $typeDetection = $this->detectBomTypeFromFilename($filename);
+        if (!$typeDetection['valid']) {
+            return [
+                'success' => false,
+                'is_invalid_filename' => true,
+                'error_title' => 'Invalid Filename',
+                'message' => $typeDetection['error'],
+                'errors' => [$typeDetection['error']],
+                'warnings' => [],
+            ];
+        }
+        $bomType = $typeDetection['type'];
+
+        // 2. Strict duplicate filename and content check before transaction
         $duplicateInfo = $this->checkDuplicateFile($path, $filename);
         if ($duplicateInfo) {
             return [
                 'success' => false,
+                'bom_type' => $bomType,
                 'is_duplicate' => true,
                 'is_duplicate_filename' => $duplicateInfo['is_duplicate_filename'] ?? false,
                 'error_title' => $duplicateInfo['error_title'] ?? 'Duplicate Filename',
@@ -635,8 +709,7 @@ class BomImportService
             ];
         }
 
-        $extracted = $this->extractAndValidateRows($path, $filename);
-        $bomType = $extracted['bom_type'] ?? ($data['bom_type'] ?? 'MFG');
+        $extracted = $this->extractAndValidateRows($path, $filename, $bomType);
 
         if (!empty($extracted['errors'])) {
             return [
@@ -892,10 +965,15 @@ class BomImportService
     /**
      * Extract and strictly validate rows according to FA-279 Standard.
      */
-    protected function extractAndValidateRows(string $path, string $filename): array
+    public function extractAndValidateRows(string $path, string $filename, ?string $bomType = null): array
     {
         $errors = [];
         $warnings = [];
+
+        if ($bomType === null) {
+            $detected = $this->detectBomTypeFromFilename($filename);
+            $bomType = $detected['valid'] ? $detected['type'] : 'MFG';
+        }
 
         try {
             $reader = IOFactory::createReaderForFile($path);
@@ -903,6 +981,7 @@ class BomImportService
         } catch (\Throwable $e) {
             return [
                 'sheet_name' => 'N/A',
+                'bom_type' => $bomType,
                 'summary' => $this->emptySummary(),
                 'rows' => [],
                 'errors' => ['Failed to read Excel file: ' . $e->getMessage()],
@@ -914,7 +993,6 @@ class BomImportService
         $sheetName = $sheet->getTitle();
         $highestRow = $sheet->getHighestRow();
         $highestColumn = $sheet->getHighestColumn();
-        $bomType = $this->detectBomType($sheet);
 
         // 1. Scan for Header Row and Check for Legacy Formats
         $headerRowIndex = null;
@@ -1124,7 +1202,7 @@ class BomImportService
         foreach ($rowCells as $col => $header) {
             $clean = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', trim((string) $header)));
 
-            if (in_array($clean, ['projectcode', 'project', 'projcode'], true)) {
+            if (in_array($clean, ['projectcode', 'project', 'projcode', 'projectname', 'projname', 'projectno', 'projectnum'], true)) {
                 $map['project_code'] = $col;
             } elseif (in_array($clean, ['jig', 'jigno', 'jignumber', 'assemblyjig'], true)) {
                 $map['jig_no'] = $col;

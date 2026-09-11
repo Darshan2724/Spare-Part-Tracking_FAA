@@ -33,6 +33,7 @@ class ProjectIdentityResolver
 
     /**
      * Extract normalized base project code candidates.
+     * Workbook contents (sheetProjectCode / projectName) are authoritative.
      */
     public function extractCandidates(string $sheetProjectCode, ?string $filename = null, ?string $projectName = null): array
     {
@@ -55,7 +56,8 @@ class ProjectIdentityResolver
             $candidates[] = $this->normalizeString($projectName);
         }
 
-        if (!empty($filename)) {
+        // Only consider filename if sheetProjectCode is completely empty (legacy safety)
+        if (empty($sheetProjectCode) && !empty($filename)) {
             $normFilename = $this->normalizeString($filename);
             $candidates[] = $normFilename;
 
@@ -78,11 +80,14 @@ class ProjectIdentityResolver
     /**
      * Resolve existing Project model by multi-tier matching order.
      *
+     * The Project Identity MUST be resolved strictly from the Excel workbook contents
+     * (the sheet's Project Code / Project Name), never inferred or guessed from the filename.
+     *
      * Matching order:
-     * 1. Exact normalized Project Code in DB
-     * 2. Exact normalized Project Name in DB
-     * 3. Historical BOM Import metadata linking filename to Project
-     * 4. Controlled normalized filename/project-name similarity
+     * 1. Exact normalized Project Code from sheet in DB
+     * 2. Exact normalized Project Name from sheet in DB
+     * 3. Canonical FA-xxx regex pattern from sheet Project Code
+     * 4. Legacy fallback only if sheet Project Code was completely blank
      *
      * Returns matching Project or null if it's a genuinely new Project.
      */
@@ -107,7 +112,7 @@ class ProjectIdentityResolver
         }
 
         // 3. Search by normalized code if format is like FA-279
-        if (preg_match('/^(FA[\s\-_]*\d+)/i', $sheetProjectCode, $matches)) {
+        if (!empty($sheetProjectCode) && preg_match('/^(FA[\s\-_]*\d+)/i', $sheetProjectCode, $matches)) {
             $canonicalCode = strtoupper(preg_replace('/[\s_]+/', '-', $matches[1]));
             $project = Project::whereRaw('LOWER(TRIM(project_code)) = ?', [strtolower($canonicalCode)])
                 ->orWhereRaw('LOWER(TRIM(name)) = ?', [strtolower($canonicalCode)])
@@ -117,7 +122,12 @@ class ProjectIdentityResolver
             }
         }
 
-        // 4. Check historical batch project codes
+        // If sheetProjectCode was present, it is authoritative: DO NOT infer from historical batch filenames!
+        if (!empty($sheetProjectCode)) {
+            return null;
+        }
+
+        // 4. Check historical batch project codes (only if sheet had no project code)
         if (!empty($filename)) {
             $normFile = $this->normalizeString($filename);
             $historicalBatch = BomImportBatch::whereNotNull('project_id')

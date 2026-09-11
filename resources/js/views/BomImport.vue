@@ -83,7 +83,7 @@
               <form @submit.prevent="previewBom">
                 <div class="row g-2 align-items-center">
                   <div class="col-md-7 col-lg-8">
-                    <label class="form-label small fw-semibold text-dark mb-1">Choose BOM File (.xlsx, .xls)</label>
+                    <label class="form-label small fw-semibold text-dark mb-1">Choose BOM File (.xlsx, .xls) <span class="text-muted fw-normal ms-1">(Filename must contain MFG, BOP, or STD e.g. FA-273_BOP.xlsx)</span></label>
                     <input
                       class="form-control form-control-sm bg-white"
                       type="file"
@@ -138,7 +138,7 @@
                 </strong>
               </div>
               <div class="small text-muted">
-                Auto-Detected from File Headers &bull; Isolated Hierarchy &amp; KPI Scope
+                Auto-Detected from Filename &bull; Isolated Hierarchy &amp; KPI Scope
               </div>
             </div>
 

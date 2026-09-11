@@ -186,7 +186,7 @@ class BomIncrementalImportTest extends TestCase
         $this->actingAs($admin, 'sanctum');
 
         $projCode = 'TEST-DUP-' . uniqid();
-        $filename = "{$projCode}_BOM.xlsx";
+        $filename = "{$projCode}_MFG_BOM.xlsx";
         $rows1 = [
             ['project_code' => $projCode, 'jig_no' => 'JIG-01', 'unit_no' => '01', 'part_no' => 'PART-A', 'side' => 'RH', 'qty' => 3],
         ];
@@ -261,13 +261,13 @@ class BomIncrementalImportTest extends TestCase
         ];
 
         $path1 = $this->createTestExcelFile($rows);
-        $file1 = new UploadedFile($path1, "{$projCode}_original.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+        $file1 = new UploadedFile($path1, "{$projCode}_MFG_original.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
         $this->postJson('/api/v1/bom/import', ['file' => $file1])->assertStatus(200);
         @unlink($path1);
 
         // Second file created (different timestamp/hash), but same content
         $path2 = $this->createTestExcelFile($rows, 'Sheet1');
-        $file2 = new UploadedFile($path2, "{$projCode}(1)_copy.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+        $file2 = new UploadedFile($path2, "{$projCode}_MFG(1)_copy.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
 
         $preview = $this->postJson('/api/v1/bom/preview', ['file' => $file2]);
         $preview->assertStatus(200);
@@ -300,7 +300,7 @@ class BomIncrementalImportTest extends TestCase
             ['project_code' => $projCode, 'jig_no' => 'JIG-01', 'unit_no' => '01', 'part_no' => '020#R00', 'side' => 'RH', 'qty' => 3],
         ];
         $path1 = $this->createTestExcelFile($rows1);
-        $file1 = new UploadedFile($path1, "{$projCode} BOM.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+        $file1 = new UploadedFile($path1, "{$projCode} MFG BOM.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
         $this->postJson('/api/v1/bom/import', ['file' => $file1])->assertStatus(200);
         @unlink($path1);
 
@@ -314,7 +314,7 @@ class BomIncrementalImportTest extends TestCase
             ['project_code' => $projCode, 'jig_no' => 'JIG-01', 'unit_no' => '01', 'part_no' => '020#R00', 'side' => 'RH', 'qty' => 6],
         ];
         $path2 = $this->createTestExcelFile($rows2);
-        $file2 = new UploadedFile($path2, "{$projCode}(1) BOM.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+        $file2 = new UploadedFile($path2, "{$projCode}(1) MFG BOM.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
 
         $preview = $this->postJson('/api/v1/bom/preview', ['file' => $file2]);
         $preview->assertStatus(200);
@@ -342,7 +342,7 @@ class BomIncrementalImportTest extends TestCase
             ['project_code' => $projCode, 'jig_no' => 'JIG-01', 'unit_no' => '01', 'part_no' => '020#R00', 'side' => 'RH', 'qty' => 6],
         ];
         $path1 = $this->createTestExcelFile($rows1);
-        $file1 = new UploadedFile($path1, "{$projCode}.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+        $file1 = new UploadedFile($path1, "{$projCode}_MFG.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
         $this->postJson('/api/v1/bom/import', ['file' => $file1])->assertStatus(200);
         @unlink($path1);
 
@@ -369,7 +369,7 @@ class BomIncrementalImportTest extends TestCase
             ['project_code' => $projCode, 'jig_no' => 'JIG-01', 'unit_no' => '01', 'part_no' => '020#R00', 'side' => 'RH', 'qty' => 3],
         ];
         $path2 = $this->createTestExcelFile($rows2);
-        $file2 = new UploadedFile($path2, "{$projCode}_revised.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+        $file2 = new UploadedFile($path2, "{$projCode}_MFG_revised.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
 
         $preview = $this->postJson('/api/v1/bom/preview', ['file' => $file2]);
         $preview->assertStatus(200);
@@ -403,7 +403,7 @@ class BomIncrementalImportTest extends TestCase
             ['project_code' => $projCode, 'jig_no' => 'JIG-01', 'unit_no' => '01', 'part_no' => 'PART-WF-01', 'side' => 'RH', 'qty' => 3],
         ];
         $path1 = $this->createTestExcelFile($rows1);
-        $file1 = new UploadedFile($path1, "{$projCode}.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+        $file1 = new UploadedFile($path1, "{$projCode}_MFG.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
         $this->postJson('/api/v1/bom/import', ['file' => $file1])->assertStatus(200);
         @unlink($path1);
 
@@ -456,7 +456,7 @@ class BomIncrementalImportTest extends TestCase
             ['project_code' => $projCode, 'jig_no' => 'JIG-01', 'unit_no' => '01', 'part_no' => 'PART-WF-01', 'side' => 'RH', 'qty' => 6],
         ];
         $path2 = $this->createTestExcelFile($rows2);
-        $file2 = new UploadedFile($path2, "{$projCode}(1).xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+        $file2 = new UploadedFile($path2, "{$projCode}_MFG(1).xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
         $this->postJson('/api/v1/bom/import', ['file' => $file2])->assertStatus(200);
         @unlink($path2);
 
@@ -486,7 +486,7 @@ class BomIncrementalImportTest extends TestCase
         ];
 
         $filePath = $this->createTestExcelFile($rows);
-        $file = new UploadedFile($filePath, "{$projCode}.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+        $file = new UploadedFile($filePath, "{$projCode}_MFG.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
         $res = $this->postJson('/api/v1/bom/import', ['file' => $file]);
         $res->assertStatus(200);
         @unlink($filePath);
@@ -522,7 +522,7 @@ class BomIncrementalImportTest extends TestCase
             ['project_code' => $projCode, 'jig_no' => 'JIG-01', 'unit_no' => '01', 'part_no' => 'PART-01', 'side' => 'RH', 'qty' => 2],
         ];
         $path1 = $this->createTestExcelFile($rows1);
-        $file1 = new UploadedFile($path1, "{$projCode}.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+        $file1 = new UploadedFile($path1, "{$projCode}_MFG.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
         $this->postJson('/api/v1/bom/import', ['file' => $file1])->assertStatus(200);
         @unlink($path1);
 
@@ -535,7 +535,7 @@ class BomIncrementalImportTest extends TestCase
             ['project_code' => $projCode, 'jig_no' => 'JIG-01', 'unit_no' => '02', 'part_no' => 'PART-02', 'side' => 'RH', 'qty' => 4],
         ];
         $path2 = $this->createTestExcelFile($rows2);
-        $file2 = new UploadedFile($path2, "{$projCode}(1).xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+        $file2 = new UploadedFile($path2, "{$projCode}_MFG(1).xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
 
         $preview = $this->postJson('/api/v1/bom/preview', ['file' => $file2]);
         $preview->assertStatus(200);
@@ -563,7 +563,7 @@ class BomIncrementalImportTest extends TestCase
             ['project_code' => $projCode, 'jig_no' => 'JIG-01', 'unit_no' => '01', 'part_no' => 'PART-RED-01', 'side' => 'RH', 'qty' => 10],
         ];
         $path1 = $this->createTestExcelFile($rows1);
-        $file1 = new UploadedFile($path1, "{$projCode}.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+        $file1 = new UploadedFile($path1, "{$projCode}_MFG.xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
         $this->postJson('/api/v1/bom/import', ['file' => $file1])->assertStatus(200);
         @unlink($path1);
 
@@ -590,7 +590,7 @@ class BomIncrementalImportTest extends TestCase
             ['project_code' => $projCode, 'jig_no' => 'JIG-01', 'unit_no' => '01', 'part_no' => 'PART-RED-01', 'side' => 'RH', 'qty' => 7],
         ];
         $path2 = $this->createTestExcelFile($rows2);
-        $file2 = new UploadedFile($path2, "{$projCode}(1).xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+        $file2 = new UploadedFile($path2, "{$projCode}_MFG(1).xlsx", 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
 
         $preview = $this->postJson('/api/v1/bom/preview', ['file' => $file2]);
         $preview->assertStatus(200);
