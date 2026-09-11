@@ -593,8 +593,7 @@ class ExportService
                 $sheet->setCellValueExplicit('K' . $currentRow, $assembly, DataType::TYPE_NUMERIC);
                 $sheet->setCellValueExplicit('L' . $currentRow, $assemblyCompleted, DataType::TYPE_NUMERIC);
                 $sheet->setCellValueExplicit('M' . $currentRow, $ecn, DataType::TYPE_NUMERIC);
-                $sheet->setCellValueExplicit('N' . $currentRow, $jigCompletionRatio, DataType::TYPE_NUMERIC);
-                $sheet->getStyle('N' . $currentRow)->getNumberFormat()->setFormatCode('0.0%');
+                $sheet->setCellValue('N' . $currentRow, '');
 
                 // Row formatting & borders
                 $sheet->getStyle('A' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);

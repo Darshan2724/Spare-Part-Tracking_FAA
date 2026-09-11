@@ -261,15 +261,15 @@ class ProjectJigExcelExportTest extends TestCase
             $this->assertEquals('Assembly Completed', $sheet->getCell('L2')->getValue());
             $this->assertEquals('Jig Completion %', $sheet->getCell('N2')->getValue());
 
-            // Check Row 3 (Fixture RH row)
+            // Check Row 3 (Fixture RH row: Column N must be empty)
             $this->assertEquals(10, (int)$sheet->getCell('E3')->getValue()); // Total
             $this->assertEquals(10, (int)$sheet->getCell('F3')->getValue()); // Received
             $this->assertEquals(0, (int)$sheet->getCell('G3')->getValue());  // Pending
             $this->assertEquals(6, (int)$sheet->getCell('K3')->getValue());  // Assembly (in department)
             $this->assertEquals(4, (int)$sheet->getCell('L3')->getValue());  // Assembly Completed
-            $this->assertEquals(0.4, round((float)$sheet->getCell('N3')->getValue(), 4)); // Jig Completion % (4 / 10 = 40.0%)
+            $this->assertEmpty($sheet->getCell('N3')->getValue(), 'Fixture rows should not have completion percentage written');
 
-            // Check Row 4 (TOTAL row)
+            // Check Row 4 (TOTAL row: Column N has combined Jig Completion %)
             $this->assertEquals('TOTAL', $sheet->getCell('A4')->getValue());
             $this->assertEquals(10, (int)$sheet->getCell('E4')->getValue());
             $this->assertEquals(6, (int)$sheet->getCell('K4')->getValue());
@@ -418,8 +418,8 @@ class ProjectJigExcelExportTest extends TestCase
             $sheet = $spreadsheet->getActiveSheet();
 
             $highestRow = $sheet->getHighestRow();
-            $jig1Values = [];
-            $jig2Values = [];
+            $jig1TotalVal = null;
+            $jig2TotalVal = null;
             $currentJig = null;
 
             for ($r = 1; $r <= $highestRow; $r++) {
@@ -429,31 +429,32 @@ class ProjectJigExcelExportTest extends TestCase
                 } elseif ($valA === 'JIG-02') {
                     $currentJig = 'JIG-02';
                 } elseif ($valA !== null && $valA !== 'Fix No.' && !empty($sheet->getCell("E{$r}")->getValue())) {
-                    $valN = (float)$sheet->getCell("N{$r}")->getValue();
-                    if ($currentJig === 'JIG-01') {
-                        $jig1Values[] = $valN;
-                    } elseif ($currentJig === 'JIG-02') {
-                        $jig2Values[] = $valN;
+                    $rawN = $sheet->getCell("N{$r}")->getValue();
+                    if ($valA === 'TOTAL') {
+                        if ($currentJig === 'JIG-01') {
+                            $jig1TotalVal = (float)$rawN;
+                        } elseif ($currentJig === 'JIG-02') {
+                            $jig2TotalVal = (float)$rawN;
+                        }
+                    } else {
+                        // Individual fixture / side rows must NOT have completion % written
+                        $this->assertEmpty($rawN, "Fixture row {$r} ({$valA}) must have empty Column N");
                     }
                 }
             }
 
-            $this->assertNotEmpty($jig1Values, 'Should have values for JIG-01');
-            $this->assertNotEmpty($jig2Values, 'Should have values for JIG-02');
+            $this->assertNotNull($jig1TotalVal, 'Should have TOTAL value for JIG-01');
+            $this->assertNotNull($jig2TotalVal, 'Should have TOTAL value for JIG-02');
 
-            // Jig 1: 6 / 10 = 60.0% (0.60)
-            foreach ($jig1Values as $val) {
-                $this->assertEquals(0.60, round($val, 4), 'JIG-01 rows must show 60.0%');
-            }
+            // Jig 1: 6 / 10 = 60.0% (0.60) in TOTAL row only
+            $this->assertEquals(0.60, round($jig1TotalVal, 4), 'JIG-01 TOTAL must show 60.0%');
 
-            // Jig 2: 2 / 30 = 6.7% (0.067)
-            foreach ($jig2Values as $val) {
-                $this->assertEquals(0.067, round($val, 4), 'JIG-02 rows must show 6.7%');
-            }
+            // Jig 2: 2 / 30 = 6.7% (0.067) in TOTAL row only
+            $this->assertEquals(0.067, round($jig2TotalVal, 4), 'JIG-02 TOTAL must show 6.7%');
 
             // Neither Jig repeats the overall project completion of 20.0%
-            $this->assertNotEquals(0.20, round($jig1Values[0], 4));
-            $this->assertNotEquals(0.20, round($jig2Values[0], 4));
+            $this->assertNotEquals(0.20, round($jig1TotalVal, 4));
+            $this->assertNotEquals(0.20, round($jig2TotalVal, 4));
         } finally {
             if (file_exists($tempFile)) {
                 unlink($tempFile);
@@ -493,9 +494,9 @@ class ProjectJigExcelExportTest extends TestCase
         try {
             $spreadsheet = IOFactory::load($tempZero);
             $sheet = $spreadsheet->getActiveSheet();
-            $this->assertEquals(0.0, (float)$sheet->getCell('N3')->getValue());
-            $this->assertEquals('0.0%', $sheet->getStyle('N3')->getNumberFormat()->getFormatCode());
+            $this->assertEmpty($sheet->getCell('N3')->getValue(), 'Fixture row Column N must be empty');
             $this->assertEquals(0.0, (float)$sheet->getCell('N4')->getValue());
+            $this->assertEquals('0.0%', $sheet->getStyle('N4')->getNumberFormat()->getFormatCode());
         } finally {
             if (file_exists($tempZero)) {
                 unlink($tempZero);
@@ -571,9 +572,9 @@ class ProjectJigExcelExportTest extends TestCase
         try {
             $spreadsheet = IOFactory::load($tempHundred);
             $sheet = $spreadsheet->getActiveSheet();
-            $this->assertEquals(1.0, (float)$sheet->getCell('N3')->getValue());
-            $this->assertEquals('0.0%', $sheet->getStyle('N3')->getNumberFormat()->getFormatCode());
+            $this->assertEmpty($sheet->getCell('N3')->getValue(), 'Fixture row Column N must be empty');
             $this->assertEquals(1.0, (float)$sheet->getCell('N4')->getValue());
+            $this->assertEquals('0.0%', $sheet->getStyle('N4')->getNumberFormat()->getFormatCode());
         } finally {
             if (file_exists($tempHundred)) {
                 unlink($tempHundred);
@@ -607,7 +608,7 @@ class ProjectJigExcelExportTest extends TestCase
         try {
             $spreadsheet = IOFactory::load($tempEmpty);
             $sheet = $spreadsheet->getActiveSheet();
-            $this->assertEquals(0.0, (float)$sheet->getCell('N3')->getValue());
+            $this->assertEmpty($sheet->getCell('N3')->getValue(), 'Fixture row Column N should be empty');
             $this->assertEquals(0.0, (float)$sheet->getCell('N4')->getValue());
         } finally {
             if (file_exists($tempEmpty)) {
