@@ -4,10 +4,10 @@
 Project: SpareTrack (Industrial Spare Parts Tracking & Workflow Execution System)
 Document: PROJECT_CONTEXT_SUMMARY.md
 Status: Canonical Project Context & Universal AI Knowledge Base
-Last Updated: September 10, 2026
+Last Updated: September 11, 2026
 Last Updated By: Antigravity
-Version: 2.11.0
-Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment)
+Version: 2.12.0
+Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment - 249/249 Tests Passing)
 ```
 
 > [!IMPORTANT]
@@ -98,11 +98,18 @@ The platform eliminates paper tally sheets, fragmented spreadsheets, and uncoord
                               ▼
                         ┌───────────────────────────┐
                         │    ASSEMBLY COMPLETED     │
-                        │    (100% Green Status)    │
+                        │  (100% Cascading Green)   │
                         └───────────────────────────┘
 ```
 
-### 1.2 User Roles & Operational Portals
+### 1.2 Core Architectural Principles
+1. **Mathematical Conservation:** Every physical part accounted for. Total parts = Received + Pending. Received = Store + QC + Rework + Paint + Assembly + Assembled.
+2. **Deterministic State Machine:** Strict forward and reverse department progression. No skipped steps.
+3. **Multi-BOM Isolation:** Dedicated pipelines and KPI groups for Manufacturing (MFG), Bought Out Parts (BOP), and Standard Hardware (STD).
+4. **Permanent ECN Audit Trail:** Engineering changes tracked on isolated ledger with zero impact on historical baselines.
+5. **Real-Time Synchronicity:** Sub-second UI updates via WebSockets and REST APIs.
+
+### 1.3 User Roles & Operational Portals
 
 | Portal / Layer | Primary Users | Department Scope | Key Functions |
 |---|---|---|---|
@@ -110,7 +117,7 @@ The platform eliminates paper tally sheets, fragmented spreadsheets, and uncoord
 | **Purchase Desk** | Purchase Executives, Sourcing | Purchase, Supply Chain | Unit supplier allocation (BASE/WELDMENT/CHILD PART), cross-project overview table, supplier master CRUD, QC rejected reorder queue. |
 | **Mobile Floor App** | Shop Floor Operators, Supervisors | Store, QC, Rework, Paint, Assembly | Physical barcode/item lookup, quantity steppers, bulk receiving, QC pass/defect split, one-click rework completion, assembly sign-off, lineage revert. |
 
-### 1.3 Core Technology Stack
+### 1.4 Core Technology Stack
 
 * **Backend API:** Laravel 11.x (PHP 8.3+, Eloquent ORM, REST API, Laravel Sanctum, Spatie Permission)
 * **Relational Database:** PostgreSQL 16 (Native relational constraints, compound unique indexes, pg_trgm search)
@@ -140,7 +147,7 @@ The platform eliminates paper tally sheets, fragmented spreadsheets, and uncoord
 | **Supplier Master & Excel Import** | **STABLE** | Production | Multi-phone numbers (`supplier_phones`), safe deletion protection for active assignments. |
 | **Management Dashboard & KPI Drilldown** | **STABLE** | Production | 11 canonical KPI drilldown datasets, Excel/PDF streaming exports. |
 | **Mobile Floor App (Expo EAS OTA)** | **STABLE** | Production | Shorthand IP normalizer (`100.30`, `9.200`), auto-port `:8080`, quantity steppers. |
-| **Automated Test Suite** | **STABLE** | Testing/CI | **217 passed feature tests (2,552 assertions)** with 0 failures. |
+| **Automated Test Suite** | **STABLE** | Testing/CI | **249 passed feature tests (2,878 assertions)** with 0 failures. |
 
 ### 2.2 Production Environment vs Experimental
 * **Production Environment:** On-Premise Windows 11 Desktop server running Docker Compose (`192.168.9.200:8080`). Active production projects: `FA-273` and `FA-279`.
@@ -417,13 +424,14 @@ $$\text{Project} \longrightarrow \text{Jig} \longrightarrow \text{Unit} \longrig
 
 * **Level 1: Project**: Customer assembly contract (e.g. `FA-273`, `FA-279 - Main Floor Framing`).
 * **Level 2: Jig**: Structural tooling fixture frame code (e.g. `169961@`, `LIMOFD20`). Rendered **once** per physical Jig node in unified views.
-  * **Jig Card Status Indicators**: Every Jig card header displays 7 authoritative workflow status badges with crisp icons:
+  * **Jig Card Status Indicators**: Every Jig card header displays 8 authoritative workflow status badges styled with a uniform high-contrast `.jig-metric-pill` enterprise MES palette:
     - **`Req` (Required)**: `fas fa-list-ol` — Total parts required (`jig.total_required`).
     - **`Rec` (Received)**: `fas fa-boxes` — Total parts physically received in Store (`jig.total_received`).
     - **`Pend` (Pending)**: `fas fa-truck-loading` — Total parts pending receipt (`jig.total_pending`).
     - **`Store` (Store Bay)**: `fas fa-warehouse` — Parts currently resident in Store Bay inventory (`jig.metrics.parts_in_store`).
     - **`QC` (Quality Control)**: `fas fa-clipboard-check` — Parts in QC physical arrival or inspection (`jig.metrics.parts_in_qc`).
     - **`Rew` (Rework)**: `fas fa-tools` — Parts in active defect rework queue (`jig.metrics.parts_in_rework`).
+    - **`Paint` (Surface Coating)**: `fas fa-paint-roller` — Parts in active surface coating queue (`jig.metrics.parts_in_paint`).
     - **`Asm` (Assembly)**: `fas fa-cogs` — Completed assembled parts (`jig.metrics.assembly_completed`).
   * **Jig Type Classification:**
     * **`SIDE_SPECIFIC`**: Jigs containing parts with LH (Left Hand) and/or RH (Right Hand) variants. Rendered with dual LH/RH side panels.
@@ -523,7 +531,13 @@ BOP parts follow a strictly streamlined direct production workflow with **zero Q
 * **Zero Residencies:** In `QuantityCalculationService` and `HierarchyService`, BOP parts always have 0 resident quantities in QC, Rework, and Paint.
 * **Website-Only Aggregated Intake (`/bop` & `/std`):**
   - BOP and STD parts are grouped by `standard_part_no` across all projects/units into consolidated rows matching shop-floor inventory sheets.
-  - Transactions allocate quantities deterministically via FIFO across contributing project/jig/unit records.
+  - **Deterministic FIFO Priority Waterfall Allocation:** When bulk quantities (e.g., 10 pcs) are received on the web intake screen, parts are never allocated randomly or spread fractionally. They follow a strict, deterministic priority queue:
+    $$\text{Priority Ordering: } \text{project\_id ASC} \longrightarrow \text{jig\_no ASC} \longrightarrow \text{unit\_no ASC} \longrightarrow \text{id ASC} \longrightarrow \text{side ASC}$$
+  - **Unit Allocation Capacity Formula:** For each unit/side in the priority queue:
+    $$\text{Capacity} = \max(0, \text{Required Quantity} - \text{Already Received Quantity})$$
+  - **Greedy Waterfall Allocation:** If $\text{Capacity} > 0$, the unit takes $\min(\text{Remaining to Allocate}, \text{Capacity})$. Leftover quantities cascade down to the next unit (`Unit 01` $\rightarrow$ `Unit 02` $\rightarrow$ `Unit 03`) until the entered batch quantity reaches 0.
+  - **Assembly-Line Readiness Rule:** Prioritizing and 100% satisfying lower-numbered units first ensures the shop floor has complete sets of hardware to immediately start physical mechanical assembly, rather than scattering fractional parts across all units where no unit can be assembled.
+  - **Granular Ledger Traceability:** Even when entered as a single aggregated number (e.g., "10") on the web screen, distinct `ReceiptItem` and `WorkflowEvent` records are generated per `bom_item_id`, `unit_no`, and `side`, maintaining complete mathematical accountability.
   - Mobile intake remains strictly restricted to MFG items only.
 
 ---
@@ -706,6 +720,16 @@ To eliminate congestion and prevent conflating custom fabricated parts with off-
   - Jigs and units are scoped per section (`${sectionKey}_${jigName}`) preventing expand/collapse collision across types.
 * **KPI Drilldown Modal:** Passes `part_type` filter parameter to backend, displays color-coded BOM Type badge, and includes a `TYPE` column.
 
+### 23.3 Top Projects Near Completion (All Active Projects Chart)
+* **Unrestricted Active Scope:** `DashboardController::summary()` removes the legacy `.take(5)` cap, dynamically returning all active projects with qualifying activity/progress, sorted by completion percentage descending.
+* **4-Tier Health Palette:**
+  - **Green (`#16a34a`)**: $\ge 80\%$ completion or "Completed / On Track".
+  - **Blue (`#2563eb`)**: $\ge 50\%$ completion or "Good Progress".
+  - **Yellow / Amber (`#eab308`)**: $\ge 20\%$ completion or "Needs Attention".
+  - **Red (`#dc2626`)**: $< 20\%$ completion or "Critical / Early".
+* **Zero Percent Visibility (`minBarLength: 4`):** Ensures that newly created or $0\%$ progress active projects render with a visible, interactive 4px bar stub so users can hover, inspect tooltips, and click to drill down.
+* **Auto-Scaling Responsive Canvas:** Automatically calculates dynamic canvas container height ($\max(220, N \times 34\text{px})$) so portfolios of 10+ projects render without overlapping labels.
+
 ---
 
 ## 24. Mobile App Architecture `[VERIFIED]`
@@ -732,12 +756,20 @@ To eliminate congestion and prevent conflating custom fabricated parts with off-
 ## 25. Website Architecture `[VERIFIED]`
 
 * **Visual Alignment:** Built with Vue 3 and Bootstrap 5.3 following the visual design language of **WebErpMesv2** (clean topbar, collapsible dark sidebar, high-density data tables, status pill badges, modal drilldowns).
-* **Jig Status Badge Group:** Displays 7 concise, color-coded badges (`Req`, `Rec`, `Pend`, `Store`, `QC`, `Rew`, `Asm`) with FontAwesome icons, hover tooltips, and horizontal alignment alongside the completion percentage bar without card bloat.
+* **Jig Status Badge Group:** Displays 8 concise, color-coded badges (`Req`, `Rec`, `Pend`, `Store`, `QC`, `Rew`, `Paint`, `Asm`) with FontAwesome icons, hover tooltips, and horizontal alignment alongside the completion percentage bar in a uniform `.jig-metric-pill` enterprise MES palette without card bloat.
 * **Streamlined Part Tables:** MFG, BOP, and STD Part tables display streamlined workflow columns (`#`, `PART NUMBER`, `SIDE`, `REQ`, `REC`, `PEND`, `STATUS`) with generous space allocated to part numbers and 1.5px black structural borders separating BOM type columns.
 * **Universal Export Engine (`app/Services/ExportService.php`):**
   - **Part Number Format:** Formats unique part identifier as a continuous string:
     $$\text{Part Number} = \text{Jig No} + \text{Unit No} + \text{Part No} + (\text{R} \mid \text{L}) \quad (\text{e.g. } 169961@00020\#R00R)$$
-  - **Exports:** Scoped Excel (`.xlsx`) and PDF (`.pdf`) streaming generation directly from the Parts Movement Detail modal.
+  - **KPI Drilldown Exports:** Scoped Excel (`.xlsx`) and PDF (`.pdf`) streaming generation directly from the Parts Movement Detail modal.
+  - **Project Jig Excel Export (`/api/v1/projects/{id}/export-jigs`):**
+    - High-performance streaming Excel export matching reference production layout.
+    - **Per-Jig Visual Grouping:** Each Jig is rendered as a standalone table preceded by a 14pt bold merged title banner.
+    - **Gold / Tan Header Banner (`#F5E6CB`):** 11pt bold dark text (`#1E293B`) with thin borders (`#CBD5E1`).
+    - **Columns:** `Fix No.`, `Part Number`, `Description`, `Qty/Fix`, `Total Qty`, `BOP`, `STD`, `MFG`, `Supplier Name`, `PO Date`, `Delivery Date`, `Unit Name`, `Remarks`.
+    - **Fixture Row Format:** Formats `Fix No.` as `{Jig Name}-{Side}` (e.g. `JIG-01-RH`, `JIG-01-LH`).
+    - **Missing Data Preservation:** If date, supplier, or remarks are not recorded in the database, cells remain cleanly blank (no dummy placeholders).
+    - **Dedicated `TOTAL` Summary Row:** Bottom row of each Jig table computes `=SUM(...)` formulas for `BOP`, `STD`, `MFG`, and `Total Qty` with bold styling and accounting double-underline.
 
 ---
 
@@ -759,6 +791,7 @@ Authenticated Endpoints (Bearer Token Required):
   GET  /api/v1/dashboard/project-hierarchy     -> 5-level mechanical tree with green states
   GET  /api/v1/dashboard/kpi-drilldown         -> Detailed drilldown row items for any KPI card
   GET  /api/v1/dashboard/jig-suppliers         -> Jig vendor indicators (ADMIN/MANAGER/PURCHASE)
+  GET  /api/v1/projects/{id}/export-jigs       -> Export project Jigs Excel workbook (.xlsx)
 
   # BOM Management
   POST /api/v1/bom/preview                     -> Preview & diff uploaded Excel BOM
@@ -861,8 +894,14 @@ Default password for development and staging across all roles: **`password123`**
 | `sparetrack-worker`| Laravel Queue Worker | Daemon | Internal | Background Job Consumer |
 | `sparetrack-adminer`| Adminer Database Browser | `8080` | `8088` | `http://192.168.9.200:8088` |
 
-### 28.2 1-Click Server Update SOP
+### 28.2 1-Click Server Update SOP (Zero Data Loss Guaranteed)
 To deploy verified updates to the server without downtime or data risk:
+
+#### Production Safeguards:
+1. **Never run `migrate:fresh`, `migrate:reset`, or `db:wipe` on production.** (These drop all tables and delete production records).
+2. **Safe migrations only:** `docker exec -t sparetrack-app php artisan migrate --force` only applies new additive migrations/indexes.
+3. **Database container kept online:** `sparetrack-postgres` is NOT restarted during app container updates.
+4. **Pre-flight snapshot:** The update scripts automatically execute `pg_dump` into `./backups/` before touching any code or cache.
 
 #### On Windows Server (Command Prompt / PowerShell):
 ```cmd
@@ -875,12 +914,20 @@ update_server.bat
 
 #### On Linux / macOS Server:
 ```bash
-bash update_server.sh
+chmod +x update_server.sh
+./update_server.sh
 ```
 
-#### Manual PowerShell Deployment Command:
+#### Safe 3-Step Git Pull Sequence:
+```bash
+git stash --include-untracked
+git fetch origin main
+git reset --hard origin/main
+```
+
+#### Manual All-in-One Deployment Command:
 ```powershell
-git stash; git pull origin main; npm run build; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx; Start-Sleep -Seconds 3; curl.exe -s http://127.0.0.1:8080/api/v1/health
+New-Item -ItemType Directory -Force -Path "./backups" | Out-Null; $ts = Get-Date -Format "yyyyMMdd_HHmmss"; docker exec -t sparetrack-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | Out-File -FilePath "./backups/sparetrack_pre_update_$ts.sql" -Encoding utf8; git stash --include-untracked; git fetch origin main; git reset --hard origin/main; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx; Start-Sleep -Seconds 3; curl.exe -s http://127.0.0.1:8080/api/v1/health
 ```
 
 ### 28.3 Database Backup & Disaster Recovery
@@ -1043,6 +1090,15 @@ To guarantee production stability, all repository contributions strictly adhere 
 16. **Incident: Unit Number Padding Discrepancy Across BOM Types & 3-Panel Black Border Visual Separation**
     * *Root Cause:* Raw BOM Excel files formatted unit numbers differently (MFG used 2-digit zero-padded strings like `"04"`, while BOP/STD used single digits like `"4"`). `HierarchyService.php` grouped on raw strings, creating duplicate un-unified unit nodes (e.g. `Unit 4` containing only BOP/STD parts and showing `0 Parts / No MFG Parts`).
     * *Resolution:* Standardized numeric unit normalization in `HierarchyService.php` (`sprintf('%02d', (int)$cleanUnit)` $\rightarrow$ `Unit 04`), unifying all BOM types under single nodes. Added 1.5px solid `#0f172a` black structural borders and responsive spacing around the 3 BOM panels in `Dashboard.vue`.
+17. **Incident: Top Projects Near Completion Truncation & Health Visibility**
+    * *Root Cause:* `DashboardController::summary()` capped top projects at `.take(5)`, hiding qualifying active projects; $0\%$ completion projects were invisible on the chart canvas; only two hardcoded bar colors were used.
+    * *Resolution:* Removed `.take(5)` to return all active qualifying projects. Implemented 4 authoritative health tiers (`#16a34a`, `#2563eb`, `#eab308`, `#dc2626`) and `minBarLength: 4` for 0% visibility. Added responsive auto-scaling canvas height.
+18. **Incident: Project Jig Excel Export Formatting Discrepancy**
+    * *Root Cause:* Missing project-level Jig Excel export matching the customer production fixture layout.
+    * *Resolution:* Engineered `ExportService::exportProjectJigs()` with merged 14pt Jig title banners, gold/tan headers (`#F5E6CB`), fixture rows `{Jig}-{Side}`, dedicated `TOTAL` numeric formula rows per Jig, and blank cells for missing date/supplier records.
+19. **Incident: Missing Paint Badge on Jig Cards & Metric Pill Inconsistency**
+    * *Root Cause:* Jig card headers displayed 7 metrics omitting `Paint`, leaving shop floor managers unable to see coating queue counts at the Jig level.
+    * *Resolution:* Added `Paint` metric pill with `fas fa-paint-roller` icon and standardized all Jig card badges with `.jig-metric-pill` enterprise MES palette.
 
 ---
 
@@ -1050,7 +1106,7 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Issue | Severity | Affected Area | Known Root Cause | Status | Last Updated |
 |---|---|---|---|---|---|
-| None | N/A | None | All 16 historical anomalies resolved and backed by 216 automated feature tests. | **ALL FIXED (0 Open Issues)** | September 07, 2026 |
+| None | N/A | None | All 19 historical anomalies resolved and backed by 249 automated feature tests (2,878 assertions). | **ALL FIXED (0 Open Issues)** | September 11, 2026 |
 
 ---
 
@@ -1058,6 +1114,9 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Date | Change Summary | Files / Modules Affected | Database Schema Changes | Behavioral Impact | Testing Status |
 |---|---|---|---|---|---|
+| **2026-09-10** | Server Deployment SOP & Pre-Update Automated Backup Script Hardening (Zero Data Loss SOP) | `SERVER_UPDATE_COMMANDS.md`, `update_server.bat`, `update_server.ps1`, `update_server.sh` | None (Deployment Scripts & Host Disaster Recovery SOP) | Automates pre-flight PostgreSQL database dumps (`pg_dump`) to `./backups/` before any git pull or schema update; standardizes 3-step git pull (`git stash --include-untracked`, `git fetch origin main`, `git reset --hard origin/main`); establishes strict production rules forbidding `migrate:fresh`, `migrate:reset`, or `db:wipe`; synchronizes `main` and `branch-a` at commit `ab25af1` | Verified (Manual execution & script testing) |
+| **2026-09-10** | Project Jig Excel Export Layout Alignment (Per-Jig Tables, Merged Banners, Gold Headers `#F5E6CB`, Formula Totals, Blank Missing Data) | `ExportService.php`, `ProjectJigExcelExportTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Export Service & Test Suite) | Formats project Jig Excel export (`/api/v1/projects/{id}/export-jigs`) to match customer production layout: individual table per Jig with 14pt bold merged title banner, gold/tan headers (`#F5E6CB`), fixture rows `{Jig}-{Side}`, blank cells for missing date/supplier records, and dedicated `TOTAL` row computing `=SUM(...)` formulas for BOP, STD, MFG, and Total Qty | Passing (249 tests, 2878 assertions) |
+| **2026-09-10** | Top Projects Near Completion All Active Projects Chart, Project Jig Excel Export & Jig Card Paint Badge Modernization | `DashboardController.php`, `ExportController.php`, `ExportService.php`, `QuantityCalculationService.php`, `Dashboard.vue`, `routes/api.php`, `ProjectJigExcelExportTest.php`, `TopProjectsNearCompletionTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (API Endpoints, Domain Services, Chart.js Visualizations & Vue 3 Component Polish) | (1) Displays all qualifying active projects on horizontal bar chart with 4 health colors (`#16a34a`, `#2563eb`, `#eab308`, `#dc2626`) and `minBarLength: 4` for 0% visibility; (2) implements Project Jig Excel streaming download; (3) adds Paint metric pill to Jig card header badge list and converts all badges to uniform `.jig-metric-pill` enterprise MES palette | Passing (249 tests, 2878 assertions) |
 | **2026-09-08** | BOP & STD Website Tab Streamlining: Unnecessary Helper UI, Status Filter Blocks & Header Dashboard Buttons Removal | `BopIntake.vue`, `StdIntake.vue`, `PROJECT_CONTEXT_SUMMARY.md` | None (Frontend Component Streamlining & Layout Optimization) | Cleans up the BOP and STD intake views by removing 5 redundant helper elements: (1) redundant Department Status Filter button blocks, (2) standalone header Dashboard buttons, (3) explanatory Breakdown helper sentences, (4) BOP description subtitle, and (5) STD description subtitle; rebalances Search and Project filter controls into a clean 2-column layout (`col-md-7` / `col-md-5`) while preserving full KPI summary card click filtering, table structures, and FIFO workflow transitions | Passing (237 tests, 2737 assertions) |
 | **2026-09-08** | BOP & STD Progress Calculation Correction (Completed / Required) & BOP Quick Workflow Action Toolbar Redesign | `BopIntakeService.php`, `StdIntakeService.php`, `BopIntake.vue`, `StdIntake.vue`, `BopIntakeAndWorkflowTest.php`, `StdIntakeAndWorkflowTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Calculation, API Response & Frontend Component Modernization) | Fixes root cause where BOP & STD Progress was calculated from received quantity; establishes authoritative production completion formula `completion_pct = min(100, max(0, round((assemblyCompleted / totalRequired) * 100)))`; adds secondary `X / Y done` subtle indicator below progress bars; redesigns BOP Quick Workflow Action controls into the compact, professional STD enterprise toolbar style (`.bop-toolbar`, `.bop-btn-action`, `1.5px solid #64748b` structural borders, `#334155` hover, labels `Receive`, `ASM`, `Complete`); strictly isolates BOP workflow to `Pending -> Store -> Assembly -> Completed` with zero exposure of QC, Rework, or Paint | Passing (237 tests, 2737 assertions) |
 | **2026-09-08** | STD Quick Movement Structural Gray Button Borders (`1.5px solid #64748b`) & Container Visual Hierarchy | `StdIntake.vue`, `PROJECT_CONTEXT_SUMMARY.md` | None (Frontend CSS Styling & Visual Contrast Polish) | Enhances visual separation between adjacent STD Quick Movement actions by replacing high-luminance near-white pastel borders with a medium-dark structural neutral gray border (`1.5px solid #64748b`) and `#334155` hover state; refines container border to `#cbd5e1` for clean framing hierarchy; preserves compact toolbar dimensions, pastel semantic background fills, icons, and 100% of underlying workflow transitions | Passing (235 tests, 2701 assertions) |
