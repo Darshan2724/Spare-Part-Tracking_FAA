@@ -387,6 +387,7 @@ class ExportService
             'Rework',
             'Paintshop',
             'Assembly',
+            'Assembly Completed',
             'ECN',
             'Project Completion %'
         ];
@@ -397,13 +398,13 @@ class ExportService
             $jigName = $jig['jig_name'] ?? 'N/A';
             $jKey = strtoupper(trim((string)$jigName));
 
-            // 1. Jig Name Header Row (Merged A to M, 14pt bold centered)
+            // 1. Jig Name Header Row (Merged A to N, 14pt bold centered)
             $bannerRow = $currentRow;
             $sheet->setCellValue('A' . $bannerRow, $jigName);
-            $sheet->mergeCells("A{$bannerRow}:M{$bannerRow}");
+            $sheet->mergeCells("A{$bannerRow}:N{$bannerRow}");
             $sheet->getStyle("A{$bannerRow}")->getFont()->setBold(true)->setSize(14)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
             $sheet->getStyle("A{$bannerRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
-            $sheet->getStyle("A{$bannerRow}:M{$bannerRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
+            $sheet->getStyle("A{$bannerRow}:N{$bannerRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
             $sheet->getRowDimension($bannerRow)->setRowHeight(28);
             $currentRow++;
 
@@ -414,10 +415,10 @@ class ExportService
                 $sheet->setCellValue($colChar . $headerRow, $h);
                 $colChar++;
             }
-            $sheet->getStyle("A{$headerRow}:M{$headerRow}")->getFont()->setBold(true)->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
-            $sheet->getStyle("A{$headerRow}:M{$headerRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF5E6CB');
-            $sheet->getStyle("A{$headerRow}:M{$headerRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(true);
-            $sheet->getStyle("A{$headerRow}:M{$headerRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
+            $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getFont()->setBold(true)->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
+            $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF5E6CB');
+            $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(true);
+            $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
             $sheet->getRowDimension($headerRow)->setRowHeight(26);
             $currentRow++;
 
@@ -436,6 +437,7 @@ class ExportService
                                 'rework' => 0,
                                 'paintshop' => 0,
                                 'assembly' => 0,
+                                'assembly_completed' => 0,
                                 'ecn' => 0,
                             ];
                         }
@@ -446,7 +448,8 @@ class ExportService
                         $sidesMap[$normSide]['quality'] += (int)($m['parts_in_qc'] ?? (($m['qc_pending_arrival'] ?? 0) + ($m['qc_pending_inspection'] ?? 0)));
                         $sidesMap[$normSide]['rework'] += (int)($m['parts_in_rework'] ?? ($m['rework_pending'] ?? 0));
                         $sidesMap[$normSide]['paintshop'] += (int)($m['parts_in_paint'] ?? ($m['paint_ready'] ?? 0));
-                        $sidesMap[$normSide]['assembly'] += (int)($sData['assembly_completed'] ?? ($m['assembly_completed'] ?? 0));
+                        $sidesMap[$normSide]['assembly'] += (int)($m['parts_in_assembly'] ?? ($m['assembly_ready'] ?? 0));
+                        $sidesMap[$normSide]['assembly_completed'] += (int)($sData['assembly_completed'] ?? ($m['assembly_completed'] ?? 0));
                         $sidesMap[$normSide]['ecn'] += (int)($sData['ecn_count'] ?? 0);
                     }
                 } else {
@@ -460,6 +463,7 @@ class ExportService
                             'rework' => 0,
                             'paintshop' => 0,
                             'assembly' => 0,
+                            'assembly_completed' => 0,
                             'ecn' => 0,
                         ];
                     }
@@ -470,7 +474,8 @@ class ExportService
                     $sidesMap[$normSide]['quality'] += (int)($m['parts_in_qc'] ?? (($m['qc_pending_arrival'] ?? 0) + ($m['qc_pending_inspection'] ?? 0)));
                     $sidesMap[$normSide]['rework'] += (int)($m['parts_in_rework'] ?? ($m['rework_pending'] ?? 0));
                     $sidesMap[$normSide]['paintshop'] += (int)($m['parts_in_paint'] ?? ($m['paint_ready'] ?? 0));
-                    $sidesMap[$normSide]['assembly'] += (int)($m['assembly_completed'] ?? 0);
+                    $sidesMap[$normSide]['assembly'] += (int)($m['parts_in_assembly'] ?? ($m['assembly_ready'] ?? 0));
+                    $sidesMap[$normSide]['assembly_completed'] += (int)($u['assembly_completed'] ?? ($m['assembly_completed'] ?? 0));
                     $sidesMap[$normSide]['ecn'] += (int)($u['ecn_count'] ?? 0);
                 }
             }
@@ -498,6 +503,7 @@ class ExportService
                 'rework' => 0,
                 'paintshop' => 0,
                 'assembly' => 0,
+                'assembly_completed' => 0,
                 'ecn' => 0,
             ];
 
@@ -551,6 +557,7 @@ class ExportService
                 $rework = (int) $vals['rework'];
                 $paintshop = (int) $vals['paintshop'];
                 $assembly = (int) $vals['assembly'];
+                $assemblyCompleted = (int) $vals['assembly_completed'];
                 $ecn = (int) $vals['ecn'];
 
                 $jigTotals['total'] += $total;
@@ -560,6 +567,7 @@ class ExportService
                 $jigTotals['rework'] += $rework;
                 $jigTotals['paintshop'] += $paintshop;
                 $jigTotals['assembly'] += $assembly;
+                $jigTotals['assembly_completed'] += $assemblyCompleted;
                 $jigTotals['ecn'] += $ecn;
 
                 // Set row values
@@ -576,17 +584,18 @@ class ExportService
                 $sheet->setCellValueExplicit('I' . $currentRow, $rework, DataType::TYPE_NUMERIC);
                 $sheet->setCellValueExplicit('J' . $currentRow, $paintshop, DataType::TYPE_NUMERIC);
                 $sheet->setCellValueExplicit('K' . $currentRow, $assembly, DataType::TYPE_NUMERIC);
-                $sheet->setCellValueExplicit('L' . $currentRow, $ecn, DataType::TYPE_NUMERIC);
-                $sheet->setCellValueExplicit('M' . $currentRow, $projCompletionRatio, DataType::TYPE_NUMERIC);
-                $sheet->getStyle('M' . $currentRow)->getNumberFormat()->setFormatCode('0.0%');
+                $sheet->setCellValueExplicit('L' . $currentRow, $assemblyCompleted, DataType::TYPE_NUMERIC);
+                $sheet->setCellValueExplicit('M' . $currentRow, $ecn, DataType::TYPE_NUMERIC);
+                $sheet->setCellValueExplicit('N' . $currentRow, $projCompletionRatio, DataType::TYPE_NUMERIC);
+                $sheet->getStyle('N' . $currentRow)->getNumberFormat()->setFormatCode('0.0%');
 
                 // Row formatting & borders
                 $sheet->getStyle('A' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
                 $sheet->getStyle('B' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
                 $sheet->getStyle('C' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT)->setVertical(Alignment::VERTICAL_CENTER);
                 $sheet->getStyle('D' . $currentRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
-                $sheet->getStyle("E{$currentRow}:M{$currentRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT)->setVertical(Alignment::VERTICAL_CENTER);
-                $sheet->getStyle("A{$currentRow}:M{$currentRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
+                $sheet->getStyle("E{$currentRow}:N{$currentRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT)->setVertical(Alignment::VERTICAL_CENTER);
+                $sheet->getStyle("A{$currentRow}:N{$currentRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
                 $sheet->getRowDimension($currentRow)->setRowHeight(20);
                 $currentRow++;
             }
@@ -605,14 +614,15 @@ class ExportService
             $sheet->setCellValueExplicit('I' . $totalRow, $jigTotals['rework'], DataType::TYPE_NUMERIC);
             $sheet->setCellValueExplicit('J' . $totalRow, $jigTotals['paintshop'], DataType::TYPE_NUMERIC);
             $sheet->setCellValueExplicit('K' . $totalRow, $jigTotals['assembly'], DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit('L' . $totalRow, $jigTotals['ecn'], DataType::TYPE_NUMERIC);
-            $sheet->setCellValueExplicit('M' . $totalRow, $projCompletionRatio, DataType::TYPE_NUMERIC);
-            $sheet->getStyle('M' . $totalRow)->getNumberFormat()->setFormatCode('0.0%');
+            $sheet->setCellValueExplicit('L' . $totalRow, $jigTotals['assembly_completed'], DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit('M' . $totalRow, $jigTotals['ecn'], DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit('N' . $totalRow, $projCompletionRatio, DataType::TYPE_NUMERIC);
+            $sheet->getStyle('N' . $totalRow)->getNumberFormat()->setFormatCode('0.0%');
 
-            $totalRange = "A{$totalRow}:M{$totalRow}";
+            $totalRange = "A{$totalRow}:N{$totalRow}";
             $sheet->getStyle($totalRange)->getFont()->setBold(true)->setSize(10)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
             $sheet->getStyle('A' . $totalRow)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
-            $sheet->getStyle("E{$totalRow}:M{$totalRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT)->setVertical(Alignment::VERTICAL_CENTER);
+            $sheet->getStyle("E{$totalRow}:N{$totalRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT)->setVertical(Alignment::VERTICAL_CENTER);
             $sheet->getStyle($totalRange)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setARGB('FF000000');
             $sheet->getRowDimension($totalRow)->setRowHeight(22);
             $currentRow++;
@@ -624,7 +634,7 @@ class ExportService
 
         // Column widths for immediate readability
         $sheet->getColumnDimension('A')->setWidth(18); // Fix No.
-        $sheet->getColumnDimension('B')->setWidth(20); // Design Release Date
+        $sheet->getColumnDimension('B')->setWidth(20); // Design Release date
         $sheet->getColumnDimension('C')->setWidth(26); // Supplier Name
         $sheet->getColumnDimension('D')->setWidth(18); // Mfg Receipt Date
         $sheet->getColumnDimension('E')->setWidth(12); // Total
@@ -633,9 +643,10 @@ class ExportService
         $sheet->getColumnDimension('H')->setWidth(12); // Quality
         $sheet->getColumnDimension('I')->setWidth(12); // Rework
         $sheet->getColumnDimension('J')->setWidth(12); // Paintshop
-        $sheet->getColumnDimension('K')->setWidth(12); // Assembly
-        $sheet->getColumnDimension('L')->setWidth(12); // ECN
-        $sheet->getColumnDimension('M')->setWidth(22); // Project Completion %
+        $sheet->getColumnDimension('K')->setWidth(14); // Assembly
+        $sheet->getColumnDimension('L')->setWidth(20); // Assembly Completed
+        $sheet->getColumnDimension('M')->setWidth(12); // ECN
+        $sheet->getColumnDimension('N')->setWidth(22); // Project Completion %
 
         $filename = "{$project->project_code}-Jig-Material-Status.xlsx";
         $writer = new Xlsx($spreadsheet);

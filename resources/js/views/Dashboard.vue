@@ -143,7 +143,7 @@
           <div class="d-flex align-items-center gap-3">
             <div class="text-end me-2">
               <div class="text-white-50 extra-small text-uppercase">Project Assembly Progress</div>
-              <div class="fw-bold fs-5 text-white">{{ hierarchyData.canonical_summary?.completion_pct || metrics.completion_pct || 0 }}%</div>
+              <div class="fw-bold fs-5 text-white">{{ hierarchyData.canonical_summary?.assembly_completion_pct ?? hierarchyData.canonical_summary?.weighted_completion ?? ((hierarchyData.canonical_summary?.total_required > 0) ? (Math.min(100, Math.round(((hierarchyData.canonical_summary?.assembly_completed || 0) / hierarchyData.canonical_summary.total_required) * 1000) / 10)) : 0) }}%</div>
             </div>
             <button @click="resetFilters" class="btn btn-outline-light btn-sm">
               <i class="fas fa-times me-1"></i> Clear / Portfolio View

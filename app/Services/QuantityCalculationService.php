@@ -896,6 +896,7 @@ class QuantityCalculationService
         $pending = $m['total_pending'] ?? $m['pending_qty'] ?? max(0, $req - $rec);
         $completion = $m['completion_pct'] ?? ($req > 0 ? min(100, round(($rec / $req) * 100, 1)) : 0);
         $asmComp = $m['assembly_completed'] ?? $m['assembly_qty'] ?? 0;
+        $weightedCompletion = $req > 0 ? min(100, round(($asmComp / $req) * 100, 1)) : 0.0;
         $isComplete = ($req > 0 && $asmComp >= $req);
 
         return [
@@ -934,6 +935,8 @@ class QuantityCalculationService
             'assembly_completed' => $asmComp,
             'progress_percent' => $completion,
             'completion_pct' => $completion,
+            'assembly_completion_pct' => $weightedCompletion,
+            'weighted_completion' => $weightedCompletion,
             'is_complete' => $isComplete,
         ];
     }
