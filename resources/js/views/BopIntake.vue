@@ -281,6 +281,17 @@
                         <i class="fas fa-cogs"></i> ASM
                       </button>
 
+                      <!-- 2b. Allocate to Units (Manager / Assembly) -->
+                      <button 
+                        v-if="part.parts_in_assembly > 0 && canAllocate" 
+                        class="bop-btn-action bop-btn-allocate" 
+                        title="Allocate generic stock to specific units"
+                        aria-label="Allocate generic stock to specific units"
+                        @click="openAllocationModal(part)"
+                      >
+                        <i class="fas fa-tasks"></i> Alloc
+                      </button>
+
                       <!-- 3. Mark Assembled -->
                       <button 
                         v-if="part.parts_in_assembly > 0" 
@@ -506,6 +517,15 @@
       </div>
     </div>
 
+    <!-- ASSEMBLY ALLOCATION MODAL -->
+    <AssemblyAllocationModal
+      ref="allocationModalRef"
+      :standard-part-no="allocationPartNo"
+      bom-type="BOP"
+      :project-id="selectedProjectId"
+      @allocated="fetchBopData"
+    />
+
   </div>
 </template>
 
@@ -513,6 +533,23 @@
 import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import * as bootstrap from 'bootstrap';
+import { useAuthStore } from '../stores/auth';
+import AssemblyAllocationModal from '../components/AssemblyAllocationModal.vue';
+
+const authStore = useAuthStore();
+const canAllocate = computed(() => {
+  const roles = authStore.user?.roles?.map(r => r.name?.toUpperCase()) || [];
+  const primaryRole = authStore.userRole?.toUpperCase();
+  return ['ADMIN', 'MANAGER', 'ASSEMBLY'].some(r => roles.includes(r) || primaryRole === r);
+});
+
+const allocationModalRef = ref(null);
+const allocationPartNo = ref('');
+
+function openAllocationModal(part) {
+  allocationPartNo.value = part.standard_part_no;
+  allocationModalRef.value?.show();
+}
 
 const loading = ref(false);
 const loadingBreakdown = ref(false);
@@ -870,5 +907,17 @@ onMounted(() => {
   background-color: #dcfce7;
   border-color: #334155;
   color: #14532d;
+}
+
+.bop-btn-allocate {
+  background-color: #eff6ff;
+  color: #1e40af;
+  border-color: #64748b;
+}
+.bop-btn-allocate i { color: #2563eb; }
+.bop-btn-allocate:hover {
+  background-color: #dbeafe;
+  border-color: #334155;
+  color: #1e3a8a;
 }
 </style>

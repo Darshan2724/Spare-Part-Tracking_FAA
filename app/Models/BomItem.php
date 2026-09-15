@@ -112,4 +112,14 @@ class BomItem extends Model
     {
         return $this->hasMany(WorkflowEvent::class);
     }
+
+    public function assemblyAllocations()
+    {
+        return $this->hasMany(AssemblyAllocation::class);
+    }
+
+    public function activeAssemblyAllocations()
+    {
+        return $this->hasMany(AssemblyAllocation::class)->where('status', 'active');
+    }
 }

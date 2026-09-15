@@ -11,6 +11,7 @@ use App\Models\QcInspection;
 use App\Models\ReworkRecord;
 use App\Models\PaintRecord;
 use App\Models\AssemblyRecord;
+use App\Models\AssemblyAllocation;
 use App\Models\WorkflowEvent;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -1061,6 +1062,8 @@ class StdIntakeService
                         'remarks' => $remarks ?: "Website STD Assembly Completed ({$take} pcs)",
                     ]);
 
+                    app(AssemblyAllocationService::class)->consumeAllocationOnCompletion($asmRec->bom_item_id, $asmRec->side, $take);
+
                     WorkflowEvent::create([
                         'bom_item_id' => $asmRec->bom_item_id,
                         'project_id' => $item->project_id,
@@ -1105,6 +1108,8 @@ class StdIntakeService
                             'completed_at' => now(),
                             'remarks' => $remarks ?: "Website STD Assembly Completed ({$take} pcs)",
                         ]);
+
+                        app(AssemblyAllocationService::class)->consumeAllocationOnCompletion($pnt->bom_item_id, $pnt->side, $take);
 
                         WorkflowEvent::create([
                             'bom_item_id' => $pnt->bom_item_id,
@@ -1151,6 +1156,8 @@ class StdIntakeService
                             'completed_at' => now(),
                             'remarks' => $remarks ?: "Website STD Direct Assembly Completed ({$take} pcs)",
                         ]);
+
+                        app(AssemblyAllocationService::class)->consumeAllocationOnCompletion($dqc->bom_item_id, $dqc->side, $take);
 
                         WorkflowEvent::create([
                             'bom_item_id' => $dqc->bom_item_id,

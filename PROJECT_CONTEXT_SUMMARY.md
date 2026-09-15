@@ -1244,5 +1244,115 @@ When troubleshooting any reported anomaly or bug, follow this safe protocol:
 > 6. **Follow Canonical Math Invariants:** Never alter quantity formulas without verifying compliance with [Section 31 (Data Integrity Rules)](#31-data-integrity-rules).
 > 7. **Maintain Reverse Lineage Integrity:** Follow [Section 18 (Revert Rules)](#18-revert-rules) for any workflow transition changes.
 > 8. **Respect Git Branching Policy:** All development work occurs on `branch-a`. PR required to merge into `main`.
-> 9. **Verify with Automated Tests:** Run `docker exec -t sparetrack-app php artisan test` to confirm all 181 tests pass before concluding.
+> 9. **Verify with Automated Tests:** Run `docker exec -t sparetrack-app php artisan test` to confirm all 287 tests pass before concluding.
 > 10. **Update This Document on Every Meaningful Change:** Whenever a new feature, bug fix, migration, API endpoint, or workflow rule is modified, update `PROJECT_CONTEXT_SUMMARY.md` in the same development cycle (recommended every 2–4 hours of active work).
+
+---
+
+## 41. Manager-Controlled Assembly Allocation System (BOP & STD) `[VERIFIED]`
+
+### 41.1 Architectural Overview & Core Motivation
+
+In manufacturing operations, Bought Out Parts (**BOP**) and Standard Hardware (**STD**) with the same `standard_part_no` are generic and interchangeable across multiple Units within a Project. During Receiving and Store intake, incoming shipments are physically resident in bulk or allocated in strict FIFO order across BOM requirements.
+
+However, on the production assembly floor, managers frequently need to prioritize specific Units (e.g., fast-tracking Unit 03 ahead of Unit 01) by reserving physically available generic parts for that unit's assembly bay.
+
+The **Manager-Controlled Assembly Allocation System** introduces a clean reservation layer for BOP and STD parts that allows managers to manually allocate assembly-ready parts to any eligible unit:
+1. **Zero Dashboard & KPI Impact:** Allocations do NOT modify `receipt_items`, `bom_requirements`, or `QuantityCalculationService` math. Dashboard counts and hierarchy trees reflect physical stage residency and completion unchanged.
+2. **MFG Behavior Untouched:** Manufacturing (`MFG`) parts follow their dedicated QC-driven workflow (Store -> QC -> Rework/Paint/Direct Assembly) and are strictly excluded from manager allocation.
+3. **Mobile Isolation:** Mobile application routes and behavior are completely unaffected.
+4. **Reservation Layer Semantics:** Allocation reserves parts; it does NOT equal Assembly Completed. Once the unit is assembled, the allocation is automatically consumed.
+
+---
+
+### 41.2 Database Schema: `assembly_allocations` Table
+
+Migration: `database/migrations/2026_09_15_000001_create_assembly_allocations_table.php`
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | `BIGSERIAL` | Primary Key | Auto-incrementing identifier |
+| `project_id` | `BIGINT` | FK -> `projects(id)`, ON DELETE CASCADE | Associated project |
+| `bom_item_id` | `BIGINT` | FK -> `bom_items(id)`, ON DELETE CASCADE | Specific BOM Item (carries Jig No & Unit No) |
+| `side` | `VARCHAR(10)` | Default `'COMMON'`, CHECK (`side IN ('COMMON', 'RH', 'LH')`) | Unit side specification |
+| `bom_type` | `VARCHAR(10)` | CHECK (`bom_type IN ('BOP', 'STD')`) | BOP or STD part type |
+| `allocated_quantity` | `INTEGER` | CHECK (`allocated_quantity > 0`) | Reserved quantity |
+| `status` | `VARCHAR(20)` | Default `'active'`, CHECK (`status IN ('active', 'consumed', 'released')`) | Allocation status |
+| `allocated_by` | `BIGINT` | Nullable, FK -> `users(id)`, ON DELETE SET NULL | User who performed allocation |
+| `remarks` | `VARCHAR(500)` | Nullable | Optional manager notes |
+| `created_at` / `updated_at` | `TIMESTAMP` | Default current timestamp | Audit timestamps |
+
+**Indexes**:
+- **Partial Unique Index**: `CREATE UNIQUE INDEX assembly_allocations_active_bom_side_idx ON assembly_allocations (bom_item_id, side) WHERE status = 'active'` (ensures at most one active allocation per unit/side).
+- Composite Index: `['project_id', 'bom_type', 'status']`
+- Composite Index: `['bom_item_id', 'status']`
+- Index: `allocated_by`
+
+---
+
+### 41.3 Business Rules & Invariants
+
+1. **Eligibility**:
+   - A unit is eligible for allocation if it belongs to a BOP or STD BOM item and has `remaining_need > 0` (`required_quantity - assembly_completed > 0`).
+2. **Maximum Allocatable Quantity**:
+   - `max_total_allocatable = min(unallocated_assembly_ready + current_allocation, remaining_need)`.
+   - Cannot allocate more than the unit's remaining need.
+   - Total allocated across all units sharing a `standard_part_no` within the project cannot exceed `total_assembly_ready_stock`.
+3. **Assembly-Ready Stock Calculation**:
+   - **BOP**: Sum of `received_quantity` of `receipt_items` where `status = 'in_assembly'`.
+   - **STD**: Sum of:
+     - `receipt_items` where `status = 'in_assembly'` (store direct to assembly)
+     - `paint_records` where `status IN ('completed', 'assembled')` minus assembled quantity
+     - `qc_inspections` where `destination = 'ASSEMBLY'` minus assembled quantity
+4. **Auto-Consumption on Assembly Completion**:
+   - When assembly completion occurs for a `(bom_item_id, side)`:
+     - If `allocated_quantity <= completed_quantity`, allocation status transitions to `'consumed'`.
+     - If `allocated_quantity > completed_quantity`, `allocated_quantity` is decremented by `completed_quantity` and remains `'active'`.
+   - Complete assembly transitions in `BopIntakeService`, `StdIntakeService`, and `AssemblyController` automatically invoke `AssemblyAllocationService::consumeAllocationOnCompletion()`.
+5. **Concurrency & Locking**:
+   - All mutations execute inside `DB::transaction()` with `lockForUpdate()` on `bom_items` and `assembly_allocations`.
+6. **Role Authorization**:
+   - Endpoints are authorized for `ADMIN`, `MANAGER`, and `ASSEMBLY` roles. Unauthorized roles return `403 Forbidden`.
+
+---
+
+### 41.4 API Endpoints: `/api/v1/assembly-allocation`
+
+| Method | Endpoint | Allowed Roles | Description |
+|---|---|---|---|
+| `GET` | `/context` | `ADMIN`, `MANAGER`, `ASSEMBLY` | Returns part-level summary (assembly ready, allocated, available pool) and unit-level demand breakdown with stepper limits |
+| `POST` | `/allocate` | `ADMIN`, `MANAGER`, `ASSEMBLY` | Allocates generic stock to a specific unit & side (`bom_item_id`, `side`, `quantity`) |
+| `POST` | `/deallocate` | `ADMIN`, `MANAGER`, `ASSEMBLY` | Releases an active allocation back to the available pool (`allocation_id`) |
+| `POST` | `/adjust` | `ADMIN`, `MANAGER`, `ASSEMBLY` | Adjusts quantity of existing allocation (`allocation_id`, `quantity`) |
+| `GET` | `/summary` | `ADMIN`, `MANAGER`, `ASSEMBLY` | Returns project-level allocation summary and active allocations list (`project_id`, `bom_type`) |
+
+---
+
+### 41.5 Frontend Integration: `AssemblyAllocationModal.vue`
+
+- **Component**: `resources/js/components/AssemblyAllocationModal.vue`
+- **Trigger**: "Alloc" button on `BopIntake.vue` and `StdIntake.vue` table rows (visible when `part.parts_in_assembly > 0` and user has role `ADMIN`, `MANAGER`, or `ASSEMBLY`).
+- **Features**:
+  - Live 4-card metric banner: Total Required, Assembly Ready, Manager Allocated, Available Pool (vibrant color-coded).
+  - High-density unit breakdown table with Jig No, Unit No, Side, Required, Completed, Remaining Need, Current Allocation.
+  - Stepper controls (`-`, `+`, `Max`, direct input) strictly constrained by available pool and unit remaining need.
+  - Quick action buttons: "Allocate", "Update", "Release".
+  - Emits `@allocated` event to trigger parent table refresh.
+
+---
+
+### 41.6 Feature Test Suite: `AssemblyAllocationTest.php`
+
+Test Suite: `tests/Feature/AssemblyAllocationTest.php` (11 tests, 50 assertions, all passing):
+1. `test_role_authorization_on_allocation_endpoints` (Guest 401, Store 403, Admin/Manager/Assembly 200)
+2. `test_get_bop_allocation_context` (BOP assembly-ready and unit eligibility calculation)
+3. `test_allocate_parts_to_specific_unit` (Successful allocation across units)
+4. `test_cannot_allocate_exceeding_unit_need` (422 validation on over-allocation beyond unit demand)
+5. `test_cannot_allocate_exceeding_available_stock` (422 validation on over-allocation beyond available pool)
+6. `test_mfg_parts_cannot_be_allocated` (Strict rejection of MFG part types)
+7. `test_deallocate_releases_stock` (Releasing returns stock to available pool)
+8. `test_adjust_allocation_quantity` (Quantity update and zero-quantity release)
+9. `test_auto_consumption_on_bop_assembly_completion` (Partial decrement & complete consumption on BOP assembly)
+10. `test_std_parts_allocation_and_auto_consumption` (QC direct-assembly allocation & consumption on STD assembly)
+11. `test_project_allocation_summary_endpoint` (Project-level active allocations aggregation)
+

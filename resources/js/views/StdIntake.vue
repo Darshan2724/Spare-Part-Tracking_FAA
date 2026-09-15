@@ -384,6 +384,16 @@
                         >
                           <i class="fas fa-check-double"></i> Complete
                         </button>
+
+                        <button 
+                          v-if="part.parts_in_assembly > 0 && canAllocate" 
+                          class="std-btn-action std-btn-allocate" 
+                          title="Allocate generic stock to specific units"
+                          aria-label="Allocate generic stock to specific units"
+                          @click="openAllocationModal(part)"
+                        >
+                          <i class="fas fa-tasks"></i> Alloc
+                        </button>
                       </template>
 
                       <!-- Two-Row Deliberate Grid Mode (When > 3 actions active) -->
@@ -451,6 +461,16 @@
                             @click="openTransitionModal(part, 'assembly', 'completed')"
                           >
                             <i class="fas fa-check-double"></i> Complete
+                          </button>
+
+                          <button 
+                            v-if="part.parts_in_assembly > 0 && canAllocate" 
+                            class="std-btn-action std-btn-allocate" 
+                            title="Allocate generic stock to specific units"
+                            aria-label="Allocate generic stock to specific units"
+                            @click="openAllocationModal(part)"
+                          >
+                            <i class="fas fa-tasks"></i> Alloc
                           </button>
                         </div>
                       </template>
@@ -898,6 +918,15 @@
       </div>
     </div>
 
+    <!-- ASSEMBLY ALLOCATION MODAL -->
+    <AssemblyAllocationModal
+      ref="allocationModalRef"
+      :standard-part-no="allocationPartNo"
+      bom-type="STD"
+      :project-id="selectedProjectId"
+      @allocated="fetchStdData"
+    />
+
   </div>
 </template>
 
@@ -905,6 +934,23 @@
 import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import * as bootstrap from 'bootstrap';
+import { useAuthStore } from '../stores/auth';
+import AssemblyAllocationModal from '../components/AssemblyAllocationModal.vue';
+
+const authStore = useAuthStore();
+const canAllocate = computed(() => {
+  const roles = authStore.user?.roles?.map(r => r.name?.toUpperCase()) || [];
+  const primaryRole = authStore.userRole?.toUpperCase();
+  return ['ADMIN', 'MANAGER', 'ASSEMBLY'].some(r => roles.includes(r) || primaryRole === r);
+});
+
+const allocationModalRef = ref(null);
+const allocationPartNo = ref('');
+
+function openAllocationModal(part) {
+  allocationPartNo.value = part.standard_part_no;
+  allocationModalRef.value?.show();
+}
 
 const loading = ref(false);
 const loadingBreakdown = ref(false);
@@ -1452,5 +1498,17 @@ onMounted(() => {
   background-color: #dcfce7;
   border-color: #334155;
   color: #14532d;
+}
+
+.std-btn-allocate {
+  background-color: #eff6ff;
+  color: #1e40af;
+  border-color: #64748b;
+}
+.std-btn-allocate i { color: #2563eb; }
+.std-btn-allocate:hover {
+  background-color: #dbeafe;
+  border-color: #334155;
+  color: #1e3a8a;
 }
 </style>
