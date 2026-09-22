@@ -95,9 +95,28 @@ class HierarchyService
             ];
         });
 
-        // Query BOM Items with necessary relations
+        $isManager = ($department === 'manager');
+
+        // Query BOM Items with necessary relations and targeted columns to minimize memory footprint
         $query = BomItem::query()
-            ->with(['requirements', 'supplier', 'project'])
+            ->select([
+                'id',
+                'project_id',
+                'jig_no',
+                'unit_no',
+                'standard_part_no',
+                'part_type',
+                'item_no',
+                'supplier_id',
+                'supplier_name_raw',
+                'remarks',
+                'size',
+                'proj_spec_yn',
+            ])
+            ->with([
+                'requirements:id,bom_item_id,side,required_quantity',
+                'supplier:id,name',
+            ])
             ->where('project_id', $project->id);
 
         if (!empty($filters['part_type'])) {
@@ -149,6 +168,9 @@ class HierarchyService
                 'jigs' => [],
                 'total_jigs' => 0,
                 'completed_jigs' => 0,
+                'has_mfg' => false,
+                'has_bop' => false,
+                'has_std' => false,
                 'message' => 'No BOM items found for this project.',
             ];
         }
@@ -230,9 +252,21 @@ class HierarchyService
             }
         }
 
+        $hasMfgParts = false;
+        $hasBopParts = false;
+        $hasStdParts = false;
         $jigsTree = [];
 
-        foreach ($bomItems as $item) {
+        foreach ($bomItems as $itemIndex => $item) {
+            $partTypeUpper = strtoupper($item->part_type ?? 'MFG');
+            if ($partTypeUpper === 'MFG') {
+                $hasMfgParts = true;
+            } elseif ($partTypeUpper === 'BOP') {
+                $hasBopParts = true;
+            } elseif ($partTypeUpper === 'STD') {
+                $hasStdParts = true;
+            }
+
             $partNo = trim($item->standard_part_no);
 
             // Read JIG and Unit directly from the authoritative FA-279 BOM fields
@@ -513,13 +547,13 @@ class HierarchyService
                     'parts_in_assembly' => $asmReady,
                     'assembly_ready' => $asmReady,
                     'assembly_completed' => $asmComp,
-                    'receipt_items' => $recForSide->values(),
-                    'qc_inspections' => $qcForSide->values(),
-                    'rework_records' => $reworkForSide->values(),
-                    'paint_records' => $paintForSide->values(),
-                    'assembly_records' => $assemblyForSide->values(),
-                    'revert_options' => $revertOptions,
-                    'total_revertible' => array_sum(array_column($revertOptions, 'available_quantity')),
+                    'receipt_items' => $isManager ? [] : $recForSide->values(),
+                    'qc_inspections' => $isManager ? [] : $qcForSide->values(),
+                    'rework_records' => $isManager ? [] : $reworkForSide->values(),
+                    'paint_records' => $isManager ? [] : $paintForSide->values(),
+                    'assembly_records' => $isManager ? [] : $assemblyForSide->values(),
+                    'revert_options' => $isManager ? [] : $revertOptions,
+                    'total_revertible' => $isManager ? 0 : array_sum(array_column($revertOptions, 'available_quantity')),
                     'status_badge' => $statusBadge,
                     'status_color' => $statusColor,
                     'is_done' => ($reqQty > 0 && $asmComp >= $reqQty),
@@ -557,7 +591,9 @@ class HierarchyService
 
             $item->side_stats = $sideStats;
             $item->metrics = $itemMetrics;
-            $item->receipt_items = $itemReceipts->values();
+            if (!$isManager) {
+                $item->receipt_items = $itemReceipts->values();
+            }
             $item->is_done = ($itemMetrics['total_required'] > 0 && $itemMetrics['assembly_completed'] >= $itemMetrics['total_required']);
 
             // Group into JIG and Unit structure
@@ -604,8 +640,22 @@ class HierarchyService
                 ];
             }
 
+            // Lightweight plain object to minimize memory retention and allow garbage collection
+            $supplierName = $item->supplier?->name ?? ($item->supplier_name_raw ?? '—');
+            $partObj = (object) [
+                'id' => $item->id,
+                'standard_part_no' => $partNo,
+                'part_type' => $item->part_type ?? 'MFG',
+                'item_no' => $item->item_no ?? '—',
+                'supplier_name' => $supplierName,
+                'supplier_name_raw' => $item->supplier_name_raw ?? '—',
+                'supplier' => $item->supplier ? (object)['name' => $item->supplier->name] : null,
+                'side_stats' => $sideStats,
+                'metrics' => $itemMetrics,
+                'is_done' => ($itemMetrics['total_required'] > 0 && $itemMetrics['assembly_completed'] >= $itemMetrics['total_required']),
+            ];
 
-            $jigsTree[$jigName]['units'][$unitNo]['parts'][] = $item;
+            $jigsTree[$jigName]['units'][$unitNo]['parts'][] = $partObj;
             $jigsTree[$jigName]['units'][$unitNo]['total_parts']++;
             $jigsTree[$jigName]['units'][$unitNo]['total_required'] += $itemMetrics['total_required'];
             $jigsTree[$jigName]['units'][$unitNo]['total_received'] += $itemMetrics['total_received'];
@@ -617,7 +667,11 @@ class HierarchyService
             $jigsTree[$jigName]['total_received'] += $itemMetrics['total_received'];
             $jigsTree[$jigName]['total_pending'] += $itemMetrics['total_pending'];
             $this->accumulateMetrics($jigsTree[$jigName]['metrics'], $itemMetrics);
+            $bomItems[$itemIndex] = null;
         }
+        unset($bomItems);
+        unset($receiptItemsGrouped, $qcInspectionsGrouped, $reworkRecordsGrouped, $paintRecordsGrouped, $assemblyRecordsGrouped);
+        gc_collect_cycles();
 
         // Ensure units containing ONLY ECN parts are initialized in $jigsTree
         foreach ($ecnReqs as $er) {
@@ -732,10 +786,11 @@ class HierarchyService
                             'pending_qty' => $st['pending'] ?? 0,
                             'status_badge' => $st['status_badge'] ?? 'Pending',
                             'status_color' => $st['status_color'] ?? 'secondary',
+                            'assembly_completed' => $st['assembly_completed'] ?? 0,
                             'is_done' => $st['is_done'] ?? false,
                             'is_ecn' => false,
                             'classification' => 'REGULAR',
-                            'side_stats' => $part->side_stats,
+                            'side_stats' => $isManager ? null : $part->side_stats,
                         ];
                         $commonRequired += $st['required'] ?? 0;
                         $commonReceived += $st['received'] ?? 0;
@@ -1049,11 +1104,16 @@ class HierarchyService
                 $rhMetrics = $this->initZeroMetrics();
                 $lhRequired = 0; $lhReceived = 0; $lhPending = 0; $lhAsmComp = 0;
                 $rhRequired = 0; $rhReceived = 0; $rhPending = 0; $rhAsmComp = 0;
+                $commonParts = [];
+                $commonMetrics = $this->initZeroMetrics();
+                $commonRequired = 0; $commonReceived = 0; $commonPending = 0; $commonAsmComp = 0;
 
                 // Process regular parts
                 foreach ($unitData['parts'] as $part) {
                     $hasLh = isset($part->side_stats['LH']);
                     $hasRh = isset($part->side_stats['RH']);
+                    $hasCommon = isset($part->side_stats['COMMON']);
+                    $partSupplier = $part->supplier?->name ?? ($part->supplier_name_raw ?? ($part->supplier_name ?? '—'));
 
                     if ($hasLh) {
                         $st = $part->side_stats['LH'];
@@ -1062,17 +1122,18 @@ class HierarchyService
                             'standard_part_no' => $part->standard_part_no,
                             'part_type' => $part->part_type ?? 'MFG',
                             'item_no' => $part->item_no ?? '—',
-                            'supplier' => $part->supplier?->name ?? ($part->supplier_name_raw ?? '—'),
+                            'supplier' => $partSupplier,
                             'side' => 'LH',
                             'required_qty' => $st['required'] ?? 0,
                             'received_qty' => $st['received'] ?? 0,
                             'pending_qty' => $st['pending'] ?? 0,
                             'status_badge' => $st['status_badge'] ?? 'Pending',
                             'status_color' => $st['status_color'] ?? 'secondary',
+                            'assembly_completed' => $st['assembly_completed'] ?? 0,
                             'is_done' => $st['is_done'] ?? false,
                             'is_ecn' => false,
                             'classification' => 'REGULAR',
-                            'side_stats' => $part->side_stats,
+                            'side_stats' => $isManager ? null : $part->side_stats,
                         ];
                         $lhRequired += $st['required'] ?? 0;
                         $lhReceived += $st['received'] ?? 0;
@@ -1087,23 +1148,50 @@ class HierarchyService
                             'standard_part_no' => $part->standard_part_no,
                             'part_type' => $part->part_type ?? 'MFG',
                             'item_no' => $part->item_no ?? '—',
-                            'supplier' => $part->supplier?->name ?? ($part->supplier_name_raw ?? '—'),
+                            'supplier' => $partSupplier,
                             'side' => 'RH',
                             'required_qty' => $st['required'] ?? 0,
                             'received_qty' => $st['received'] ?? 0,
                             'pending_qty' => $st['pending'] ?? 0,
                             'status_badge' => $st['status_badge'] ?? 'Pending',
                             'status_color' => $st['status_color'] ?? 'secondary',
+                            'assembly_completed' => $st['assembly_completed'] ?? 0,
                             'is_done' => $st['is_done'] ?? false,
                             'is_ecn' => false,
                             'classification' => 'REGULAR',
-                            'side_stats' => $part->side_stats,
+                            'side_stats' => $isManager ? null : $part->side_stats,
                         ];
                         $rhRequired += $st['required'] ?? 0;
                         $rhReceived += $st['received'] ?? 0;
                         $rhPending += $st['pending'] ?? 0;
                         $rhAsmComp += $st['assembly_completed'] ?? 0;
                         $this->accumulateMetrics($rhMetrics, $st);
+                    }
+                    if ($hasCommon || (!$hasLh && !$hasRh)) {
+                        $st = $part->side_stats['COMMON'] ?? reset($part->side_stats);
+                        $commonParts[] = [
+                            'id' => $part->id,
+                            'standard_part_no' => $part->standard_part_no,
+                            'part_type' => $part->part_type ?? 'MFG',
+                            'item_no' => $part->item_no ?? '—',
+                            'supplier' => $partSupplier,
+                            'side' => 'COMMON',
+                            'required_qty' => $st['required'] ?? 0,
+                            'received_qty' => $st['received'] ?? 0,
+                            'pending_qty' => $st['pending'] ?? 0,
+                            'status_badge' => $st['status_badge'] ?? 'Pending',
+                            'status_color' => $st['status_color'] ?? 'secondary',
+                            'assembly_completed' => $st['assembly_completed'] ?? 0,
+                            'is_done' => $st['is_done'] ?? false,
+                            'is_ecn' => false,
+                            'classification' => 'REGULAR',
+                            'side_stats' => $isManager ? null : $part->side_stats,
+                        ];
+                        $commonRequired += $st['required'] ?? 0;
+                        $commonReceived += $st['received'] ?? 0;
+                        $commonPending += $st['pending'] ?? 0;
+                        $commonAsmComp += $st['assembly_completed'] ?? 0;
+                        $this->accumulateMetrics($commonMetrics, $st);
                     }
                 }
 
@@ -1329,11 +1417,12 @@ class HierarchyService
                     }
                 }
 
-                $unitData['parts'] = $allUnitParts;
-
-                if (empty($unitData['parts'])) {
+                $hasAnyParts = (!empty($lhParts) || !empty($rhParts) || !empty($commonParts) || !empty($allUnitParts));
+                if (!$hasAnyParts) {
                     continue;
                 }
+
+                $unitData['parts'] = $isManager ? [] : $allUnitParts;
 
                 $lhCompletionPct = match ($department) {
                     'store' => ($lhRequired > 0 ? min(100, round(($lhReceived / $lhRequired) * 100, 1)) : 100),
@@ -1353,15 +1442,34 @@ class HierarchyService
 
                 $lhIsComplete = ($lhRequired > 0 && $lhAsmComp >= $lhRequired);
                 $rhIsComplete = ($rhRequired > 0 && $rhAsmComp >= $rhRequired);
+                $commIsComplete = ($commonRequired > 0 && $commonAsmComp >= $commonRequired);
 
-                // Section 10: Unit is complete only when both required sides are complete!
+                $commCompletionPct = match ($department) {
+                    'store' => ($commonRequired > 0 ? min(100, round(($commonReceived / $commonRequired) * 100, 1)) : 100),
+                    'qc' => ($commonRequired > 0 ? min(100, round(($commonMetrics['qc_approved'] / $commonRequired) * 100, 1)) : 100),
+                    'rework' => ($commonMetrics['qc_rework'] > 0 ? min(100, round(($commonMetrics['rework_completed'] / $commonMetrics['qc_rework']) * 100, 1)) : 100),
+                    'paint' => ($commonRequired > 0 ? min(100, round(($commonMetrics['paint_completed'] / $commonRequired) * 100, 1)) : 100),
+                    default => ($commonRequired > 0 ? min(100, round(($commonAsmComp / $commonRequired) * 100, 1)) : 100),
+                };
+
+                // Section 10: Unit is complete only when all active sides with requirements are complete
                 $unitIsComplete = false;
-                if ($lhRequired > 0 && $rhRequired > 0) {
-                    $unitIsComplete = ($lhIsComplete && $rhIsComplete);
-                } elseif ($lhRequired > 0) {
-                    $unitIsComplete = $lhIsComplete;
-                } elseif ($rhRequired > 0) {
-                    $unitIsComplete = $rhIsComplete;
+                $activeSidesCount = 0;
+                $completedSidesCount = 0;
+                if ($lhRequired > 0) {
+                    $activeSidesCount++;
+                    if ($lhIsComplete) $completedSidesCount++;
+                }
+                if ($rhRequired > 0) {
+                    $activeSidesCount++;
+                    if ($rhIsComplete) $completedSidesCount++;
+                }
+                if ($commonRequired > 0) {
+                    $activeSidesCount++;
+                    if ($commIsComplete) $completedSidesCount++;
+                }
+                if ($activeSidesCount > 0 && $activeSidesCount === $completedSidesCount) {
+                    $unitIsComplete = true;
                 }
 
                 $uEcnCount = $ecnMap['units'][$jigName . '|' . $rawU] 
@@ -1421,7 +1529,7 @@ class HierarchyService
 
                 $unitData['has_lh'] = count($lhParts) > 0;
                 $unitData['has_rh'] = count($rhParts) > 0;
-                $unitData['has_common'] = false;
+                $unitData['has_common'] = count($commonParts) > 0;
                 $unitData['ecn_count'] = $uEcnCount;
                 $unitData['ecn_parts'] = $uEcnCount;
                 $unitData['ecn_part_count'] = $uEcnCount;
@@ -1462,6 +1570,24 @@ class HierarchyService
                         'metrics' => $rhMetrics,
                     ],
                 ];
+
+                if (count($commonParts) > 0) {
+                    $unitData['sides']['COMMON'] = [
+                        'side' => 'COMMON',
+                        'total_parts' => count($commonParts),
+                        'ecn_count' => 0,
+                        'ecn_present' => false,
+                        'is_ecn_present' => false,
+                        'total_required' => $commonRequired,
+                        'total_received' => $commonReceived,
+                        'pending_quantity' => $commonPending,
+                        'assembly_completed' => $commonAsmComp,
+                        'completion_pct' => $commCompletionPct,
+                        'is_complete' => $commIsComplete,
+                        'parts' => $commonParts,
+                        'metrics' => $commonMetrics,
+                    ];
+                }
 
                 $unitData['completion_pct'] = match ($department) {
                     'store' => ($req > 0 ? min(100, round(($rec / $req) * 100, 1)) : 0.0),
@@ -1565,6 +1691,9 @@ class HierarchyService
             'completed_projects' => $completedProjects,
             'total_jigs' => count($formattedJigs),
             'completed_jigs' => count(array_filter($formattedJigs, fn($j) => $j['is_complete'])),
+            'has_mfg' => $hasMfgParts,
+            'has_bop' => $hasBopParts,
+            'has_std' => $hasStdParts,
             'message' => count($formattedJigs) === 0 ? "No BOM hierarchy found for this project." : null,
         ];
     }
@@ -1618,13 +1747,14 @@ class HierarchyService
                         $rec = is_array($p) ? ($p['received_qty'] ?? 0) : ($p->received_qty ?? 0);
                         $pen = is_array($p) ? ($p['pending_qty'] ?? 0) : ($p->pending_qty ?? 0);
                         $st = is_array($p) ? ($p['side_stats'][$sideKey] ?? []) : ($p->side_stats[$sideKey] ?? []);
-                        $asm = $st['assembly_completed'] ?? 0;
+                        $asm = is_array($p) ? ($p['assembly_completed'] ?? ($st['assembly_completed'] ?? 0)) : ($p->assembly_completed ?? ($st['assembly_completed'] ?? 0));
 
                         $sideRequired += $req;
                         $sideReceived += $rec;
                         $sidePending += $pen;
                         $sideAsmComp += $asm;
                         $this->accumulateMetrics($sideMetrics, $st);
+                        $sideMetrics['assembly_completed'] = max($sideMetrics['assembly_completed'], $sideAsmComp);
                         $allFilteredUnitParts[] = $p;
                     }
 
@@ -1664,19 +1794,28 @@ class HierarchyService
 
                 $lhReq = $filteredSides['LH']['total_required'] ?? 0;
                 $rhReq = $filteredSides['RH']['total_required'] ?? 0;
+                $commReq = $filteredSides['COMMON']['total_required'] ?? 0;
                 $lhComplete = $filteredSides['LH']['is_complete'] ?? false;
                 $rhComplete = $filteredSides['RH']['is_complete'] ?? false;
                 $commComplete = $filteredSides['COMMON']['is_complete'] ?? false;
 
                 $unitIsComplete = false;
-                if (isset($filteredSides['COMMON'])) {
-                    $unitIsComplete = $commComplete;
-                } elseif ($lhReq > 0 && $rhReq > 0) {
-                    $unitIsComplete = ($lhComplete && $rhComplete);
-                } elseif ($lhReq > 0) {
-                    $unitIsComplete = $lhComplete;
-                } elseif ($rhReq > 0) {
-                    $unitIsComplete = $rhComplete;
+                $activeSidesCount = 0;
+                $completedSidesCount = 0;
+                if (isset($filteredSides['LH']) && $lhReq > 0) {
+                    $activeSidesCount++;
+                    if ($lhComplete) $completedSidesCount++;
+                }
+                if (isset($filteredSides['RH']) && $rhReq > 0) {
+                    $activeSidesCount++;
+                    if ($rhComplete) $completedSidesCount++;
+                }
+                if (isset($filteredSides['COMMON']) && $commReq > 0) {
+                    $activeSidesCount++;
+                    if ($commComplete) $completedSidesCount++;
+                }
+                if ($activeSidesCount > 0 && $activeSidesCount === $completedSidesCount) {
+                    $unitIsComplete = true;
                 }
 
                 $unitCompletionPct = match ($department) {
@@ -1688,7 +1827,7 @@ class HierarchyService
                 };
 
                 $newUnit = $unit;
-                $newUnit['parts'] = $allFilteredUnitParts;
+                $newUnit['parts'] = ($department === 'manager') ? [] : $allFilteredUnitParts;
                 $newUnit['total_parts'] = count($allFilteredUnitParts);
                 $newUnit['total_required'] = $unitRequired;
                 $newUnit['total_received'] = $unitReceived;

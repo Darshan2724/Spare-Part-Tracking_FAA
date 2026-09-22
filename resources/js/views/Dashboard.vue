@@ -124,9 +124,9 @@
             <div>
               <div class="d-flex align-items-center gap-2 flex-wrap">
                 <span class="badge bg-primary text-white px-2 py-1 fs-7">
-                  {{ hierarchyData.project?.project_code || 'PROJECT' }}
+                  {{ selectedProject?.project_code || hierarchyData.project?.project_code || 'PROJECT' }}
                 </span>
-                <h4 class="fw-bold mb-0 text-white">{{ hierarchyData.project?.name || 'Selected Project' }}</h4>
+                <h4 class="fw-bold mb-0 text-white">{{ selectedProject?.name || hierarchyData.project?.name || 'Selected Project' }}</h4>
                 <span 
                   class="badge px-2 py-1 fs-7"
                   :class="hierarchyData.canonical_summary?.is_complete ? 'bg-success' : 'bg-warning text-dark'"
@@ -852,6 +852,20 @@
           </div>
           <h6 class="fw-bold text-dark">Building 5-Level Project Hierarchy...</h6>
           <small class="text-muted">Loading Jigs, Units (LH/RH), and Part-level Workstation Statuses</small>
+        </div>
+
+        <!-- Hierarchy Error State with Retry -->
+        <div v-else-if="hierarchyError" class="card border-danger shadow-sm p-4 text-center bg-white">
+          <div class="text-danger mb-2">
+            <i class="fas fa-exclamation-triangle fa-2x"></i>
+          </div>
+          <h6 class="fw-bold text-danger mb-1">Failed to Load Project Hierarchy</h6>
+          <p class="text-muted small mb-3">{{ hierarchyError }}</p>
+          <div>
+            <button type="button" @click="fetchProjectHierarchy(true)" class="btn btn-outline-danger btn-sm">
+              <i class="fas fa-sync-alt me-1"></i> Retry Loading Hierarchy
+            </button>
+          </div>
         </div>
 
         <!-- UNIFIED HIERARCHY (All 3 BOM Types: One Jig/Unit Tree with 3 Part Sections) -->
@@ -2609,6 +2623,14 @@ const unitPartSearch = ref({});
 const unitSideTab = ref({});
 const unitPartPage = ref({});
 const hierarchyLoading = ref(false);
+const hierarchyError = ref(null);
+
+const selectedProject = computed(() => {
+  if (!filters.value.project_id) return null;
+  return hierarchyData.value.project || 
+    activeProjectsList.value.find(p => String(p.id) === String(filters.value.project_id)) || 
+    completedProjectsList.value.find(p => String(p.id) === String(filters.value.project_id)) || null;
+});
 
 const collapsedSections = ref({
   MFG: false,
@@ -2801,11 +2823,14 @@ const fetchProjectHierarchy = async (forceFresh = false) => {
   }
 
   try {
+    hierarchyError.value = null;
     const res = await axios.get(`/api/v1/dashboard/project-hierarchy?${params.toString()}`);
     cacheStore.set(cacheKey, res.data, 60000);
     applyHierarchy(res.data);
+    hierarchyError.value = null;
   } catch (err) {
     console.error('Failed to load project hierarchy:', err);
+    hierarchyError.value = err?.response?.data?.message || err.message || 'Failed to load project hierarchy.';
   } finally {
     hierarchyLoading.value = false;
   }
