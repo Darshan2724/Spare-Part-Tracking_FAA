@@ -121,6 +121,7 @@ class ExportService
             'date_from' => $request->input('date_from'),
             'date_to' => $request->input('date_to'),
             'supplier_id' => $request->input('supplier_id'),
+            'part_type' => $request->input('part_type'),
         ];
 
         $drilldownService = new KpiDrilldownService();
@@ -130,6 +131,9 @@ class ExportService
         $activeFilters = [];
         $activeFilters[] = "KPI: {$kpiDisplayName}";
         $activeFilters[] = "Scope: " . ($drilldown['project_scope'] ?? 'All Active Projects');
+        if (!empty($filters['part_type']) && strtoupper($filters['part_type']) !== 'ALL') {
+            $activeFilters[] = "Type: " . strtoupper($filters['part_type']);
+        }
         if (!empty($filters['side'])) {
             $activeFilters[] = "Side: {$filters['side']}";
         }
@@ -142,8 +146,9 @@ class ExportService
         $activeFiltersStr = implode(' | ', $activeFilters);
 
         $scopeClean = preg_replace('/[^A-Za-z0-9_-]/', '', str_replace(' ', '_', $drilldown['project_scope'] ?? 'All_Projects'));
+        $typeSuffix = (!empty($filters['part_type']) && strtoupper($filters['part_type']) !== 'ALL') ? '_' . strtoupper($filters['part_type']) : '';
         $timestamp = now()->format('Ymd_His');
-        $filename = "SpareTrack_{$kpiKey}_{$scopeClean}_{$timestamp}";
+        $filename = "SpareTrack_{$kpiKey}{$typeSuffix}_{$scopeClean}_{$timestamp}";
 
         // Configure Excel columns
         $isEcn = ($drilldown['is_ecn'] ?? false) || $kpiKey === 'ecn' || str_starts_with($kpiKey, 'ecn_');
@@ -304,6 +309,17 @@ class ExportService
         $hierarchy = $this->hierarchyService->getDepartmentHierarchy('manager', $project->id, $filters);
         $jigs = $hierarchy['jigs'] ?? [];
 
+        $isAllTypes = empty($filters['part_type']) || strtoupper($filters['part_type']) === 'ALL';
+
+        // Preload authoritative BOM types by Jig for identification in All Types export (Issue 6)
+        $jigBomTypes = BomItem::where('project_id', $project->id)
+            ->whereNotNull('jig_no')
+            ->select('jig_no', 'part_type')
+            ->distinct()
+            ->get()
+            ->groupBy(fn($i) => strtoupper(trim((string)$i->jig_no)))
+            ->map(fn($group) => $group->pluck('part_type')->map(fn($t) => strtoupper(trim((string)$t)))->unique()->values()->all());
+
         // Preload suppliers by Jig and (Jig, Side) - Zero N+1 queries
         $assignedSuppliers = SupplierAssignment::query()
             ->where('project_id', $project->id)
@@ -397,10 +413,18 @@ class ExportService
         foreach ($jigs as $jig) {
             $jigName = $jig['jig_name'] ?? 'N/A';
             $jKey = strtoupper(trim((string)$jigName));
+            $bomType = $jig['bom_type'] ?? ($jigBomTypes->get($jKey)[0] ?? null);
+
+            if ($isAllTypes && !empty($bomType)) {
+                $typeLabel = strtoupper($bomType);
+                $displayJigName = preg_match('/\s*\((MFG|BOP|STD)\)$/i', $jigName) ? $jigName : "{$jigName} ({$typeLabel})";
+            } else {
+                $displayJigName = $jigName;
+            }
 
             // 1. Jig Name Header Row (Merged A to N, 14pt bold centered)
             $bannerRow = $currentRow;
-            $sheet->setCellValue('A' . $bannerRow, $jigName);
+            $sheet->setCellValue('A' . $bannerRow, $displayJigName);
             $sheet->mergeCells("A{$bannerRow}:N{$bannerRow}");
             $sheet->getStyle("A{$bannerRow}")->getFont()->setBold(true)->setSize(14)->setColor(new \PhpOffice\PhpSpreadsheet\Style\Color('000000'));
             $sheet->getStyle("A{$bannerRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
@@ -515,7 +539,16 @@ class ExportService
             $jigCompletionRatio = round($jigCompletionPct / 100, 4);
 
             foreach ($sidesMap as $sKey => $vals) {
-                $fixNo = ($sKey === 'COMMON' || empty($sKey)) ? $jigName : "{$jigName}-{$sKey}";
+                if ($isAllTypes && !empty($bomType)) {
+                    $typeLabel = strtoupper($bomType);
+                    if (preg_match('/\s*\((MFG|BOP|STD)\)$/i', $jigName)) {
+                        $fixNo = ($sKey === 'COMMON' || empty($sKey)) ? $jigName : "{$jigName}-{$sKey}";
+                    } else {
+                        $fixNo = ($sKey === 'COMMON' || empty($sKey)) ? "{$jigName} ({$typeLabel})" : "{$jigName}-{$sKey} ({$typeLabel})";
+                    }
+                } else {
+                    $fixNo = ($sKey === 'COMMON' || empty($sKey)) ? $jigName : "{$jigName}-{$sKey}";
+                }
                 $jSideKey = "{$jKey}|{$sKey}";
 
                 // Supplier Name: check (jig, side), then jig; leave blank if none in database/website

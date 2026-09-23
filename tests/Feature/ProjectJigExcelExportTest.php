@@ -62,7 +62,27 @@ class ProjectJigExcelExportTest extends TestCase
         $user = $this->getAdminUser();
         $this->actingAs($user, 'sanctum');
 
-        $project = Project::where('status', 'active')->has('bomItems')->first() ?? Project::first();
+        $project = Project::where('status', 'active')->has('bomItems')->first();
+        if (!$project) {
+            $project = Project::create([
+                'project_code' => 'TEST-EXP-' . uniqid(),
+                'name' => 'Export Structure Test Project',
+                'status' => 'active',
+            ]);
+            $bomItem = BomItem::create([
+                'project_id' => $project->id,
+                'standard_part_no' => 'PART-EXP-001',
+                'item_no' => '1',
+                'jig_no' => 'JIG-EXP-01',
+                'unit_no' => 'Unit 01',
+                'part_type' => 'MFG',
+            ]);
+            BomRequirement::create([
+                'bom_item_id' => $bomItem->id,
+                'side' => 'RH',
+                'required_quantity' => 10,
+            ]);
+        }
         $this->assertNotNull($project, 'At least one project should exist.');
 
         $response = $this->getJson('/api/v1/export/project-jigs?project_id=' . $project->id);
@@ -423,10 +443,10 @@ class ProjectJigExcelExportTest extends TestCase
             $currentJig = null;
 
             for ($r = 1; $r <= $highestRow; $r++) {
-                $valA = $sheet->getCell("A{$r}")->getValue();
-                if ($valA === 'JIG-01') {
+                $valA = (string)$sheet->getCell("A{$r}")->getValue();
+                if (str_starts_with($valA, 'JIG-01')) {
                     $currentJig = 'JIG-01';
-                } elseif ($valA === 'JIG-02') {
+                } elseif (str_starts_with($valA, 'JIG-02')) {
                     $currentJig = 'JIG-02';
                 } elseif ($valA !== null && $valA !== 'Fix No.' && !empty($sheet->getCell("E{$r}")->getValue())) {
                     $rawN = $sheet->getCell("N{$r}")->getValue();

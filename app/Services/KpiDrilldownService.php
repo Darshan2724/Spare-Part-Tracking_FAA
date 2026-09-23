@@ -175,7 +175,7 @@ class KpiDrilldownService
             ->with(['requirements', 'supplier', 'project'])
             ->whereIn('project_id', $projectIds);
 
-        if (!empty($filters['part_type'])) {
+        if (!empty($filters['part_type']) && strtoupper($filters['part_type']) !== 'ALL') {
             $bomQuery->where('part_type', strtoupper($filters['part_type']));
         }
 
@@ -193,15 +193,27 @@ class KpiDrilldownService
         $bomItems = $bomQuery->orderBy('jig_no')->orderBy('unit_no')->orderBy('standard_part_no')->get();
         $bomItemIds = $bomItems->pluck('id')->toArray();
 
-        // Load operational records in bulk
+        // Load operational records in bulk with targeted columns
         $recQuery = ReceiptItem::query()
+            ->select(['id', 'bom_item_id', 'side', 'received_quantity', 'status', 'created_at'])
             ->whereIn('bom_item_id', $bomItemIds)
             ->whereIn('status', QuantityCalculationService::VALID_RECEIPT_STATUSES);
 
-        $qcQuery = QcInspection::query()->whereIn('bom_item_id', $bomItemIds);
-        $reworkQuery = ReworkRecord::query()->whereIn('bom_item_id', $bomItemIds);
-        $paintQuery = PaintRecord::query()->whereIn('bom_item_id', $bomItemIds);
-        $asmQuery = AssemblyRecord::query()->whereIn('bom_item_id', $bomItemIds);
+        $qcQuery = QcInspection::query()
+            ->select(['id', 'bom_item_id', 'side', 'result', 'approved_quantity', 'rework_quantity', 'rejected_quantity', 'destination', 'inspection_date'])
+            ->whereIn('bom_item_id', $bomItemIds);
+
+        $reworkQuery = ReworkRecord::query()
+            ->select(['id', 'bom_item_id', 'side', 'quantity', 'status', 'created_at'])
+            ->whereIn('bom_item_id', $bomItemIds);
+
+        $paintQuery = PaintRecord::query()
+            ->select(['id', 'bom_item_id', 'side', 'quantity', 'status', 'created_at'])
+            ->whereIn('bom_item_id', $bomItemIds);
+
+        $asmQuery = AssemblyRecord::query()
+            ->select(['id', 'bom_item_id', 'side', 'quantity', 'status', 'created_at'])
+            ->whereIn('bom_item_id', $bomItemIds);
 
         if (!empty($filters['date_from'])) {
             $recQuery->where('created_at', '>=', $filters['date_from']);

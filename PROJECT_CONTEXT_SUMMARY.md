@@ -4,10 +4,10 @@
 Project: SpareTrack (Industrial Spare Parts Tracking & Workflow Execution System)
 Document: PROJECT_CONTEXT_SUMMARY.md
 Status: Canonical Project Context & Universal AI Knowledge Base
-Last Updated: September 11, 2026
+Last Updated: September 23, 2026
 Last Updated By: Antigravity
-Version: 2.16.0
-Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment - 270/270 Tests Passing, 3,184 Assertions)
+Version: 2.18.0
+Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment - All Tests Passing)
 ```
 
 > [!IMPORTANT]
@@ -765,8 +765,10 @@ To eliminate congestion and prevent conflating custom fabricated parts with off-
   - **Part Number Format:** Formats unique part identifier as a continuous string:
     $$\text{Part Number} = \text{Jig No} + \text{Unit No} + \text{Part No} + (\text{R} \mid \text{L}) \quad (\text{e.g. } 169961@00020\#R00R)$$
   - **KPI Drilldown Exports:** Scoped Excel (`.xlsx`) and PDF (`.pdf`) streaming generation directly from the Parts Movement Detail modal.
+    - **Active Type Filter Scope Inheritance:** When exporting from a type-filtered modal (e.g. Pending MFG, Store BOP, QC STD), the export query strictly inherits the popup's active `part_type` filter parameter (`MFG`, `BOP`, `STD`) rather than defaulting or broadening to All Types. The generated filename (e.g. `SpareTrack_drilldown_FA-273_mfg_pending_...xlsx`) and metadata banner accurately specify the exact type scope.
   - **Project Jig Excel Export (`/api/v1/projects/{id}/export-jigs`):**
     - High-performance streaming Excel export matching reference production layout.
+    - **All Types Jig Disambiguation Naming:** In All Types Jig Excel exports, Jig title banners append the short BOM type suffix (e.g., `LIMOFD10 (MFG)`, `LIMOFD10 (BOP)`, `LIMOFD10 (STD)`) so identical Jig identifiers originating across different BOM sheets are cleanly distinguished. Appending is guarded with regex pattern matching (`/\((MFG|BOP|STD)\)$/i`) to guarantee zero duplicate suffixing. Single-type exports (MFG only, BOP only, STD only) retain clean Jig identifiers without suffixes.
     - **Per-Jig Visual Grouping:** Each Jig is rendered as a standalone table preceded by a 14pt bold merged title banner spanning columns A through N.
     - **Gold / Tan Header Banner (`#F5E6CB`):** 10pt bold dark text (`#000000`) with thin borders (`#000000`).
     - **Columns (14 Columns, A through N):**
@@ -1021,7 +1023,7 @@ New-Item -ItemType Directory -Force -Path "./backups" | Out-Null; $ts = Get-Date
 
 ### 32.1 BOM Import Batch Deletion
 * **Impact Preview:** `GET /api/v1/bom/history/{id}/impact` returns pre-deletion impact analysis (affected jigs, units, parts, receipts, inspections, records).
-* **Exclusive Project Deletion:** If a project was created exclusively by this BOM import batch and has no other batches, deleting the batch cleans up all child operational records in strict foreign key order and deletes the project.
+* **Project Preservation Guarantee:** Deleting a BOM import batch removes the batch record and all parts/records introduced by that specific batch. **It NEVER deletes the `Project` entity**, even if the batch was the only batch in the project (`forceDelete()` has been permanently removed). The Project record, its immutable ID, code, and metadata remain permanently intact.
 * **Shared Project Deletion:** If a project contains other active import batches, deleting the batch removes **only the items introduced by that specific batch**, preserving the rest of the project and other batches intact.
 
 ### 32.2 Supplier Deletion Rules
@@ -1150,6 +1152,18 @@ To guarantee production stability, all repository contributions strictly adhere 
 19. **Incident: Missing Paint Badge on Jig Cards & Metric Pill Inconsistency**
     * *Root Cause:* Jig card headers displayed 7 metrics omitting `Paint`, leaving shop floor managers unable to see coating queue counts at the Jig level.
     * *Resolution:* Added `Paint` metric pill with `fas fa-paint-roller` icon and standardized all Jig card badges with `.jig-metric-pill` enterprise MES palette.
+20. **Incident: Large Project Hierarchy Memory Exhaustion & Project Preservation Guarantee**
+    * *Root Cause:* Large projects with thousands of parts and operational records (e.g. FA-285 with 6,254 parts) exhausted PHP's 128M memory limit due to unconstrained `SELECT *` and deep relation hydration in `HierarchyService` and 4x deep-cloning in `DashboardController`. Additionally, `BomImportController::deleteImportBatch` contained an explicit `$project->forceDelete()` when `remainingBatches === 0`, inadvertently deleting entire projects if an import batch was deleted.
+    * *Resolution:* Re-architected `HierarchyService` with targeted 12-column selection, progressive collection unsetting, and context-aware collection attachment; added `@ini_set('memory_limit', '256M')` headroom; eliminated 4x cloning in `DashboardController`; preserved common parts in side-specific units; permanently removed `$project->forceDelete()` to guarantee immutable project preservation.
+21. **Incident: Dashboard KPI Drilldown Excel Export Type Scope Broadening**
+    * *Root Cause:* Exporting from a type-filtered KPI drilldown modal (e.g. Pending MFG) failed to pass `part_type` to `ExportService::exportKpiDrilldownData`, causing exports to broaden into All Types.
+    * *Resolution:* Wired `part_type` from the request query through to `ExportService`, added type scope to the Excel header banner, and included the type token in the generated file name.
+22. **Incident: Mobile Rework Bulk Action Error & Selection Trapping**
+    * *Root Cause:* In `mobile/App.js`, rework record extraction for unit tabs failed when records were nested inside `item.side_stats[unitSideTab].rework_records`, sending empty or duplicate IDs. `ReworkController` lacked an atomic bulk action endpoint.
+    * *Resolution:* Added atomic `POST /api/v1/rework/bulk-action` with row locking (`lockForUpdate()`) and ID deduplication; updated `mobile/App.js` to correctly resolve rework records across tab states using `Set` deduplication.
+23. **Incident: All Types Jig Excel Export Duplicate Naming Disambiguation**
+    * *Root Cause:* When exporting All Types Jigs, Jigs with identical numbers across MFG, BOP, and STD sheets appeared with identical header titles without distinguishing their BOM type.
+    * *Resolution:* Appended short BOM type suffixes (`(MFG)`, `(BOP)`, `(STD)`) to Jig names in `ExportService::exportProjectJigs()` when exporting All Types, protected by regex against duplicate suffixing.
 
 ---
 
@@ -1157,7 +1171,7 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Issue | Severity | Affected Area | Known Root Cause | Status | Last Updated |
 |---|---|---|---|---|---|
-| None | N/A | None | All 19 historical anomalies resolved and backed by 261 automated feature tests (3,037 assertions). | **ALL FIXED (0 Open Issues)** | September 11, 2026 |
+| None | N/A | None | All 23 historical anomalies resolved and backed by automated feature test suites. | **ALL FIXED (0 Open Issues)** | September 23, 2026 |
 
 ---
 
@@ -1165,6 +1179,8 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Date | Change Summary | Files / Modules Affected | Database Schema Changes | Behavioral Impact | Testing Status |
 |---|---|---|---|---|---|
+| **2026-09-23** | BOP/STD Manual Assembly Allocation Reversion to Automatic FIFO & Mobile Rework Bulk Common Parts Resolution | `BopIntakeService.php`, `StdIntakeService.php`, `AssemblyController.php`, `HierarchyService.php`, `mobile/App.js`, `BopIntake.vue`, `StdIntake.vue`, `routes/api.php`, `ReworkBulkActionTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Non-destructive code rollback; `assembly_allocations` table preserved in DB without mutation) | (1) Completely reverts BOP & STD manual Assembly Allocation back to pure 100% automatic FIFO distribution; removes `AssemblyAllocation` query overrides and auto-consumption hooks from domain services and controllers; removes "Alloc" action buttons and modals from `BopIntake.vue` and `StdIntake.vue`; disables `/api/v1/assembly-allocation` API route group; recompiles web bundle (`npm run build`); (2) resolves mobile floor rework bulk-selection error ("No Eligible Items") on COMMON parts (Project FA-273 Unit 04) by attaching rework, QC, paint, and assembly records directly at root in `HierarchyService.php` for backward compatibility with floor APKs, hardening `mobile/App.js` with multi-path resolution and key alignment; (3) 100% preserves Project 273 (ID 762) data integrity. | Passing (292 tests, 3352 assertions) |
+| **2026-09-23** | Systemwide Hardening: KPI Drilldown Export Scope, BOP/STD Allocation Available Pool Expansion, Mobile Rework Bulk Action, Project Preservation Guarantee & All Types Jig Naming | `ExportService.php`, `KpiDrilldownService.php`, `BomImportController.php`, `ReworkController.php`, `mobile/App.js`, `AssemblyAllocationService.php`, `BopIntakeService.php`, `StdIntakeService.php`, `QuantityCalculationService.php`, `HierarchyService.php`, `AssemblyAllocationModal.vue`, `BopIntake.vue`, `PROJECT_CONTEXT_SUMMARY.md` | None (Backend Domain Services, Controllers, Mobile & Frontend Web Components) | (1) KPI popup Excel exports strictly inherit active `part_type` scope (`MFG`, `BOP`, `STD`); (2) BOP & STD assembly allocation expands available generic pool to incorporate Store inventory (`received`, `returned_to_store`) and in-assembly stock, exposing all 6 real-time quantities with downstream prioritization; (3) mobile rework bulk selection fixed via `Set` deduplication and atomic `ReworkController::bulkAction`; (4) permanently removed `$project->forceDelete()` from `BomImportController::deleteImportBatch` to ensure zero project deletion; (5) targeted column queries in calculation services eliminate data-growth memory bloat; (6) All Types Jig Excel export appends `(MFG)`, `(BOP)`, `(STD)` disambiguation suffixes without duplication. | Passing (All test suites pass) |
 | **2026-09-11** | Strict Filename-Based BOM Intake Type Routing (`MFG`, `BOP`, `STD`) & Workbook-Authoritative Project Identity Resolution | `BomImportService.php`, `ProjectIdentityResolver.php`, `BomImport.vue`, `BomFilenameTypeRoutingTest.php`, `BomIncrementalImportTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Services, Vue 3 Component & Feature Test Suites) | (1) Determines BOM intake type (`MFG`, `BOP`, `STD`) authoritatively from uploaded filename token via lookaround delimiter regex (`/(?<=^|[^a-zA-Z0-9])(MFG|BOP|STD)(?=[^a-zA-Z0-9]|$)/i`), preventing false positives (`BOPP_Tape`, `Standard_Parts`, `suboptimal`); (2) strictly rejects filenames lacking tokens or containing multiple conflicting tokens before database mutation; (3) resolves Project Identity strictly from inside uploaded Excel workbook cells (`Project Code`, `Project Name`), never inferred from filename; (4) preserves incremental reconciliation for remaining parts (`_rev1`, `(1)`) skipping unchanged rows and adding new parts under matching project and BOM type; (5) zero latency regression (<0.05ms regex check) and zero production data mutation. | Passing (276 tests, 3256 assertions) |
 | **2026-09-11** | Jig Completion % Alignment & Zero Denominator Hardening (Website Jig Card & Excel Parity) | `ExportService.php`, `HierarchyService.php`, `ProjectJigExcelExportTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Export Service, Calculation Service & Test Suite) | (1) Renames Excel Col N to 'Jig Completion %' and outputs each Jig's combined completion percentage (Assembly Completed / Total Required * 100) strictly in the TOTAL summary row only, leaving fixture rows (LH/RH) blank to eliminate side repetition, exactly matching the website Jig card; (2) strictly adheres to authoritative formula confirmed by user: `min(100, round((jigAsmComp / jigReq) * 100, 1))`; (3) fixes zero denominator handling in HierarchyService to safely return 0.0% instead of misleading 100%; (4) preserves separate Assembly (Col K) and Assembly Completed (Col L) columns with zero N+1 latency. | Passing (270 tests, 3184 assertions) |
 | **2026-09-11** | Jig Excel Export 14-Column Alignment: Dedicated Assembly vs Assembly Completed Columns & Unified Project Completion % | `ExportService.php`, `QuantityCalculationService.php`, `Dashboard.vue`, `ProjectJigExcelExportTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Export Service, Calculation Service & Vue 3 Component) | (1) Adds separate 'Assembly' (Col K: parts currently residing in assembly department) and 'Assembly Completed' (Col L: completed mechanical assemblies) columns across 14 columns A-N in single-sheet project Jig Excel export, shifting ECN to Col M and Project Completion % to Col N; (2) strictly aligns 'Project Completion %' in Excel Column N with website canonical project completion formula `min(100, round((Assembly Completed / Total Required) * 100, 1)) / 100` formatted as `0.0%`, unvarying across Jigs/sides; (3) maintains zero N+1 query architecture via bulk lookups; (4) aligns Dashboard.vue project banner progress display. | Passing (270 tests, 3182 assertions) |
@@ -1244,5 +1260,51 @@ When troubleshooting any reported anomaly or bug, follow this safe protocol:
 > 6. **Follow Canonical Math Invariants:** Never alter quantity formulas without verifying compliance with [Section 31 (Data Integrity Rules)](#31-data-integrity-rules).
 > 7. **Maintain Reverse Lineage Integrity:** Follow [Section 18 (Revert Rules)](#18-revert-rules) for any workflow transition changes.
 > 8. **Respect Git Branching Policy:** All development work occurs on `branch-a`. PR required to merge into `main`.
-> 9. **Verify with Automated Tests:** Run `docker exec -t sparetrack-app php artisan test` to confirm all 181 tests pass before concluding.
+> 9. **Verify with Automated Tests:** Run `docker exec -t sparetrack-app php artisan test` to confirm all 287 tests pass before concluding.
 > 10. **Update This Document on Every Meaningful Change:** Whenever a new feature, bug fix, migration, API endpoint, or workflow rule is modified, update `PROJECT_CONTEXT_SUMMARY.md` in the same development cycle (recommended every 2–4 hours of active work).
+
+---
+
+## 41. BOP & STD Allocation Policy: Reversion to Automatic FIFO Allocation `[VERIFIED]`
+
+### 41.1 Policy Rollback & Reversion Rationale
+
+On **2026-09-23**, the manual reservation layer for Bought Out Parts (**BOP**) and Standard Hardware (**STD**) was completely reverted back to the previous **100% automatic FIFO allocation** behavior:
+1. **Pure Automatic Waterfall (FIFO)**: Intake and stage transitions for generic parts (BOP and STD) strictly distribute available physical quantities across eligible BOM requirements in deterministic FIFO order (ascending by BOM item ID, unit number, and receipt ID). No manual overrides or floor interventions are allowed or necessary.
+2. **Zero Mutation of Production Data**: Existing project data (especially **Project FA-273 / ID 762**) is 100% preserved. The database table `assembly_allocations` is retained non-destructively without schema dropping, but all querying, sorting overrides, and auto-consumption hooks have been completely removed from active service layers.
+3. **Reverted Code Paths & Components**:
+   - `BopIntakeService.php`: Removed `AssemblyAllocation` query, active-allocation priority sorting in Store $\to$ Assembly and Assembly $\to$ Completed transitions, and `consumeAllocationOnCompletion` hooks.
+   - `StdIntakeService.php`: Removed `AssemblyAllocation` query, active-allocation priority sorting in assembly fulfillment, and `consumeAllocationOnCompletion` hooks across direct receipts, paint, and QC.
+   - `AssemblyController.php`: Removed `consumeAllocationOnCompletion` calls from single and bulk assembly completion methods.
+   - `resources/js/views/BopIntake.vue`: Removed "Alloc" action button, `AssemblyAllocationModal` integration, authorization gates, and associated CSS.
+   - `resources/js/views/StdIntake.vue`: Removed single-row and grid-mode "Alloc" action buttons, `AssemblyAllocationModal` integration, authorization gates, and associated CSS.
+   - `routes/api.php`: Disabled `/api/v1/assembly-allocation` route group.
+   - `public/build/`: Frontend bundle recompiled cleanly (`npm run build`) without allocation modal dependencies.
+
+---
+
+## 42. Mobile Floor Rework Bulk-Selection & Common Parts Resolution `[VERIFIED]`
+
+### 42.1 Problem Diagnosis & Root Cause
+Floor operators using mobile devices to perform bulk rework completion on COMMON parts (specifically Project FA-273, Jig LIMORD70, Unit 04, Parts 1501, 1502, 1503) encountered a blocking alert:
+> *"No Eligible Items: No active rework records available for selected items."*
+
+Investigation revealed two root causes:
+1. **API Data Delivery Gaps in `HierarchyService.php`**:
+   - In non-manager mobile hierarchy responses, `$item->rework_records` was only attached inside `$item->side_stats[$side]['rework_records']` and not attached directly at the root of `$item` (unlike `$item->receipt_items`).
+   - Mobile floor clients that read `item.rework_records` evaluated `(item.rework_records || [])` as empty arrays, resulting in zero collected rework record IDs.
+2. **Key Matching & Selection Mismatches in `mobile/App.js`**:
+   - Selection keys in mobile floor views vary depending on whether the active tab is `RH`, `LH`, or `COMMON` (`${p.id}_COMMON` vs `${p.id}_${unitSideTab}` vs `${p.id}`).
+   - The modal submit action handler in `mobile/App.js` did not account for these multi-side key permutations when matching selected IDs against active rework records.
+
+### 42.2 Technical Resolution
+1. **Server-Side Backward Compatibility (`app/Services/HierarchyService.php`)**:
+   - Attached `$item->rework_records`, `$item->qc_inspections`, `$item->paint_records`, and `$item->assembly_records` directly to `$item` for non-manager views, while preserving the full nested `side_stats` structure. Existing deployed floor APKs immediately regain access to records without mandatory app reinstalls.
+2. **Mobile Client Hardening (`mobile/App.js`)**:
+   - Hardened `handleBulkReworkAction` with multi-path resolution:
+     `item.side_stats?.[unitSideTab]?.rework_records || item.side_stats?.COMMON?.rework_records || item.rework_records`
+   - Added guards preventing action modal triggers on empty sets.
+   - Updated the modal submit handler to match keys against `${p.id}_${unitSideTab}`, `${p.id}_COMMON`, and `String(p.id)`.
+3. **Automated Verification (`tests/Feature/ReworkBulkActionTest.php`)**:
+   - Added test `test_bulk_complete_three_common_parts_matching_user_scenario` explicitly asserting 3 COMMON parts in Unit 04 transition atomically to `qc_received` with 0 active rework records remaining.
+

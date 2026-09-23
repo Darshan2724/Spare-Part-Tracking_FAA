@@ -454,6 +454,7 @@ class BopIntakeService
                     ->lockForUpdate()
                     ->get();
 
+
                 foreach ($receiptItems as $rec) {
                     $available = (int)$rec->received_quantity;
                     if ($available <= 0) continue;
@@ -506,6 +507,7 @@ class BopIntakeService
                     ->lockForUpdate()
                     ->get();
 
+
                 foreach ($receiptItems as $rec) {
                     $available = (int)$rec->received_quantity;
                     if ($available <= 0) continue;
@@ -535,6 +537,7 @@ class BopIntakeService
                         'completed_at' => now(),
                         'remarks' => $remarks ?: "Website BOP Assembly Completed ({$take} pcs)",
                     ]);
+
 
                     WorkflowEvent::create([
                         'bom_item_id' => $rec->bom_item_id,

@@ -2246,13 +2246,48 @@ function App() {
     }
   };
 
-  const handleBulkReworkAction = async (targetItems) => {
+  const handleBulkReworkAction = async (targetItems, action = 'complete') => {
     if (isSubmittingBulk) return;
-    const reworkIds = targetItems
-      .map(item => (item.rework_records || []).find(r => ['pending', 'in_progress'].includes(r.status) && (r.side === unitSideTab || r.side === 'COMMON'))?.id)
-      .filter(Boolean);
 
-    if (!reworkIds.length) {
+    if (!targetItems || targetItems.length === 0) {
+      Alert.alert('No Eligible Items', 'No items selected for bulk rework.');
+      return;
+    }
+
+    const reworkIds = [];
+    const itemsPayload = [];
+
+    targetItems.forEach(item => {
+      const sideStat = item.side_stats?.[unitSideTab] || item.side_stats?.COMMON || {};
+      const sideReworks = sideStat.rework_records || (item.rework_records || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
+
+      if (Array.isArray(sideReworks)) {
+        sideReworks.forEach(r => {
+          if (['pending', 'in_progress'].includes(r.status) && (r.side === unitSideTab || r.side === 'COMMON')) {
+            if (r.id) reworkIds.push(Number(r.id));
+          }
+        });
+      }
+
+      if (Array.isArray(item.rework_records)) {
+        item.rework_records.forEach(r => {
+          if (['pending', 'in_progress'].includes(r.status) && (r.side === unitSideTab || r.side === 'COMMON')) {
+            if (r.id) reworkIds.push(Number(r.id));
+          }
+        });
+      }
+
+      if (item.id) {
+        itemsPayload.push({
+          bom_item_id: Number(item.id),
+          side: unitSideTab,
+        });
+      }
+    });
+
+    const uniqueReworkIds = Array.from(new Set(reworkIds));
+
+    if (!uniqueReworkIds.length && !itemsPayload.length) {
       Alert.alert('No Eligible Items', 'No active rework records available for selected items.');
       return;
     }
@@ -2260,11 +2295,13 @@ function App() {
     setIsSubmittingBulk(true);
     try {
       const res = await apiClient.post('/rework/bulk-action', {
-        rework_record_ids: reworkIds,
-        action: 'complete',
+        rework_record_ids: uniqueReworkIds.length ? uniqueReworkIds : undefined,
+        items: itemsPayload.length ? itemsPayload : undefined,
+        action,
         completion_notes: bulkReworkNotes || 'Bulk rework completed.',
       });
-      showToast(res.data.message || `Bulk rework completed for ${reworkIds.length} items (Returned to QC)`);
+      const count = res.data.processed_count ?? uniqueReworkIds.length;
+      showToast(res.data.message || `Bulk rework completed for ${count} items (Returned to QC)`);
       clearSelection();
       setShowBulkReworkModal(false);
       loadData('rework', false);
@@ -5134,7 +5171,11 @@ function App() {
               <TouchableOpacity
                 style={[styles.button, { flex: 1, backgroundColor: '#10b981' }]}
                 onPress={() => {
-                  const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
+                  const parts = (selectedUnit?.parts || []).filter(p => 
+                    selectedItemIds.has(`${p.id}_${unitSideTab}`) ||
+                    selectedItemIds.has(`${p.id}_COMMON`) ||
+                    selectedItemIds.has(String(p.id))
+                  );
                   handleBulkReworkAction(parts, 'complete');
                 }}>
                 <Text style={styles.buttonText}>Complete & Return QC</Text>

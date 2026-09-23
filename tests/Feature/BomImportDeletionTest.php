@@ -201,9 +201,9 @@ class BomImportDeletionTest extends TestCase
         $deleteResponse->assertStatus(200)
                        ->assertJson(['success' => true]);
 
-        // Assert Batch A and Project A are deleted
+        // Assert Batch A items are deleted, but Project A is PRESERVED (never deleted)
         $this->assertNull(BomImportBatch::find($batchA->id));
-        $this->assertNull(Project::withTrashed()->find($projectA->id));
+        $this->assertNotNull(Project::find($projectA->id), 'Project must remain intact even when all its import batches are deleted.');
         $this->assertNull(BomItem::withTrashed()->find($itemA->id));
 
         // Assert Project B and Batch B are 100% UNTOUCHED

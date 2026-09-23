@@ -264,16 +264,45 @@ class ReworkController extends Controller
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'QC', 'REWORK']) ?: abort(403, 'Unauthorized. Rework operational permission required.');
 
         $request->validate([
-            'rework_record_ids' => ['required', 'array', 'min:1'],
-            'rework_record_ids.*' => ['integer', 'exists:rework_records,id'],
+            'rework_record_ids' => ['nullable', 'array'],
+            'rework_record_ids.*' => ['integer'],
+            'items' => ['nullable', 'array'],
+            'items.*.bom_item_id' => ['required_with:items', 'integer'],
+            'items.*.side' => ['required_with:items', 'string'],
             'action' => ['required', 'in:start,complete'],
             'completion_notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         return DB::transaction(function () use ($request) {
-            $ids = $request->input('rework_record_ids');
+            $rawIds = (array) $request->input('rework_record_ids', []);
+            $ids = array_values(array_unique(array_filter(array_map('intval', $rawIds))));
             $action = $request->input('action');
             $notes = $request->input('completion_notes') ?? 'Bulk rework completed.';
+
+            $items = (array) $request->input('items', []);
+            if (!empty($items)) {
+                foreach ($items as $it) {
+                    $bId = (int) ($it['bom_item_id'] ?? 0);
+                    $sd = strtoupper(trim((string)($it['side'] ?? '')));
+                    if ($bId > 0) {
+                        $matchingIds = ReworkRecord::where('bom_item_id', $bId)
+                            ->where(function ($q) use ($sd) {
+                                if (!empty($sd)) {
+                                    $q->where('side', $sd)->orWhere('side', 'COMMON');
+                                }
+                            })
+                            ->whereIn('status', ['pending', 'in_progress'])
+                            ->pluck('id')
+                            ->toArray();
+                        $ids = array_merge($ids, $matchingIds);
+                    }
+                }
+                $ids = array_values(array_unique($ids));
+            }
+
+            if (empty($ids)) {
+                return response()->json(['success' => false, 'message' => 'No active rework records available for selected items.'], 422);
+            }
 
             $records = ReworkRecord::whereIn('id', $ids)
                 ->lockForUpdate()

@@ -1028,6 +1028,7 @@ class StdIntakeService
                     ->lockForUpdate()
                     ->get();
 
+
                 // 1. Fulfill from Direct in_assembly receipts first (direct store->assembly)
                 foreach ($inAssemblyRecs as $asmRec) {
                     $available = (int)$asmRec->received_quantity;
@@ -1060,6 +1061,7 @@ class StdIntakeService
                         'completed_at' => now(),
                         'remarks' => $remarks ?: "Website STD Assembly Completed ({$take} pcs)",
                     ]);
+
 
                     WorkflowEvent::create([
                         'bom_item_id' => $asmRec->bom_item_id,
@@ -1106,6 +1108,7 @@ class StdIntakeService
                             'remarks' => $remarks ?: "Website STD Assembly Completed ({$take} pcs)",
                         ]);
 
+
                         WorkflowEvent::create([
                             'bom_item_id' => $pnt->bom_item_id,
                             'project_id' => $item->project_id,
@@ -1151,6 +1154,7 @@ class StdIntakeService
                             'completed_at' => now(),
                             'remarks' => $remarks ?: "Website STD Direct Assembly Completed ({$take} pcs)",
                         ]);
+
 
                         WorkflowEvent::create([
                             'bom_item_id' => $dqc->bom_item_id,

@@ -255,5 +255,6 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::post('/transition', [StdIntakeController::class, 'transition']);
             Route::post('/qc-route', [StdIntakeController::class, 'qcRoute']);
         });
+
     });
 });

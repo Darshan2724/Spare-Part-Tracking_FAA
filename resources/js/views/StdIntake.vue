@@ -452,6 +452,7 @@
                           >
                             <i class="fas fa-check-double"></i> Complete
                           </button>
+
                         </div>
                       </template>
                     </div>

@@ -58,6 +58,8 @@ class DashboardController extends Controller
     {
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC', 'REWORK', 'PAINT', 'ASSEMBLY', 'PURCHASE']) ?: abort(403);
 
+        @ini_set('memory_limit', '256M');
+
         $projectId = $request->query('project_id') ? (int) $request->query('project_id') : null;
         $filters = [
             'side' => $request->query('side'),
@@ -108,10 +110,27 @@ class DashboardController extends Controller
                     'completed_jigs' => $hierarchy['completed_jigs'] ?? 0,
                 ];
             } else {
-                // In All Types view, partition the single-pass hierarchy in memory (1 DB pass vs 4 DB passes)
-                $hierarchy['mfg_section'] = $this->hierarchyService->partitionHierarchyByPartType($hierarchy['jigs'] ?? [], 'MFG', 'manager');
-                $hierarchy['bop_section'] = $this->hierarchyService->partitionHierarchyByPartType($hierarchy['jigs'] ?? [], 'BOP', 'manager');
-                $hierarchy['std_section'] = $this->hierarchyService->partitionHierarchyByPartType($hierarchy['jigs'] ?? [], 'STD', 'manager');
+                // In All Types view:
+                // Check which part types exist in this hierarchy to avoid redundant partitioning passes
+                $hasMfg = $hierarchy['has_mfg'] ?? true;
+                $hasBop = $hierarchy['has_bop'] ?? false;
+                $hasStd = $hierarchy['has_std'] ?? false;
+
+                // Optimization: If a project only has MFG parts (e.g. FA-285 with 6,254 MFG parts),
+                // reuse the main hierarchy without deep array clone passes
+                if ($hasMfg && !$hasBop && !$hasStd) {
+                    $hierarchy['mfg_section'] = [
+                        'jigs' => $hierarchy['jigs'] ?? [],
+                        'total_jigs' => $hierarchy['total_jigs'] ?? count($hierarchy['jigs'] ?? []),
+                        'completed_jigs' => $hierarchy['completed_jigs'] ?? 0,
+                    ];
+                    $hierarchy['bop_section'] = $emptySection;
+                    $hierarchy['std_section'] = $emptySection;
+                } else {
+                    $hierarchy['mfg_section'] = $hasMfg ? $this->hierarchyService->partitionHierarchyByPartType($hierarchy['jigs'] ?? [], 'MFG', 'manager') : $emptySection;
+                    $hierarchy['bop_section'] = $hasBop ? $this->hierarchyService->partitionHierarchyByPartType($hierarchy['jigs'] ?? [], 'BOP', 'manager') : $emptySection;
+                    $hierarchy['std_section'] = $hasStd ? $this->hierarchyService->partitionHierarchyByPartType($hierarchy['jigs'] ?? [], 'STD', 'manager') : $emptySection;
+                }
             }
         }
 

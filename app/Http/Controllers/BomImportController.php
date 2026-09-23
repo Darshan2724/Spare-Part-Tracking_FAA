@@ -370,10 +370,9 @@ class BomImportController extends Controller
 
                     $deletedCounts['bom_items'] = BomItem::where('project_id', $projectId)->forceDelete();
 
-                    if ($project) {
-                        $project->forceDelete();
-                        $deletedCounts['projects'] = 1;
-                    }
+                    // CRITICAL PRODUCTION RULE: Projects must NEVER be deleted.
+                    // Even if an import batch is deleted or a project has zero parts/jigs,
+                    // the Project record itself remains permanent and intact.
                 } else {
                     // Project is shared with other active import batches: delete only items linked to this batch
                     $batchBomItemIds = BomItem::where('project_id', $projectId)->where('import_batch_id', $batch->id)->pluck('id')->toArray();
@@ -402,7 +401,7 @@ class BomImportController extends Controller
                 'module' => 'BOM_IMPORT',
                 'user_id' => $user?->id,
                 'user_role' => $user?->roles?->first()?->name ?? 'ADMIN',
-                'message' => "BOM_IMPORT_DELETED: Import Batch #{$batchId} ('{$batchFilename}') and Project '{$projectName}' ({$projectCode}) deleted by {$user?->name} ({$user?->email})",
+                'message' => "BOM_IMPORT_DELETED: Import Batch #{$batchId} ('{$batchFilename}') for Project '{$projectName}' ({$projectCode}) deleted by {$user?->name} ({$user?->email})",
                 'details' => [
                     'event' => 'BOM_IMPORT_DELETED',
                     'import_batch_id' => $batchId,

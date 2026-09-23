@@ -281,6 +281,7 @@
                         <i class="fas fa-cogs"></i> ASM
                       </button>
 
+
                       <!-- 3. Mark Assembled -->
                       <button 
                         v-if="part.parts_in_assembly > 0" 

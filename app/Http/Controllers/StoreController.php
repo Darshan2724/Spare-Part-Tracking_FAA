@@ -602,6 +602,7 @@ class StoreController extends Controller
         $isMobile = $request->header('X-Client-Platform') === 'mobile'
             || $request->header('X-Source-Channel') === 'MOBILE_INTAKE'
             || $request->input('source') === 'MOBILE_INTAKE'
+            || $request->is('*mobile*')
             || $request->routeIs('*mobile*');
 
         $filters = [

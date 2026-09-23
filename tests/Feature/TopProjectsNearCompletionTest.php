@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\Project;
+use App\Models\BomItem;
+use App\Models\BomRequirement;
 use App\Models\User;
 use App\Services\QuantityCalculationService;
 use Tests\TestCase;
@@ -33,6 +35,27 @@ class TopProjectsNearCompletionTest extends TestCase
     {
         $user = $this->getAdminUser();
         $this->actingAs($user, 'sanctum');
+
+        if (Project::where('status', 'active')->count() === 0) {
+            $p = Project::create([
+                'project_code' => 'TEST-ACTIVE-' . uniqid(),
+                'name' => 'Active Test Project',
+                'status' => 'active',
+            ]);
+            $item = BomItem::create([
+                'project_id' => $p->id,
+                'standard_part_no' => 'PART-ACT-001',
+                'item_no' => '1',
+                'jig_no' => 'JIG-01',
+                'unit_no' => 'Unit 01',
+                'part_type' => 'MFG',
+            ]);
+            BomRequirement::create([
+                'bom_item_id' => $item->id,
+                'side' => 'RH',
+                'required_quantity' => 10,
+            ]);
+        }
 
         $response = $this->getJson('/api/v1/dashboard/summary?status_filter=active');
         $response->assertStatus(200);
