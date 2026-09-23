@@ -455,6 +455,19 @@ class BopIntakeService
                     ->lockForUpdate()
                     ->get();
 
+                $activeAllocItemSideKeys = AssemblyAllocation::whereIn('bom_item_id', $bomItemIds)
+                    ->where('status', 'active')
+                    ->get()
+                    ->map(fn($a) => $a->bom_item_id . '_' . $a->side)
+                    ->flip()
+                    ->toArray();
+
+                if (!empty($activeAllocItemSideKeys)) {
+                    $receiptItems = $receiptItems->sortByDesc(function ($rec) use ($activeAllocItemSideKeys) {
+                        return isset($activeAllocItemSideKeys[$rec->bom_item_id . '_' . $rec->side]) ? 1 : 0;
+                    })->values();
+                }
+
                 foreach ($receiptItems as $rec) {
                     $available = (int)$rec->received_quantity;
                     if ($available <= 0) continue;

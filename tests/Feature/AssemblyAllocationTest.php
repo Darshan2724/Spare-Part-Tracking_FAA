@@ -231,9 +231,9 @@ class AssemblyAllocationTest extends TestCase
         $response->assertStatus(200);
         $response->assertJsonPath('success', true);
         $response->assertJsonPath('data.part_summary.total_required', 20);
-        $response->assertJsonPath('data.part_summary.total_assembly_ready', 6);
+        $response->assertJsonPath('data.part_summary.total_assembly_ready', 10);
         $response->assertJsonPath('data.part_summary.total_allocated', 0);
-        $response->assertJsonPath('data.part_summary.unallocated_assembly_ready', 6);
+        $response->assertJsonPath('data.part_summary.unallocated_assembly_ready', 10);
         $this->assertCount(2, $response->json('data.units'));
     }
 

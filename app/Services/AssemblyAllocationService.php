@@ -105,7 +105,7 @@ class AssemblyAllocationService
         // 3. Compute total assembly ready stock across all matching items
         $totalAssemblyReady = 0;
         if ($bomType === 'BOP') {
-            $totalAssemblyReady = (int) $receipts->where('status', 'in_assembly')->sum('received_quantity');
+            $totalAssemblyReady = (int) $receipts->whereIn('status', ['in_assembly', 'received', 'returned_to_store'])->sum('received_quantity');
         } else {
             // Direct in_assembly
             $inAsmQty = (int) $receipts->where('status', 'in_assembly')->sum('received_quantity');
@@ -146,6 +146,8 @@ class AssemblyAllocationService
                 $itemAsm = $assemblyRecords->where('bom_item_id', $item->id)->where('side', $side);
 
                 $recQty = (int) $itemRecs->sum('received_quantity');
+                $asmReadyQty = (int) $itemRecs->where('status', 'in_assembly')->sum('received_quantity');
+                $storeQty = (int) $itemRecs->whereIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
                 $effectiveRec = min($recQty, $reqQty);
 
                 $completedQty = (int) $itemAsm->sum('quantity');
@@ -174,6 +176,8 @@ class AssemblyAllocationService
                     'side' => $side,
                     'required_quantity' => $reqQty,
                     'received_quantity' => $recQty,
+                    'in_assembly_quantity' => $asmReadyQty,
+                    'store_quantity' => $storeQty,
                     'assembly_completed_quantity' => $completedQty,
                     'allocated_quantity' => $allocQty,
                     'remaining_need' => $remainingNeed,
@@ -520,7 +524,7 @@ class AssemblyAllocationService
 
         if ($bomType === 'BOP') {
             return (int) ReceiptItem::whereIn('bom_item_id', $bomItemIds)
-                ->where('status', 'in_assembly')
+                ->whereIn('status', ['in_assembly', 'received', 'returned_to_store'])
                 ->sum('received_quantity');
         }
 

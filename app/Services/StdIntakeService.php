@@ -1029,6 +1029,19 @@ class StdIntakeService
                     ->lockForUpdate()
                     ->get();
 
+                $activeAllocItemSideKeys = AssemblyAllocation::whereIn('bom_item_id', $bomItemIds)
+                    ->where('status', 'active')
+                    ->get()
+                    ->map(fn($a) => $a->bom_item_id . '_' . $a->side)
+                    ->flip()
+                    ->toArray();
+
+                if (!empty($activeAllocItemSideKeys)) {
+                    $inAssemblyRecs = $inAssemblyRecs->sortByDesc(fn($r) => isset($activeAllocItemSideKeys[$r->bom_item_id . '_' . $r->side]) ? 1 : 0)->values();
+                    $paints = $paints->sortByDesc(fn($r) => isset($activeAllocItemSideKeys[$r->bom_item_id . '_' . $r->side]) ? 1 : 0)->values();
+                    $directQcs = $directQcs->sortByDesc(fn($r) => isset($activeAllocItemSideKeys[$r->bom_item_id . '_' . $r->side]) ? 1 : 0)->values();
+                }
+
                 // 1. Fulfill from Direct in_assembly receipts first (direct store->assembly)
                 foreach ($inAssemblyRecs as $asmRec) {
                     $available = (int)$asmRec->received_quantity;

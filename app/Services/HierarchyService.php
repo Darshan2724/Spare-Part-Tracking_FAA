@@ -642,7 +642,7 @@ class HierarchyService
 
             // Lightweight plain object to minimize memory retention and allow garbage collection
             $supplierName = $item->supplier?->name ?? ($item->supplier_name_raw ?? '—');
-            $partObj = (object) [
+            $partObj = new \ArrayObject([
                 'id' => $item->id,
                 'standard_part_no' => $partNo,
                 'part_type' => $item->part_type ?? 'MFG',
@@ -653,7 +653,7 @@ class HierarchyService
                 'side_stats' => $sideStats,
                 'metrics' => $itemMetrics,
                 'is_done' => ($itemMetrics['total_required'] > 0 && $itemMetrics['assembly_completed'] >= $itemMetrics['total_required']),
-            ];
+            ], \ArrayObject::ARRAY_AS_PROPS);
 
             $jigsTree[$jigName]['units'][$unitNo]['parts'][] = $partObj;
             $jigsTree[$jigName]['units'][$unitNo]['total_parts']++;
@@ -1110,18 +1110,27 @@ class HierarchyService
 
                 // Process regular parts
                 foreach ($unitData['parts'] as $part) {
-                    $hasLh = isset($part->side_stats['LH']);
-                    $hasRh = isset($part->side_stats['RH']);
-                    $hasCommon = isset($part->side_stats['COMMON']);
-                    $partSupplier = $part->supplier?->name ?? ($part->supplier_name_raw ?? ($part->supplier_name ?? '—'));
+                    $pSideStats = is_array($part) ? ($part['side_stats'] ?? []) : ($part->side_stats ?? []);
+                    $pId = is_array($part) ? ($part['id'] ?? 0) : ($part->id ?? 0);
+                    $pStdNo = is_array($part) ? ($part['standard_part_no'] ?? '') : ($part->standard_part_no ?? '');
+                    $pType = is_array($part) ? ($part['part_type'] ?? 'MFG') : ($part->part_type ?? 'MFG');
+                    $pItemNo = is_array($part) ? ($part['item_no'] ?? '—') : ($part->item_no ?? '—');
+                    $pSupp = is_array($part) ? ($part['supplier'] ?? null) : ($part->supplier ?? null);
+                    $pSuppRaw = is_array($part) ? ($part['supplier_name_raw'] ?? null) : ($part->supplier_name_raw ?? null);
+                    $pSuppName = is_array($part) ? ($part['supplier_name'] ?? null) : ($part->supplier_name ?? null);
+                    $partSupplier = is_object($pSupp) ? ($pSupp->name ?? '—') : ($pSuppRaw ?? ($pSuppName ?? '—'));
+
+                    $hasLh = isset($pSideStats['LH']);
+                    $hasRh = isset($pSideStats['RH']);
+                    $hasCommon = isset($pSideStats['COMMON']);
 
                     if ($hasLh) {
-                        $st = $part->side_stats['LH'];
+                        $st = $pSideStats['LH'];
                         $lhParts[] = [
-                            'id' => $part->id,
-                            'standard_part_no' => $part->standard_part_no,
-                            'part_type' => $part->part_type ?? 'MFG',
-                            'item_no' => $part->item_no ?? '—',
+                            'id' => $pId,
+                            'standard_part_no' => $pStdNo,
+                            'part_type' => $pType,
+                            'item_no' => $pItemNo,
                             'supplier' => $partSupplier,
                             'side' => 'LH',
                             'required_qty' => $st['required'] ?? 0,
@@ -1133,7 +1142,7 @@ class HierarchyService
                             'is_done' => $st['is_done'] ?? false,
                             'is_ecn' => false,
                             'classification' => 'REGULAR',
-                            'side_stats' => $isManager ? null : $part->side_stats,
+                            'side_stats' => $isManager ? null : $pSideStats,
                         ];
                         $lhRequired += $st['required'] ?? 0;
                         $lhReceived += $st['received'] ?? 0;
@@ -1142,12 +1151,12 @@ class HierarchyService
                         $this->accumulateMetrics($lhMetrics, $st);
                     }
                     if ($hasRh) {
-                        $st = $part->side_stats['RH'];
+                        $st = $pSideStats['RH'];
                         $rhParts[] = [
-                            'id' => $part->id,
-                            'standard_part_no' => $part->standard_part_no,
-                            'part_type' => $part->part_type ?? 'MFG',
-                            'item_no' => $part->item_no ?? '—',
+                            'id' => $pId,
+                            'standard_part_no' => $pStdNo,
+                            'part_type' => $pType,
+                            'item_no' => $pItemNo,
                             'supplier' => $partSupplier,
                             'side' => 'RH',
                             'required_qty' => $st['required'] ?? 0,
@@ -1159,7 +1168,7 @@ class HierarchyService
                             'is_done' => $st['is_done'] ?? false,
                             'is_ecn' => false,
                             'classification' => 'REGULAR',
-                            'side_stats' => $isManager ? null : $part->side_stats,
+                            'side_stats' => $isManager ? null : $pSideStats,
                         ];
                         $rhRequired += $st['required'] ?? 0;
                         $rhReceived += $st['received'] ?? 0;
@@ -1168,12 +1177,13 @@ class HierarchyService
                         $this->accumulateMetrics($rhMetrics, $st);
                     }
                     if ($hasCommon || (!$hasLh && !$hasRh)) {
-                        $st = $part->side_stats['COMMON'] ?? reset($part->side_stats);
+                        $rawSt = $pSideStats['COMMON'] ?? (is_array($pSideStats) && !empty($pSideStats) ? reset($pSideStats) : null);
+                        $st = is_array($rawSt) ? $rawSt : [];
                         $commonParts[] = [
-                            'id' => $part->id,
-                            'standard_part_no' => $part->standard_part_no,
-                            'part_type' => $part->part_type ?? 'MFG',
-                            'item_no' => $part->item_no ?? '—',
+                            'id' => $pId,
+                            'standard_part_no' => $pStdNo,
+                            'part_type' => $pType,
+                            'item_no' => $pItemNo,
                             'supplier' => $partSupplier,
                             'side' => 'COMMON',
                             'required_qty' => $st['required'] ?? 0,
@@ -1185,7 +1195,7 @@ class HierarchyService
                             'is_done' => $st['is_done'] ?? false,
                             'is_ecn' => false,
                             'classification' => 'REGULAR',
-                            'side_stats' => $isManager ? null : $part->side_stats,
+                            'side_stats' => $isManager ? null : $pSideStats,
                         ];
                         $commonRequired += $st['required'] ?? 0;
                         $commonReceived += $st['received'] ?? 0;
@@ -2013,8 +2023,11 @@ class HierarchyService
         ];
     }
 
-    protected function accumulateMetrics(array &$target, array $source): void
+    protected function accumulateMetrics(array &$target, mixed $source): void
     {
+        if (empty($source) || !is_array($source)) {
+            return;
+        }
         foreach ($source as $k => $v) {
             if (isset($target[$k])) {
                 $target[$k] += (int) $v;

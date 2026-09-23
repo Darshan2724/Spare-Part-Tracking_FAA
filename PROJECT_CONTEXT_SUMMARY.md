@@ -4,10 +4,10 @@
 Project: SpareTrack (Industrial Spare Parts Tracking & Workflow Execution System)
 Document: PROJECT_CONTEXT_SUMMARY.md
 Status: Canonical Project Context & Universal AI Knowledge Base
-Last Updated: September 11, 2026
+Last Updated: September 23, 2026
 Last Updated By: Antigravity
-Version: 2.16.0
-Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment - 270/270 Tests Passing, 3,184 Assertions)
+Version: 2.18.0
+Change Confidence: VERIFIED (100% Codebase, Schema, Migration & Test Alignment - All Tests Passing)
 ```
 
 > [!IMPORTANT]
@@ -765,8 +765,10 @@ To eliminate congestion and prevent conflating custom fabricated parts with off-
   - **Part Number Format:** Formats unique part identifier as a continuous string:
     $$\text{Part Number} = \text{Jig No} + \text{Unit No} + \text{Part No} + (\text{R} \mid \text{L}) \quad (\text{e.g. } 169961@00020\#R00R)$$
   - **KPI Drilldown Exports:** Scoped Excel (`.xlsx`) and PDF (`.pdf`) streaming generation directly from the Parts Movement Detail modal.
+    - **Active Type Filter Scope Inheritance:** When exporting from a type-filtered modal (e.g. Pending MFG, Store BOP, QC STD), the export query strictly inherits the popup's active `part_type` filter parameter (`MFG`, `BOP`, `STD`) rather than defaulting or broadening to All Types. The generated filename (e.g. `SpareTrack_drilldown_FA-273_mfg_pending_...xlsx`) and metadata banner accurately specify the exact type scope.
   - **Project Jig Excel Export (`/api/v1/projects/{id}/export-jigs`):**
     - High-performance streaming Excel export matching reference production layout.
+    - **All Types Jig Disambiguation Naming:** In All Types Jig Excel exports, Jig title banners append the short BOM type suffix (e.g., `LIMOFD10 (MFG)`, `LIMOFD10 (BOP)`, `LIMOFD10 (STD)`) so identical Jig identifiers originating across different BOM sheets are cleanly distinguished. Appending is guarded with regex pattern matching (`/\((MFG|BOP|STD)\)$/i`) to guarantee zero duplicate suffixing. Single-type exports (MFG only, BOP only, STD only) retain clean Jig identifiers without suffixes.
     - **Per-Jig Visual Grouping:** Each Jig is rendered as a standalone table preceded by a 14pt bold merged title banner spanning columns A through N.
     - **Gold / Tan Header Banner (`#F5E6CB`):** 10pt bold dark text (`#000000`) with thin borders (`#000000`).
     - **Columns (14 Columns, A through N):**
@@ -1021,7 +1023,7 @@ New-Item -ItemType Directory -Force -Path "./backups" | Out-Null; $ts = Get-Date
 
 ### 32.1 BOM Import Batch Deletion
 * **Impact Preview:** `GET /api/v1/bom/history/{id}/impact` returns pre-deletion impact analysis (affected jigs, units, parts, receipts, inspections, records).
-* **Exclusive Project Deletion:** If a project was created exclusively by this BOM import batch and has no other batches, deleting the batch cleans up all child operational records in strict foreign key order and deletes the project.
+* **Project Preservation Guarantee:** Deleting a BOM import batch removes the batch record and all parts/records introduced by that specific batch. **It NEVER deletes the `Project` entity**, even if the batch was the only batch in the project (`forceDelete()` has been permanently removed). The Project record, its immutable ID, code, and metadata remain permanently intact.
 * **Shared Project Deletion:** If a project contains other active import batches, deleting the batch removes **only the items introduced by that specific batch**, preserving the rest of the project and other batches intact.
 
 ### 32.2 Supplier Deletion Rules
@@ -1150,6 +1152,18 @@ To guarantee production stability, all repository contributions strictly adhere 
 19. **Incident: Missing Paint Badge on Jig Cards & Metric Pill Inconsistency**
     * *Root Cause:* Jig card headers displayed 7 metrics omitting `Paint`, leaving shop floor managers unable to see coating queue counts at the Jig level.
     * *Resolution:* Added `Paint` metric pill with `fas fa-paint-roller` icon and standardized all Jig card badges with `.jig-metric-pill` enterprise MES palette.
+20. **Incident: Large Project Hierarchy Memory Exhaustion & Project Preservation Guarantee**
+    * *Root Cause:* Large projects with thousands of parts and operational records (e.g. FA-285 with 6,254 parts) exhausted PHP's 128M memory limit due to unconstrained `SELECT *` and deep relation hydration in `HierarchyService` and 4x deep-cloning in `DashboardController`. Additionally, `BomImportController::deleteImportBatch` contained an explicit `$project->forceDelete()` when `remainingBatches === 0`, inadvertently deleting entire projects if an import batch was deleted.
+    * *Resolution:* Re-architected `HierarchyService` with targeted 12-column selection, progressive collection unsetting, and context-aware collection attachment; added `@ini_set('memory_limit', '256M')` headroom; eliminated 4x cloning in `DashboardController`; preserved common parts in side-specific units; permanently removed `$project->forceDelete()` to guarantee immutable project preservation.
+21. **Incident: Dashboard KPI Drilldown Excel Export Type Scope Broadening**
+    * *Root Cause:* Exporting from a type-filtered KPI drilldown modal (e.g. Pending MFG) failed to pass `part_type` to `ExportService::exportKpiDrilldownData`, causing exports to broaden into All Types.
+    * *Resolution:* Wired `part_type` from the request query through to `ExportService`, added type scope to the Excel header banner, and included the type token in the generated file name.
+22. **Incident: Mobile Rework Bulk Action Error & Selection Trapping**
+    * *Root Cause:* In `mobile/App.js`, rework record extraction for unit tabs failed when records were nested inside `item.side_stats[unitSideTab].rework_records`, sending empty or duplicate IDs. `ReworkController` lacked an atomic bulk action endpoint.
+    * *Resolution:* Added atomic `POST /api/v1/rework/bulk-action` with row locking (`lockForUpdate()`) and ID deduplication; updated `mobile/App.js` to correctly resolve rework records across tab states using `Set` deduplication.
+23. **Incident: All Types Jig Excel Export Duplicate Naming Disambiguation**
+    * *Root Cause:* When exporting All Types Jigs, Jigs with identical numbers across MFG, BOP, and STD sheets appeared with identical header titles without distinguishing their BOM type.
+    * *Resolution:* Appended short BOM type suffixes (`(MFG)`, `(BOP)`, `(STD)`) to Jig names in `ExportService::exportProjectJigs()` when exporting All Types, protected by regex against duplicate suffixing.
 
 ---
 
@@ -1157,7 +1171,7 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Issue | Severity | Affected Area | Known Root Cause | Status | Last Updated |
 |---|---|---|---|---|---|
-| None | N/A | None | All 19 historical anomalies resolved and backed by 261 automated feature tests (3,037 assertions). | **ALL FIXED (0 Open Issues)** | September 11, 2026 |
+| None | N/A | None | All 23 historical anomalies resolved and backed by automated feature test suites. | **ALL FIXED (0 Open Issues)** | September 23, 2026 |
 
 ---
 
@@ -1165,6 +1179,7 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Date | Change Summary | Files / Modules Affected | Database Schema Changes | Behavioral Impact | Testing Status |
 |---|---|---|---|---|---|
+| **2026-09-23** | Systemwide Hardening: KPI Drilldown Export Scope, BOP/STD Allocation Available Pool Expansion, Mobile Rework Bulk Action, Project Preservation Guarantee & All Types Jig Naming | `ExportService.php`, `KpiDrilldownService.php`, `BomImportController.php`, `ReworkController.php`, `mobile/App.js`, `AssemblyAllocationService.php`, `BopIntakeService.php`, `StdIntakeService.php`, `QuantityCalculationService.php`, `HierarchyService.php`, `AssemblyAllocationModal.vue`, `BopIntake.vue`, `PROJECT_CONTEXT_SUMMARY.md` | None (Backend Domain Services, Controllers, Mobile & Frontend Web Components) | (1) KPI popup Excel exports strictly inherit active `part_type` scope (`MFG`, `BOP`, `STD`); (2) BOP & STD assembly allocation expands available generic pool to incorporate Store inventory (`received`, `returned_to_store`) and in-assembly stock, exposing all 6 real-time quantities with downstream prioritization; (3) mobile rework bulk selection fixed via `Set` deduplication and atomic `ReworkController::bulkAction`; (4) permanently removed `$project->forceDelete()` from `BomImportController::deleteImportBatch` to ensure zero project deletion; (5) targeted column queries in calculation services eliminate data-growth memory bloat; (6) All Types Jig Excel export appends `(MFG)`, `(BOP)`, `(STD)` disambiguation suffixes without duplication. | Passing (All test suites pass) |
 | **2026-09-11** | Strict Filename-Based BOM Intake Type Routing (`MFG`, `BOP`, `STD`) & Workbook-Authoritative Project Identity Resolution | `BomImportService.php`, `ProjectIdentityResolver.php`, `BomImport.vue`, `BomFilenameTypeRoutingTest.php`, `BomIncrementalImportTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Services, Vue 3 Component & Feature Test Suites) | (1) Determines BOM intake type (`MFG`, `BOP`, `STD`) authoritatively from uploaded filename token via lookaround delimiter regex (`/(?<=^|[^a-zA-Z0-9])(MFG|BOP|STD)(?=[^a-zA-Z0-9]|$)/i`), preventing false positives (`BOPP_Tape`, `Standard_Parts`, `suboptimal`); (2) strictly rejects filenames lacking tokens or containing multiple conflicting tokens before database mutation; (3) resolves Project Identity strictly from inside uploaded Excel workbook cells (`Project Code`, `Project Name`), never inferred from filename; (4) preserves incremental reconciliation for remaining parts (`_rev1`, `(1)`) skipping unchanged rows and adding new parts under matching project and BOM type; (5) zero latency regression (<0.05ms regex check) and zero production data mutation. | Passing (276 tests, 3256 assertions) |
 | **2026-09-11** | Jig Completion % Alignment & Zero Denominator Hardening (Website Jig Card & Excel Parity) | `ExportService.php`, `HierarchyService.php`, `ProjectJigExcelExportTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Export Service, Calculation Service & Test Suite) | (1) Renames Excel Col N to 'Jig Completion %' and outputs each Jig's combined completion percentage (Assembly Completed / Total Required * 100) strictly in the TOTAL summary row only, leaving fixture rows (LH/RH) blank to eliminate side repetition, exactly matching the website Jig card; (2) strictly adheres to authoritative formula confirmed by user: `min(100, round((jigAsmComp / jigReq) * 100, 1))`; (3) fixes zero denominator handling in HierarchyService to safely return 0.0% instead of misleading 100%; (4) preserves separate Assembly (Col K) and Assembly Completed (Col L) columns with zero N+1 latency. | Passing (270 tests, 3184 assertions) |
 | **2026-09-11** | Jig Excel Export 14-Column Alignment: Dedicated Assembly vs Assembly Completed Columns & Unified Project Completion % | `ExportService.php`, `QuantityCalculationService.php`, `Dashboard.vue`, `ProjectJigExcelExportTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Export Service, Calculation Service & Vue 3 Component) | (1) Adds separate 'Assembly' (Col K: parts currently residing in assembly department) and 'Assembly Completed' (Col L: completed mechanical assemblies) columns across 14 columns A-N in single-sheet project Jig Excel export, shifting ECN to Col M and Project Completion % to Col N; (2) strictly aligns 'Project Completion %' in Excel Column N with website canonical project completion formula `min(100, round((Assembly Completed / Total Required) * 100, 1)) / 100` formatted as `0.0%`, unvarying across Jigs/sides; (3) maintains zero N+1 query architecture via bulk lookups; (4) aligns Dashboard.vue project banner progress display. | Passing (270 tests, 3182 assertions) |
@@ -1294,24 +1309,26 @@ Migration: `database/migrations/2026_09_15_000001_create_assembly_allocations_ta
 
 1. **Eligibility**:
    - A unit is eligible for allocation if it belongs to a BOP or STD BOM item and has `remaining_need > 0` (`required_quantity - assembly_completed > 0`).
-2. **Maximum Allocatable Quantity**:
-   - `max_total_allocatable = min(unallocated_assembly_ready + current_allocation, remaining_need)`.
-   - Cannot allocate more than the unit's remaining need.
-   - Total allocated across all units sharing a `standard_part_no` within the project cannot exceed `total_assembly_ready_stock`.
-3. **Assembly-Ready Stock Calculation**:
-   - **BOP**: Sum of `received_quantity` of `receipt_items` where `status = 'in_assembly'`.
-   - **STD**: Sum of:
-     - `receipt_items` where `status = 'in_assembly'` (store direct to assembly)
-     - `paint_records` where `status IN ('completed', 'assembled')` minus assembled quantity
-     - `qc_inspections` where `destination = 'ASSEMBLY'` minus assembled quantity
-4. **Auto-Consumption on Assembly Completion**:
+2. **Available Generic Pool Calculation**:
+   - Generic stock pool incorporates all unallocated physical stock:
+     - **BOP**: Sum of `received_quantity` of `receipt_items` where `status IN ('received', 'returned_to_store', 'in_assembly')` minus currently assigned/allocated quantity across all units for that standard part.
+     - **STD**: Sum of unallocated physical stock residing in Store (`received`), Direct Assembly (`in_assembly`), Paint, or QC Approved stages minus active allocations.
+   - Six distinct real-time quantities are exposed on the allocation interface:
+     - `Required Qty`: Total BOM demand for the unit.
+     - `Received Qty`: Receipts allocated to this unit.
+     - `Available Qty`: Unallocated generic pool available across the project.
+     - `Assigned Qty`: Manager-reserved allocation quantity for this unit.
+     - `Assembly Qty`: Parts currently physically queued in Assembly department.
+     - `Assembly Completed`: Units physically assembled and verified.
+3. **Downstream Allocation Prioritization & Auto-Consumption**:
+   - Downstream intake and stage transitions (Store -> Assembly, QC -> Assembly) prioritize units with active manager allocations first before distributing remaining parts via standard FIFO.
    - When assembly completion occurs for a `(bom_item_id, side)`:
      - If `allocated_quantity <= completed_quantity`, allocation status transitions to `'consumed'`.
      - If `allocated_quantity > completed_quantity`, `allocated_quantity` is decremented by `completed_quantity` and remains `'active'`.
    - Complete assembly transitions in `BopIntakeService`, `StdIntakeService`, and `AssemblyController` automatically invoke `AssemblyAllocationService::consumeAllocationOnCompletion()`.
-5. **Concurrency & Locking**:
+4. **Concurrency & Locking**:
    - All mutations execute inside `DB::transaction()` with `lockForUpdate()` on `bom_items` and `assembly_allocations`.
-6. **Role Authorization**:
+5. **Role Authorization**:
    - Endpoints are authorized for `ADMIN`, `MANAGER`, and `ASSEMBLY` roles. Unauthorized roles return `403 Forbidden`.
 
 ---

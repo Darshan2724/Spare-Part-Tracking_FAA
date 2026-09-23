@@ -118,6 +118,8 @@
                       <th>Unit No</th>
                       <th>Side</th>
                       <th class="text-center">Req Qty</th>
+                      <th class="text-center">Received</th>
+                      <th class="text-center">In Assembly</th>
                       <th class="text-center">Assembled</th>
                       <th class="text-center">Remaining Need</th>
                       <th class="text-center">Current Allocation</th>
@@ -127,7 +129,7 @@
                   </thead>
                   <tbody>
                     <tr v-if="units.length === 0">
-                      <td colspan="9" class="text-center py-4 text-muted">
+                      <td colspan="11" class="text-center py-4 text-muted">
                         No units found requiring this part.
                       </td>
                     </tr>
@@ -149,6 +151,13 @@
                         <span class="badge bg-light text-dark border">{{ unit.side }}</span>
                       </td>
                       <td class="text-center fw-bold">{{ unit.required_quantity }}</td>
+                      <td class="text-center">{{ unit.received_quantity || 0 }}</td>
+                      <td class="text-center">
+                        <span v-if="unit.in_assembly_quantity > 0" class="badge text-white px-2 py-0.5 extra-small" style="background-color: #db2777;">
+                          {{ unit.in_assembly_quantity }}
+                        </span>
+                        <span v-else class="text-muted">0</span>
+                      </td>
                       <td class="text-center fw-bold text-success">{{ unit.assembly_completed_quantity }}</td>
                       <td class="text-center">
                         <span 

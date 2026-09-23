@@ -283,7 +283,7 @@
 
                       <!-- 2b. Allocate to Units (Manager / Assembly) -->
                       <button 
-                        v-if="part.parts_in_assembly > 0 && canAllocate" 
+                        v-if="(part.parts_in_store > 0 || part.parts_in_assembly > 0) && canAllocate" 
                         class="bop-btn-action bop-btn-allocate" 
                         title="Allocate generic stock to specific units"
                         aria-label="Allocate generic stock to specific units"

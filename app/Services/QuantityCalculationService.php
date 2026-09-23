@@ -149,15 +149,27 @@ class QuantityCalculationService
             return $emptyResults;
         }
 
-        // Bulk load all operational records strictly across all target BOM items
+        // Bulk load all operational records strictly across all target BOM items with targeted columns
         $recQuery = ReceiptItem::query()
+            ->select(['id', 'bom_item_id', 'side', 'received_quantity', 'status'])
             ->whereIn('bom_item_id', $allBomItemIds)
             ->whereIn('status', self::VALID_RECEIPT_STATUSES);
 
-        $qcQuery = QcInspection::query()->whereIn('bom_item_id', $allBomItemIds);
-        $reworkQuery = ReworkRecord::query()->whereIn('bom_item_id', $allBomItemIds);
-        $paintQuery = PaintRecord::query()->whereIn('bom_item_id', $allBomItemIds);
-        $asmQuery = AssemblyRecord::query()->whereIn('bom_item_id', $allBomItemIds);
+        $qcQuery = QcInspection::query()
+            ->select(['id', 'bom_item_id', 'side', 'result', 'approved_quantity', 'rework_quantity', 'rejected_quantity', 'destination'])
+            ->whereIn('bom_item_id', $allBomItemIds);
+
+        $reworkQuery = ReworkRecord::query()
+            ->select(['id', 'bom_item_id', 'side', 'quantity', 'status'])
+            ->whereIn('bom_item_id', $allBomItemIds);
+
+        $paintQuery = PaintRecord::query()
+            ->select(['id', 'bom_item_id', 'side', 'quantity', 'status'])
+            ->whereIn('bom_item_id', $allBomItemIds);
+
+        $asmQuery = AssemblyRecord::query()
+            ->select(['id', 'bom_item_id', 'side', 'quantity', 'status'])
+            ->whereIn('bom_item_id', $allBomItemIds);
 
         if (!empty($filters['date_from'])) {
             $recQuery->where('created_at', '>=', $filters['date_from']);
@@ -269,15 +281,27 @@ class QuantityCalculationService
             ];
         }
 
-        // Bulk load all operational records strictly across all target BOM items
+        // Bulk load all operational records strictly across all target BOM items with targeted columns
         $recQuery = ReceiptItem::query()
+            ->select(['id', 'bom_item_id', 'side', 'received_quantity', 'status'])
             ->whereIn('bom_item_id', $allBomItemIds)
             ->whereIn('status', self::VALID_RECEIPT_STATUSES);
 
-        $qcQuery = QcInspection::query()->whereIn('bom_item_id', $allBomItemIds);
-        $reworkQuery = ReworkRecord::query()->whereIn('bom_item_id', $allBomItemIds);
-        $paintQuery = PaintRecord::query()->whereIn('bom_item_id', $allBomItemIds);
-        $asmQuery = AssemblyRecord::query()->whereIn('bom_item_id', $allBomItemIds);
+        $qcQuery = QcInspection::query()
+            ->select(['id', 'bom_item_id', 'side', 'result', 'approved_quantity', 'rework_quantity', 'rejected_quantity', 'destination'])
+            ->whereIn('bom_item_id', $allBomItemIds);
+
+        $reworkQuery = ReworkRecord::query()
+            ->select(['id', 'bom_item_id', 'side', 'quantity', 'status'])
+            ->whereIn('bom_item_id', $allBomItemIds);
+
+        $paintQuery = PaintRecord::query()
+            ->select(['id', 'bom_item_id', 'side', 'quantity', 'status'])
+            ->whereIn('bom_item_id', $allBomItemIds);
+
+        $asmQuery = AssemblyRecord::query()
+            ->select(['id', 'bom_item_id', 'side', 'quantity', 'status'])
+            ->whereIn('bom_item_id', $allBomItemIds);
 
         if (!empty($baseFilters['date_from'])) {
             $recQuery->where('created_at', '>=', $baseFilters['date_from']);
