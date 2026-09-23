@@ -2249,15 +2249,28 @@ function App() {
   const handleBulkReworkAction = async (targetItems, action = 'complete') => {
     if (isSubmittingBulk) return;
 
+    if (!targetItems || targetItems.length === 0) {
+      Alert.alert('No Eligible Items', 'No items selected for bulk rework.');
+      return;
+    }
+
     const reworkIds = [];
     const itemsPayload = [];
 
-    (targetItems || []).forEach(item => {
+    targetItems.forEach(item => {
       const sideStat = item.side_stats?.[unitSideTab] || item.side_stats?.COMMON || {};
       const sideReworks = sideStat.rework_records || (item.rework_records || []).filter(r => r.side === unitSideTab || r.side === 'COMMON');
 
       if (Array.isArray(sideReworks)) {
         sideReworks.forEach(r => {
+          if (['pending', 'in_progress'].includes(r.status) && (r.side === unitSideTab || r.side === 'COMMON')) {
+            if (r.id) reworkIds.push(Number(r.id));
+          }
+        });
+      }
+
+      if (Array.isArray(item.rework_records)) {
+        item.rework_records.forEach(r => {
           if (['pending', 'in_progress'].includes(r.status) && (r.side === unitSideTab || r.side === 'COMMON')) {
             if (r.id) reworkIds.push(Number(r.id));
           }
@@ -5158,7 +5171,11 @@ function App() {
               <TouchableOpacity
                 style={[styles.button, { flex: 1, backgroundColor: '#10b981' }]}
                 onPress={() => {
-                  const parts = (selectedUnit?.parts || []).filter(p => selectedItemIds.has(`${p.id}_${unitSideTab}`));
+                  const parts = (selectedUnit?.parts || []).filter(p => 
+                    selectedItemIds.has(`${p.id}_${unitSideTab}`) ||
+                    selectedItemIds.has(`${p.id}_COMMON`) ||
+                    selectedItemIds.has(String(p.id))
+                  );
                   handleBulkReworkAction(parts, 'complete');
                 }}>
                 <Text style={styles.buttonText}>Complete & Return QC</Text>

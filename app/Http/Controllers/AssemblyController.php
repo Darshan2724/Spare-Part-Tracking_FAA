@@ -207,8 +207,6 @@ class AssemblyController extends Controller
                 }
             }
 
-            app(\App\Services\AssemblyAllocationService::class)->consumeAllocationOnCompletion($bomItemId, $side, $qty);
-
             WorkflowEvent::create([
                 'bom_item_id' => $bomItemId,
                 'project_id' => $projectId,
@@ -395,8 +393,6 @@ class AssemblyController extends Controller
                         $insp->receiptItem->update(['status' => 'assembly_completed']);
                     }
                 }
-
-                app(\App\Services\AssemblyAllocationService::class)->consumeAllocationOnCompletion($bomItemId, $side, $qtyToAssemble);
 
                 WorkflowEvent::create([
                     'bom_item_id' => $bomItemId,

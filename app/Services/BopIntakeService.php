@@ -8,7 +8,6 @@ use App\Models\Project;
 use App\Models\Receipt;
 use App\Models\ReceiptItem;
 use App\Models\AssemblyRecord;
-use App\Models\AssemblyAllocation;
 use App\Models\WorkflowEvent;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -455,18 +454,6 @@ class BopIntakeService
                     ->lockForUpdate()
                     ->get();
 
-                $activeAllocItemSideKeys = AssemblyAllocation::whereIn('bom_item_id', $bomItemIds)
-                    ->where('status', 'active')
-                    ->get()
-                    ->map(fn($a) => $a->bom_item_id . '_' . $a->side)
-                    ->flip()
-                    ->toArray();
-
-                if (!empty($activeAllocItemSideKeys)) {
-                    $receiptItems = $receiptItems->sortByDesc(function ($rec) use ($activeAllocItemSideKeys) {
-                        return isset($activeAllocItemSideKeys[$rec->bom_item_id . '_' . $rec->side]) ? 1 : 0;
-                    })->values();
-                }
 
                 foreach ($receiptItems as $rec) {
                     $available = (int)$rec->received_quantity;
@@ -520,18 +507,6 @@ class BopIntakeService
                     ->lockForUpdate()
                     ->get();
 
-                $activeAllocItemSideKeys = AssemblyAllocation::whereIn('bom_item_id', $bomItemIds)
-                    ->where('status', 'active')
-                    ->get()
-                    ->map(fn($a) => $a->bom_item_id . '_' . $a->side)
-                    ->flip()
-                    ->toArray();
-
-                if (!empty($activeAllocItemSideKeys)) {
-                    $receiptItems = $receiptItems->sortByDesc(function ($rec) use ($activeAllocItemSideKeys) {
-                        return isset($activeAllocItemSideKeys[$rec->bom_item_id . '_' . $rec->side]) ? 1 : 0;
-                    })->values();
-                }
 
                 foreach ($receiptItems as $rec) {
                     $available = (int)$rec->received_quantity;
@@ -563,7 +538,6 @@ class BopIntakeService
                         'remarks' => $remarks ?: "Website BOP Assembly Completed ({$take} pcs)",
                     ]);
 
-                    app(AssemblyAllocationService::class)->consumeAllocationOnCompletion($rec->bom_item_id, $rec->side, $take);
 
                     WorkflowEvent::create([
                         'bom_item_id' => $rec->bom_item_id,

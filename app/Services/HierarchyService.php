@@ -593,6 +593,10 @@ class HierarchyService
             $item->metrics = $itemMetrics;
             if (!$isManager) {
                 $item->receipt_items = $itemReceipts->values();
+                $item->rework_records = $itemReworks->values();
+                $item->qc_inspections = $itemQcInspections->values();
+                $item->paint_records = $itemPaints->values();
+                $item->assembly_records = $itemAssemblies->values();
             }
             $item->is_done = ($itemMetrics['total_required'] > 0 && $itemMetrics['assembly_completed'] >= $itemMetrics['total_required']);
 

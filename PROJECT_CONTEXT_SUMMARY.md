@@ -1179,6 +1179,7 @@ To guarantee production stability, all repository contributions strictly adhere 
 
 | Date | Change Summary | Files / Modules Affected | Database Schema Changes | Behavioral Impact | Testing Status |
 |---|---|---|---|---|---|
+| **2026-09-23** | BOP/STD Manual Assembly Allocation Reversion to Automatic FIFO & Mobile Rework Bulk Common Parts Resolution | `BopIntakeService.php`, `StdIntakeService.php`, `AssemblyController.php`, `HierarchyService.php`, `mobile/App.js`, `BopIntake.vue`, `StdIntake.vue`, `routes/api.php`, `ReworkBulkActionTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Non-destructive code rollback; `assembly_allocations` table preserved in DB without mutation) | (1) Completely reverts BOP & STD manual Assembly Allocation back to pure 100% automatic FIFO distribution; removes `AssemblyAllocation` query overrides and auto-consumption hooks from domain services and controllers; removes "Alloc" action buttons and modals from `BopIntake.vue` and `StdIntake.vue`; disables `/api/v1/assembly-allocation` API route group; recompiles web bundle (`npm run build`); (2) resolves mobile floor rework bulk-selection error ("No Eligible Items") on COMMON parts (Project FA-273 Unit 04) by attaching rework, QC, paint, and assembly records directly at root in `HierarchyService.php` for backward compatibility with floor APKs, hardening `mobile/App.js` with multi-path resolution and key alignment; (3) 100% preserves Project 273 (ID 762) data integrity. | Passing (292 tests, 3352 assertions) |
 | **2026-09-23** | Systemwide Hardening: KPI Drilldown Export Scope, BOP/STD Allocation Available Pool Expansion, Mobile Rework Bulk Action, Project Preservation Guarantee & All Types Jig Naming | `ExportService.php`, `KpiDrilldownService.php`, `BomImportController.php`, `ReworkController.php`, `mobile/App.js`, `AssemblyAllocationService.php`, `BopIntakeService.php`, `StdIntakeService.php`, `QuantityCalculationService.php`, `HierarchyService.php`, `AssemblyAllocationModal.vue`, `BopIntake.vue`, `PROJECT_CONTEXT_SUMMARY.md` | None (Backend Domain Services, Controllers, Mobile & Frontend Web Components) | (1) KPI popup Excel exports strictly inherit active `part_type` scope (`MFG`, `BOP`, `STD`); (2) BOP & STD assembly allocation expands available generic pool to incorporate Store inventory (`received`, `returned_to_store`) and in-assembly stock, exposing all 6 real-time quantities with downstream prioritization; (3) mobile rework bulk selection fixed via `Set` deduplication and atomic `ReworkController::bulkAction`; (4) permanently removed `$project->forceDelete()` from `BomImportController::deleteImportBatch` to ensure zero project deletion; (5) targeted column queries in calculation services eliminate data-growth memory bloat; (6) All Types Jig Excel export appends `(MFG)`, `(BOP)`, `(STD)` disambiguation suffixes without duplication. | Passing (All test suites pass) |
 | **2026-09-11** | Strict Filename-Based BOM Intake Type Routing (`MFG`, `BOP`, `STD`) & Workbook-Authoritative Project Identity Resolution | `BomImportService.php`, `ProjectIdentityResolver.php`, `BomImport.vue`, `BomFilenameTypeRoutingTest.php`, `BomIncrementalImportTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Services, Vue 3 Component & Feature Test Suites) | (1) Determines BOM intake type (`MFG`, `BOP`, `STD`) authoritatively from uploaded filename token via lookaround delimiter regex (`/(?<=^|[^a-zA-Z0-9])(MFG|BOP|STD)(?=[^a-zA-Z0-9]|$)/i`), preventing false positives (`BOPP_Tape`, `Standard_Parts`, `suboptimal`); (2) strictly rejects filenames lacking tokens or containing multiple conflicting tokens before database mutation; (3) resolves Project Identity strictly from inside uploaded Excel workbook cells (`Project Code`, `Project Name`), never inferred from filename; (4) preserves incremental reconciliation for remaining parts (`_rev1`, `(1)`) skipping unchanged rows and adding new parts under matching project and BOM type; (5) zero latency regression (<0.05ms regex check) and zero production data mutation. | Passing (276 tests, 3256 assertions) |
 | **2026-09-11** | Jig Completion % Alignment & Zero Denominator Hardening (Website Jig Card & Excel Parity) | `ExportService.php`, `HierarchyService.php`, `ProjectJigExcelExportTest.php`, `PROJECT_CONTEXT_SUMMARY.md` | None (Domain Export Service, Calculation Service & Test Suite) | (1) Renames Excel Col N to 'Jig Completion %' and outputs each Jig's combined completion percentage (Assembly Completed / Total Required * 100) strictly in the TOTAL summary row only, leaving fixture rows (LH/RH) blank to eliminate side repetition, exactly matching the website Jig card; (2) strictly adheres to authoritative formula confirmed by user: `min(100, round((jigAsmComp / jigReq) * 100, 1))`; (3) fixes zero denominator handling in HierarchyService to safely return 0.0% instead of misleading 100%; (4) preserves separate Assembly (Col K) and Assembly Completed (Col L) columns with zero N+1 latency. | Passing (270 tests, 3184 assertions) |
@@ -1264,112 +1265,46 @@ When troubleshooting any reported anomaly or bug, follow this safe protocol:
 
 ---
 
-## 41. Manager-Controlled Assembly Allocation System (BOP & STD) `[VERIFIED]`
+## 41. BOP & STD Allocation Policy: Reversion to Automatic FIFO Allocation `[VERIFIED]`
 
-### 41.1 Architectural Overview & Core Motivation
+### 41.1 Policy Rollback & Reversion Rationale
 
-In manufacturing operations, Bought Out Parts (**BOP**) and Standard Hardware (**STD**) with the same `standard_part_no` are generic and interchangeable across multiple Units within a Project. During Receiving and Store intake, incoming shipments are physically resident in bulk or allocated in strict FIFO order across BOM requirements.
-
-However, on the production assembly floor, managers frequently need to prioritize specific Units (e.g., fast-tracking Unit 03 ahead of Unit 01) by reserving physically available generic parts for that unit's assembly bay.
-
-The **Manager-Controlled Assembly Allocation System** introduces a clean reservation layer for BOP and STD parts that allows managers to manually allocate assembly-ready parts to any eligible unit:
-1. **Zero Dashboard & KPI Impact:** Allocations do NOT modify `receipt_items`, `bom_requirements`, or `QuantityCalculationService` math. Dashboard counts and hierarchy trees reflect physical stage residency and completion unchanged.
-2. **MFG Behavior Untouched:** Manufacturing (`MFG`) parts follow their dedicated QC-driven workflow (Store -> QC -> Rework/Paint/Direct Assembly) and are strictly excluded from manager allocation.
-3. **Mobile Isolation:** Mobile application routes and behavior are completely unaffected.
-4. **Reservation Layer Semantics:** Allocation reserves parts; it does NOT equal Assembly Completed. Once the unit is assembled, the allocation is automatically consumed.
-
----
-
-### 41.2 Database Schema: `assembly_allocations` Table
-
-Migration: `database/migrations/2026_09_15_000001_create_assembly_allocations_table.php`
-
-| Column | Type | Constraints | Description |
-|---|---|---|---|
-| `id` | `BIGSERIAL` | Primary Key | Auto-incrementing identifier |
-| `project_id` | `BIGINT` | FK -> `projects(id)`, ON DELETE CASCADE | Associated project |
-| `bom_item_id` | `BIGINT` | FK -> `bom_items(id)`, ON DELETE CASCADE | Specific BOM Item (carries Jig No & Unit No) |
-| `side` | `VARCHAR(10)` | Default `'COMMON'`, CHECK (`side IN ('COMMON', 'RH', 'LH')`) | Unit side specification |
-| `bom_type` | `VARCHAR(10)` | CHECK (`bom_type IN ('BOP', 'STD')`) | BOP or STD part type |
-| `allocated_quantity` | `INTEGER` | CHECK (`allocated_quantity > 0`) | Reserved quantity |
-| `status` | `VARCHAR(20)` | Default `'active'`, CHECK (`status IN ('active', 'consumed', 'released')`) | Allocation status |
-| `allocated_by` | `BIGINT` | Nullable, FK -> `users(id)`, ON DELETE SET NULL | User who performed allocation |
-| `remarks` | `VARCHAR(500)` | Nullable | Optional manager notes |
-| `created_at` / `updated_at` | `TIMESTAMP` | Default current timestamp | Audit timestamps |
-
-**Indexes**:
-- **Partial Unique Index**: `CREATE UNIQUE INDEX assembly_allocations_active_bom_side_idx ON assembly_allocations (bom_item_id, side) WHERE status = 'active'` (ensures at most one active allocation per unit/side).
-- Composite Index: `['project_id', 'bom_type', 'status']`
-- Composite Index: `['bom_item_id', 'status']`
-- Index: `allocated_by`
+On **2026-09-23**, the manual reservation layer for Bought Out Parts (**BOP**) and Standard Hardware (**STD**) was completely reverted back to the previous **100% automatic FIFO allocation** behavior:
+1. **Pure Automatic Waterfall (FIFO)**: Intake and stage transitions for generic parts (BOP and STD) strictly distribute available physical quantities across eligible BOM requirements in deterministic FIFO order (ascending by BOM item ID, unit number, and receipt ID). No manual overrides or floor interventions are allowed or necessary.
+2. **Zero Mutation of Production Data**: Existing project data (especially **Project FA-273 / ID 762**) is 100% preserved. The database table `assembly_allocations` is retained non-destructively without schema dropping, but all querying, sorting overrides, and auto-consumption hooks have been completely removed from active service layers.
+3. **Reverted Code Paths & Components**:
+   - `BopIntakeService.php`: Removed `AssemblyAllocation` query, active-allocation priority sorting in Store $\to$ Assembly and Assembly $\to$ Completed transitions, and `consumeAllocationOnCompletion` hooks.
+   - `StdIntakeService.php`: Removed `AssemblyAllocation` query, active-allocation priority sorting in assembly fulfillment, and `consumeAllocationOnCompletion` hooks across direct receipts, paint, and QC.
+   - `AssemblyController.php`: Removed `consumeAllocationOnCompletion` calls from single and bulk assembly completion methods.
+   - `resources/js/views/BopIntake.vue`: Removed "Alloc" action button, `AssemblyAllocationModal` integration, authorization gates, and associated CSS.
+   - `resources/js/views/StdIntake.vue`: Removed single-row and grid-mode "Alloc" action buttons, `AssemblyAllocationModal` integration, authorization gates, and associated CSS.
+   - `routes/api.php`: Disabled `/api/v1/assembly-allocation` route group.
+   - `public/build/`: Frontend bundle recompiled cleanly (`npm run build`) without allocation modal dependencies.
 
 ---
 
-### 41.3 Business Rules & Invariants
+## 42. Mobile Floor Rework Bulk-Selection & Common Parts Resolution `[VERIFIED]`
 
-1. **Eligibility**:
-   - A unit is eligible for allocation if it belongs to a BOP or STD BOM item and has `remaining_need > 0` (`required_quantity - assembly_completed > 0`).
-2. **Available Generic Pool Calculation**:
-   - Generic stock pool incorporates all unallocated physical stock:
-     - **BOP**: Sum of `received_quantity` of `receipt_items` where `status IN ('received', 'returned_to_store', 'in_assembly')` minus currently assigned/allocated quantity across all units for that standard part.
-     - **STD**: Sum of unallocated physical stock residing in Store (`received`), Direct Assembly (`in_assembly`), Paint, or QC Approved stages minus active allocations.
-   - Six distinct real-time quantities are exposed on the allocation interface:
-     - `Required Qty`: Total BOM demand for the unit.
-     - `Received Qty`: Receipts allocated to this unit.
-     - `Available Qty`: Unallocated generic pool available across the project.
-     - `Assigned Qty`: Manager-reserved allocation quantity for this unit.
-     - `Assembly Qty`: Parts currently physically queued in Assembly department.
-     - `Assembly Completed`: Units physically assembled and verified.
-3. **Downstream Allocation Prioritization & Auto-Consumption**:
-   - Downstream intake and stage transitions (Store -> Assembly, QC -> Assembly) prioritize units with active manager allocations first before distributing remaining parts via standard FIFO.
-   - When assembly completion occurs for a `(bom_item_id, side)`:
-     - If `allocated_quantity <= completed_quantity`, allocation status transitions to `'consumed'`.
-     - If `allocated_quantity > completed_quantity`, `allocated_quantity` is decremented by `completed_quantity` and remains `'active'`.
-   - Complete assembly transitions in `BopIntakeService`, `StdIntakeService`, and `AssemblyController` automatically invoke `AssemblyAllocationService::consumeAllocationOnCompletion()`.
-4. **Concurrency & Locking**:
-   - All mutations execute inside `DB::transaction()` with `lockForUpdate()` on `bom_items` and `assembly_allocations`.
-5. **Role Authorization**:
-   - Endpoints are authorized for `ADMIN`, `MANAGER`, and `ASSEMBLY` roles. Unauthorized roles return `403 Forbidden`.
+### 42.1 Problem Diagnosis & Root Cause
+Floor operators using mobile devices to perform bulk rework completion on COMMON parts (specifically Project FA-273, Jig LIMORD70, Unit 04, Parts 1501, 1502, 1503) encountered a blocking alert:
+> *"No Eligible Items: No active rework records available for selected items."*
 
----
+Investigation revealed two root causes:
+1. **API Data Delivery Gaps in `HierarchyService.php`**:
+   - In non-manager mobile hierarchy responses, `$item->rework_records` was only attached inside `$item->side_stats[$side]['rework_records']` and not attached directly at the root of `$item` (unlike `$item->receipt_items`).
+   - Mobile floor clients that read `item.rework_records` evaluated `(item.rework_records || [])` as empty arrays, resulting in zero collected rework record IDs.
+2. **Key Matching & Selection Mismatches in `mobile/App.js`**:
+   - Selection keys in mobile floor views vary depending on whether the active tab is `RH`, `LH`, or `COMMON` (`${p.id}_COMMON` vs `${p.id}_${unitSideTab}` vs `${p.id}`).
+   - The modal submit action handler in `mobile/App.js` did not account for these multi-side key permutations when matching selected IDs against active rework records.
 
-### 41.4 API Endpoints: `/api/v1/assembly-allocation`
-
-| Method | Endpoint | Allowed Roles | Description |
-|---|---|---|---|
-| `GET` | `/context` | `ADMIN`, `MANAGER`, `ASSEMBLY` | Returns part-level summary (assembly ready, allocated, available pool) and unit-level demand breakdown with stepper limits |
-| `POST` | `/allocate` | `ADMIN`, `MANAGER`, `ASSEMBLY` | Allocates generic stock to a specific unit & side (`bom_item_id`, `side`, `quantity`) |
-| `POST` | `/deallocate` | `ADMIN`, `MANAGER`, `ASSEMBLY` | Releases an active allocation back to the available pool (`allocation_id`) |
-| `POST` | `/adjust` | `ADMIN`, `MANAGER`, `ASSEMBLY` | Adjusts quantity of existing allocation (`allocation_id`, `quantity`) |
-| `GET` | `/summary` | `ADMIN`, `MANAGER`, `ASSEMBLY` | Returns project-level allocation summary and active allocations list (`project_id`, `bom_type`) |
-
----
-
-### 41.5 Frontend Integration: `AssemblyAllocationModal.vue`
-
-- **Component**: `resources/js/components/AssemblyAllocationModal.vue`
-- **Trigger**: "Alloc" button on `BopIntake.vue` and `StdIntake.vue` table rows (visible when `part.parts_in_assembly > 0` and user has role `ADMIN`, `MANAGER`, or `ASSEMBLY`).
-- **Features**:
-  - Live 4-card metric banner: Total Required, Assembly Ready, Manager Allocated, Available Pool (vibrant color-coded).
-  - High-density unit breakdown table with Jig No, Unit No, Side, Required, Completed, Remaining Need, Current Allocation.
-  - Stepper controls (`-`, `+`, `Max`, direct input) strictly constrained by available pool and unit remaining need.
-  - Quick action buttons: "Allocate", "Update", "Release".
-  - Emits `@allocated` event to trigger parent table refresh.
-
----
-
-### 41.6 Feature Test Suite: `AssemblyAllocationTest.php`
-
-Test Suite: `tests/Feature/AssemblyAllocationTest.php` (11 tests, 50 assertions, all passing):
-1. `test_role_authorization_on_allocation_endpoints` (Guest 401, Store 403, Admin/Manager/Assembly 200)
-2. `test_get_bop_allocation_context` (BOP assembly-ready and unit eligibility calculation)
-3. `test_allocate_parts_to_specific_unit` (Successful allocation across units)
-4. `test_cannot_allocate_exceeding_unit_need` (422 validation on over-allocation beyond unit demand)
-5. `test_cannot_allocate_exceeding_available_stock` (422 validation on over-allocation beyond available pool)
-6. `test_mfg_parts_cannot_be_allocated` (Strict rejection of MFG part types)
-7. `test_deallocate_releases_stock` (Releasing returns stock to available pool)
-8. `test_adjust_allocation_quantity` (Quantity update and zero-quantity release)
-9. `test_auto_consumption_on_bop_assembly_completion` (Partial decrement & complete consumption on BOP assembly)
-10. `test_std_parts_allocation_and_auto_consumption` (QC direct-assembly allocation & consumption on STD assembly)
-11. `test_project_allocation_summary_endpoint` (Project-level active allocations aggregation)
+### 42.2 Technical Resolution
+1. **Server-Side Backward Compatibility (`app/Services/HierarchyService.php`)**:
+   - Attached `$item->rework_records`, `$item->qc_inspections`, `$item->paint_records`, and `$item->assembly_records` directly to `$item` for non-manager views, while preserving the full nested `side_stats` structure. Existing deployed floor APKs immediately regain access to records without mandatory app reinstalls.
+2. **Mobile Client Hardening (`mobile/App.js`)**:
+   - Hardened `handleBulkReworkAction` with multi-path resolution:
+     `item.side_stats?.[unitSideTab]?.rework_records || item.side_stats?.COMMON?.rework_records || item.rework_records`
+   - Added guards preventing action modal triggers on empty sets.
+   - Updated the modal submit handler to match keys against `${p.id}_${unitSideTab}`, `${p.id}_COMMON`, and `String(p.id)`.
+3. **Automated Verification (`tests/Feature/ReworkBulkActionTest.php`)**:
+   - Added test `test_bulk_complete_three_common_parts_matching_user_scenario` explicitly asserting 3 COMMON parts in Unit 04 transition atomically to `qc_received` with 0 active rework records remaining.
 

@@ -24,7 +24,6 @@ use App\Http\Controllers\EcnWorkflowController;
 use App\Http\Controllers\BopIntakeController;
 use App\Http\Controllers\StdIntakeController;
 use App\Http\Controllers\PendingPartDeletionController;
-use App\Http\Controllers\AssemblyAllocationController;
 use App\Http\Middleware\CaptureSystemLogsMiddleware;
 
 /*
@@ -257,13 +256,5 @@ Route::prefix('v1')->middleware([CaptureSystemLogsMiddleware::class])->group(fun
             Route::post('/qc-route', [StdIntakeController::class, 'qcRoute']);
         });
 
-        // Assembly Allocation (Manager-Controlled BOP & STD)
-        Route::prefix('assembly-allocation')->group(function () {
-            Route::get('/context', [AssemblyAllocationController::class, 'context']);
-            Route::post('/allocate', [AssemblyAllocationController::class, 'allocate']);
-            Route::post('/deallocate', [AssemblyAllocationController::class, 'deallocate']);
-            Route::post('/adjust', [AssemblyAllocationController::class, 'adjust']);
-            Route::get('/summary', [AssemblyAllocationController::class, 'summary']);
-        });
     });
 });

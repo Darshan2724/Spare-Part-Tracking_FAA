@@ -258,4 +258,114 @@ class ReworkBulkActionTest extends TestCase
         $response->assertStatus(200);
         $response->assertJsonPath('processed_count', 0);
     }
+
+    public function test_bulk_complete_three_common_parts_matching_user_scenario(): void
+    {
+        $this->actingAs($this->reworkUser, 'sanctum');
+
+        // Create 3 COMMON parts in Unit 04 matching user's scenario
+        $commonItem1 = BomItem::create([
+            'project_id' => $this->project->id,
+            'standard_part_no' => 'PART-06',
+            'item_no' => '06',
+            'jig_no' => 'LIMORD70',
+            'unit_no' => 'Unit 04',
+            'part_type' => 'MFG',
+        ]);
+        BomRequirement::create([
+            'bom_item_id' => $commonItem1->id,
+            'side' => 'COMMON',
+            'required_quantity' => 1,
+        ]);
+
+        $commonItem2 = BomItem::create([
+            'project_id' => $this->project->id,
+            'standard_part_no' => 'PART-07',
+            'item_no' => '07',
+            'jig_no' => 'LIMORD70',
+            'unit_no' => 'Unit 04',
+            'part_type' => 'MFG',
+        ]);
+        BomRequirement::create([
+            'bom_item_id' => $commonItem2->id,
+            'side' => 'COMMON',
+            'required_quantity' => 1,
+        ]);
+
+        $commonItem3 = BomItem::create([
+            'project_id' => $this->project->id,
+            'standard_part_no' => 'PART-08',
+            'item_no' => '08',
+            'jig_no' => 'LIMORD70',
+            'unit_no' => 'Unit 04',
+            'part_type' => 'MFG',
+        ]);
+        BomRequirement::create([
+            'bom_item_id' => $commonItem3->id,
+            'side' => 'COMMON',
+            'required_quantity' => 1,
+        ]);
+
+        $receipt = Receipt::create([
+            'project_id' => $this->project->id,
+            'delivery_note_number' => 'DN-COMMON-' . uniqid(),
+            'received_by' => $this->reworkUser->id,
+            'status' => 'completed',
+        ]);
+
+        $reworkRecords = [];
+        foreach ([$commonItem1, $commonItem2, $commonItem3] as $item) {
+            $rec = ReceiptItem::create([
+                'receipt_id' => $receipt->id,
+                'bom_item_id' => $item->id,
+                'side' => 'COMMON',
+                'received_quantity' => 1,
+                'status' => 'qc_rework',
+            ]);
+            $insp = QcInspection::create([
+                'receipt_item_id' => $rec->id,
+                'bom_item_id' => $item->id,
+                'inspected_by' => $this->reworkUser->id,
+                'side' => 'COMMON',
+                'result' => 'rework',
+                'inspected_quantity' => 1,
+                'rework_quantity' => 1,
+                'inspection_date' => now()->toDateString(),
+            ]);
+            $reworkRecords[] = ReworkRecord::create([
+                'qc_inspection_id' => $insp->id,
+                'bom_item_id' => $item->id,
+                'side' => 'COMMON',
+                'quantity' => 1,
+                'status' => 'pending',
+                'reason' => 'Defect found',
+                'cycle_number' => 1,
+            ]);
+        }
+
+        // Test Hierarchy API returns rework_records at root of items
+        $hierarchyRes = $this->getJson("/api/v1/rework/hierarchy?project_id={$this->project->id}");
+        $hierarchyRes->assertStatus(200);
+
+        // Submit bulk complete with all 3 COMMON items
+        $response = $this->postJson('/api/v1/rework/bulk-action', [
+            'action' => 'complete',
+            'items' => [
+                ['bom_item_id' => $commonItem1->id, 'side' => 'COMMON'],
+                ['bom_item_id' => $commonItem2->id, 'side' => 'COMMON'],
+                ['bom_item_id' => $commonItem3->id, 'side' => 'COMMON'],
+            ],
+            'completion_notes' => 'Completed all 3 COMMON parts in Unit 04.',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('success', true);
+        $response->assertJsonPath('processed_count', 3);
+        $response->assertJsonPath('processed_quantity', 3);
+
+        foreach ($reworkRecords as $record) {
+            $this->assertEquals('completed', $record->fresh()->status);
+            $this->assertEquals('qc_received', $record->qcInspection->receiptItem->fresh()->status);
+        }
+    }
 }

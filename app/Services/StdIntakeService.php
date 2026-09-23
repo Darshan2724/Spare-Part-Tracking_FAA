@@ -11,7 +11,6 @@ use App\Models\QcInspection;
 use App\Models\ReworkRecord;
 use App\Models\PaintRecord;
 use App\Models\AssemblyRecord;
-use App\Models\AssemblyAllocation;
 use App\Models\WorkflowEvent;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -1029,18 +1028,6 @@ class StdIntakeService
                     ->lockForUpdate()
                     ->get();
 
-                $activeAllocItemSideKeys = AssemblyAllocation::whereIn('bom_item_id', $bomItemIds)
-                    ->where('status', 'active')
-                    ->get()
-                    ->map(fn($a) => $a->bom_item_id . '_' . $a->side)
-                    ->flip()
-                    ->toArray();
-
-                if (!empty($activeAllocItemSideKeys)) {
-                    $inAssemblyRecs = $inAssemblyRecs->sortByDesc(fn($r) => isset($activeAllocItemSideKeys[$r->bom_item_id . '_' . $r->side]) ? 1 : 0)->values();
-                    $paints = $paints->sortByDesc(fn($r) => isset($activeAllocItemSideKeys[$r->bom_item_id . '_' . $r->side]) ? 1 : 0)->values();
-                    $directQcs = $directQcs->sortByDesc(fn($r) => isset($activeAllocItemSideKeys[$r->bom_item_id . '_' . $r->side]) ? 1 : 0)->values();
-                }
 
                 // 1. Fulfill from Direct in_assembly receipts first (direct store->assembly)
                 foreach ($inAssemblyRecs as $asmRec) {
@@ -1075,7 +1062,6 @@ class StdIntakeService
                         'remarks' => $remarks ?: "Website STD Assembly Completed ({$take} pcs)",
                     ]);
 
-                    app(AssemblyAllocationService::class)->consumeAllocationOnCompletion($asmRec->bom_item_id, $asmRec->side, $take);
 
                     WorkflowEvent::create([
                         'bom_item_id' => $asmRec->bom_item_id,
@@ -1122,7 +1108,6 @@ class StdIntakeService
                             'remarks' => $remarks ?: "Website STD Assembly Completed ({$take} pcs)",
                         ]);
 
-                        app(AssemblyAllocationService::class)->consumeAllocationOnCompletion($pnt->bom_item_id, $pnt->side, $take);
 
                         WorkflowEvent::create([
                             'bom_item_id' => $pnt->bom_item_id,
@@ -1170,7 +1155,6 @@ class StdIntakeService
                             'remarks' => $remarks ?: "Website STD Direct Assembly Completed ({$take} pcs)",
                         ]);
 
-                        app(AssemblyAllocationService::class)->consumeAllocationOnCompletion($dqc->bom_item_id, $dqc->side, $take);
 
                         WorkflowEvent::create([
                             'bom_item_id' => $dqc->bom_item_id,
