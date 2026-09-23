@@ -18,10 +18,10 @@ echo "Database snapshot saved to $BACKUP_FILE"
 echo "Copy saved to $LATEST_FILE"
 
 echo ""
-echo "[2/8] Syncing latest code with origin/main..."
+echo "[2/8] Fetching and pulling latest code from origin/main..."
 git stash --include-untracked
 git fetch origin main
-git reset --hard origin/main
+git pull origin main || git reset --hard origin/main
 
 echo ""
 echo "[3/8] Verifying production frontend web assets (Vite)..."

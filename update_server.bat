@@ -20,10 +20,14 @@ echo Database snapshot saved to backups\sparetrack_pre_update_%TS%.sql
 echo Copy saved to backups\sparetrack_pre_update_latest.sql
 
 echo.
-echo [2/8] Syncing latest code with origin/main...
+echo [2/8] Fetching and pulling latest code from origin/main...
 git stash --include-untracked
 git fetch origin main
-git reset --hard origin/main
+git pull origin main
+if %errorlevel% neq 0 (
+    echo [INFO] Pull required clean sync, aligning with origin/main...
+    git reset --hard origin/main
+)
 
 echo.
 echo [3/8] Applying Docker configuration (Containers and Network)...

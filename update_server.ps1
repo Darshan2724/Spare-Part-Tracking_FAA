@@ -13,10 +13,14 @@ Copy-Item -Path $backupPath -Destination $latestPath -Force
 Write-Host "Database snapshot saved to $backupPath" -ForegroundColor Green
 Write-Host "Copy saved to $latestPath" -ForegroundColor Green
 
-Write-Host "`n[2/8] Syncing latest code with origin/main..." -ForegroundColor Yellow
+Write-Host "`n[2/8] Fetching and pulling latest code from origin/main..." -ForegroundColor Yellow
 git stash --include-untracked
 git fetch origin main
-git reset --hard origin/main
+git pull origin main
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[INFO] Pull required clean sync, aligning with origin/main..." -ForegroundColor DarkGray
+    git reset --hard origin/main
+}
 
 Write-Host "`n[3/8] Verifying production frontend web assets (Vite)..." -ForegroundColor Yellow
 if (Get-Command npm -ErrorAction SilentlyContinue) {

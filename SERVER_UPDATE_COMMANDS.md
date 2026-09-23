@@ -23,13 +23,13 @@ Navigate to the SpareTrack directory:
 cd "C:\path\to\SpareTrack"
 ```
 
-### Step 2: Fetch & Pull Latest Code
+### Step 2: Fetch & Pull Latest Code (First Time Manual Sync)
 ```cmd
 git fetch origin main
-git reset --hard origin/main
+git pull origin main
 ```
 
-### Step 3: Run the Update Script
+### Step 3: Run the Update Script (From Now Onwards, Just Run This Script)
 
 #### If your server is **Windows Command Prompt (CMD)**:
 ```cmd
@@ -53,12 +53,12 @@ chmod +x update_server.sh
 
 ### For **Windows PowerShell**:
 ```powershell
-New-Item -ItemType Directory -Force -Path "./backups" | Out-Null; $ts = Get-Date -Format "yyyyMMdd_HHmmss"; docker exec -t sparetrack-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | Out-File -FilePath "./backups/sparetrack_pre_update_$ts.sql" -Encoding utf8; Copy-Item -Path "./backups/sparetrack_pre_update_$ts.sql" -Destination "./backups/sparetrack_pre_update_latest.sql" -Force; git stash --include-untracked; git fetch origin main; git reset --hard origin/main; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx; Start-Sleep -Seconds 3; curl.exe -s http://127.0.0.1:8080/api/v1/health
+New-Item -ItemType Directory -Force -Path "./backups" | Out-Null; $ts = Get-Date -Format "yyyyMMdd_HHmmss"; docker exec -t sparetrack-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | Out-File -FilePath "./backups/sparetrack_pre_update_$ts.sql" -Encoding utf8; Copy-Item -Path "./backups/sparetrack_pre_update_$ts.sql" -Destination "./backups/sparetrack_pre_update_latest.sql" -Force; git stash --include-untracked; git fetch origin main; git pull origin main; docker exec -t sparetrack-app php artisan migrate --force; docker exec -t sparetrack-app php artisan optimize:clear; docker exec -t sparetrack-app php artisan config:cache; docker exec -t sparetrack-app php artisan route:cache; docker exec -t sparetrack-app php artisan view:cache; docker exec -t sparetrack-app php artisan queue:restart; docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx; Start-Sleep -Seconds 3; curl.exe -s http://127.0.0.1:8080/api/v1/health
 ```
 
 ### For **Linux / macOS Bash**:
 ```bash
-mkdir -p ./backups && docker exec -t sparetrack-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "./backups/sparetrack_pre_update_$(date +%Y%m%d_%H%M%S).sql" && cp "./backups/sparetrack_pre_update_$(date +%Y%m%d_%H%M%S).sql" "./backups/sparetrack_pre_update_latest.sql" 2>/dev/null || true && git stash --include-untracked && git fetch origin main && git reset --hard origin/main && docker exec -t sparetrack-app php artisan migrate --force && docker exec -t sparetrack-app php artisan optimize:clear && docker exec -t sparetrack-app php artisan config:cache && docker exec -t sparetrack-app php artisan route:cache && docker exec -t sparetrack-app php artisan view:cache && docker exec -t sparetrack-app php artisan queue:restart && docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx && sleep 3 && curl -s http://127.0.0.1:8080/api/v1/health
+mkdir -p ./backups && docker exec -t sparetrack-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "./backups/sparetrack_pre_update_$(date +%Y%m%d_%H%M%S).sql" && cp "./backups/sparetrack_pre_update_$(date +%Y%m%d_%H%M%S).sql" "./backups/sparetrack_pre_update_latest.sql" 2>/dev/null || true && git stash --include-untracked && git fetch origin main && git pull origin main && docker exec -t sparetrack-app php artisan migrate --force && docker exec -t sparetrack-app php artisan optimize:clear && docker exec -t sparetrack-app php artisan config:cache && docker exec -t sparetrack-app php artisan route:cache && docker exec -t sparetrack-app php artisan view:cache && docker exec -t sparetrack-app php artisan queue:restart && docker restart sparetrack-app sparetrack-worker sparetrack-reverb sparetrack-nginx && sleep 3 && curl -s http://127.0.0.1:8080/api/v1/health
 ```
 
 ---
