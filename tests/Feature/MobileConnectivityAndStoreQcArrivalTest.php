@@ -110,6 +110,13 @@ class MobileConnectivityAndStoreQcArrivalTest extends TestCase
 
         $part = $unit['parts'][0];
         $this->assertEquals('PART-QC-ARR-001', $part['standard_part_no']);
+
+        // REGRESSION GUARD: project_id must be present on hierarchy parts (dropped in commit 1d1380f)
+        $this->assertArrayHasKey('project_id', $part,
+            'REGRESSION GUARD: part in hierarchy response must include project_id. ' .
+            'It is required by mobile submitStoreReceive() to POST /store/receipts.');
+        $this->assertEquals($project->id, $part['project_id'],
+            'project_id on hierarchy part must match the test project.');
         
         $rhStats = $part['side_stats']['RH'];
         $this->assertEquals(10, $rhStats['required']);

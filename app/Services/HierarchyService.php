@@ -647,16 +647,17 @@ class HierarchyService
             // Lightweight plain object to minimize memory retention and allow garbage collection
             $supplierName = $item->supplier?->name ?? ($item->supplier_name_raw ?? '—');
             $partObj = new \ArrayObject([
-                'id' => $item->id,
+                'id'               => $item->id,
+                'project_id'       => $item->project_id,   // Required by mobile Store receipt payload (POST /store/receipts)
                 'standard_part_no' => $partNo,
-                'part_type' => $item->part_type ?? 'MFG',
-                'item_no' => $item->item_no ?? '—',
-                'supplier_name' => $supplierName,
-                'supplier_name_raw' => $item->supplier_name_raw ?? '—',
-                'supplier' => $item->supplier ? (object)['name' => $item->supplier->name] : null,
-                'side_stats' => $sideStats,
-                'metrics' => $itemMetrics,
-                'is_done' => ($itemMetrics['total_required'] > 0 && $itemMetrics['assembly_completed'] >= $itemMetrics['total_required']),
+                'part_type'        => $item->part_type ?? 'MFG',
+                'item_no'          => $item->item_no ?? '—',
+                'supplier_name'    => $supplierName,
+                'supplier_name_raw'=> $item->supplier_name_raw ?? '—',
+                'supplier'         => $item->supplier ? (object)['name' => $item->supplier->name] : null,
+                'side_stats'       => $sideStats,
+                'metrics'          => $itemMetrics,
+                'is_done'          => ($itemMetrics['total_required'] > 0 && $itemMetrics['assembly_completed'] >= $itemMetrics['total_required']),
             ], \ArrayObject::ARRAY_AS_PROPS);
 
             $jigsTree[$jigName]['units'][$unitNo]['parts'][] = $partObj;

@@ -1295,8 +1295,12 @@ function App() {
           remarks: 'Mobile ECN Store Intake',
         });
       } else {
+        // project_id is on the part object (restored in HierarchyService partObj).
+        // selectedProject is a safe fallback in case of any future payload pruning.
+        const receiveProjectId = selectedItemForReceive.project_id
+          ?? (selectedProject ? parseInt(selectedProject, 10) : undefined);
         await apiClient.post('/store/receipts', {
-          project_id: selectedItemForReceive.project_id,
+          project_id: receiveProjectId,
           delivery_note_number: deliveryNote,
           source: 'MOBILE_INTAKE',
           part_type: 'MFG',
@@ -2000,8 +2004,13 @@ function App() {
 
     setIsSubmittingBulk(true);
     try {
+      // Resolve project_id: prefer the active project filter (always an integer string when set).
+      // Fall back to the first item's project_id (restored in HierarchyService partObj).
+      const bulkProjectId = selectedProject
+        ? parseInt(selectedProject, 10)
+        : (targetItems[0]?.project_id ?? undefined);
       const res = await apiClient.post('/store/bulk-receive', {
-        project_id: selectedProject || targetItems[0]?.project_id,
+        project_id: bulkProjectId,
         delivery_note_number: bulkDeliveryNote || `DN-BULK-${new Date().toISOString().slice(0, 10)}`,
         source: 'MOBILE_INTAKE',
         part_type: 'MFG',
