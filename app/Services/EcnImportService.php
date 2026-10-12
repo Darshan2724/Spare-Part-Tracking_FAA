@@ -108,7 +108,10 @@ class EcnImportService
         $rows = [];
 
         try {
-            $spreadsheet = IOFactory::load($path);
+            $reader = IOFactory::createReaderForFile($path);
+            $reader->setReadDataOnly(true);
+            $reader->setReadEmptyCells(false);
+            $spreadsheet = $reader->load($path);
         } catch (\Throwable $e) {
             return [
                 'success' => false,
@@ -122,9 +125,9 @@ class EcnImportService
 
         $sheet = $spreadsheet->getActiveSheet();
         $sheetName = $sheet->getTitle();
-        $highestRow = $sheet->getHighestRow();
+        $highestRow = (int) $sheet->getHighestRow();
         $highestCol = $sheet->getHighestColumn();
-        $highestColIndex = Coordinate::columnIndexFromString($highestCol);
+        $highestColIndex = min(30, Coordinate::columnIndexFromString($highestCol));
 
         // Find header row dynamically (look for Project Code, ECN NO, Jig, Unit No, Part No, Side, Qty)
         $headerRow = null;
@@ -175,6 +178,9 @@ class EcnImportService
         }
 
         if (!$headerRow) {
+            $spreadsheet->disconnectWorksheets();
+            unset($spreadsheet, $sheet, $reader);
+            gc_collect_cycles();
             return [
                 'success' => false,
                 'errors' => ['Could not locate valid ECN header row. Expected columns: Project Code, ECN NO., Jig, Unit No., Part No., Side, Qty.'],
@@ -282,6 +288,10 @@ class EcnImportService
             'total_qty' => array_sum(array_column($rows, 'qty')),
         ];
 
+        $spreadsheet->disconnectWorksheets();
+        unset($spreadsheet, $sheet, $reader);
+        gc_collect_cycles();
+
         return [
             'success' => empty($errors),
             'sheet_name' => $sheetName,
@@ -298,6 +308,8 @@ class EcnImportService
      */
     public function previewFromPath(string $path, string $filename): array
     {
+        @ini_set('memory_limit', '512M');
+
         $duplicateInfo = $this->checkDuplicateFile($path, $filename);
         if ($duplicateInfo) {
             return [
@@ -501,6 +513,8 @@ class EcnImportService
      */
     public function importFromPath(string $path, string|array $filename, ?int $userId = null): array
     {
+        @ini_set('memory_limit', '512M');
+
         $filenameStr = is_array($filename) ? ($filename['filename'] ?? basename($path)) : $filename;
         $preview = $this->previewFromPath($path, $filenameStr);
 

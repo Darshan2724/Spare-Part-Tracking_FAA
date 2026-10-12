@@ -12,6 +12,10 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
+Route::get('/login', function () {
+    return view('layouts.app');
+})->name('login');
+
 Route::get('/{any?}', function () {
     return view('layouts.app');
 })->where('any', '^(?!api).*$');

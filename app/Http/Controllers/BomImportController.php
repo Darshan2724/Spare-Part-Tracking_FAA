@@ -30,6 +30,8 @@ class BomImportController extends Controller
 
     public function preview(Request $request)
     {
+        @ini_set('memory_limit', '512M');
+
         $this->authorizeBomImport($request);
 
         $request->validate([
@@ -54,6 +56,8 @@ class BomImportController extends Controller
 
     public function import(Request $request)
     {
+        @ini_set('memory_limit', '512M');
+
         $this->authorizeBomImport($request);
 
         $request->validate([

@@ -68,6 +68,7 @@ class AssemblyController extends Controller
             'bom_item_id' => ['required', 'exists:bom_items,id'],
             'paint_record_id' => ['nullable', 'exists:paint_records,id'],
             'qc_inspection_id' => ['nullable', 'exists:qc_inspections,id'],
+            'receipt_item_id' => ['nullable', 'exists:receipt_items,id'],
             'side' => ['required', 'in:RH,LH,COMMON'],
             'quantity' => ['required', 'integer', 'min:1'],
             'remarks' => ['nullable', 'string', 'max:1000'],
@@ -76,6 +77,7 @@ class AssemblyController extends Controller
         return DB::transaction(function () use ($request) {
             $paintRecordId = $request->input('paint_record_id');
             $qcInspectionId = $request->input('qc_inspection_id');
+            $receiptItemId = $request->input('receipt_item_id');
             $bomItemId = (int) $request->input('bom_item_id');
             $side = $request->input('side');
             $qty = (int) $request->input('quantity');
@@ -126,7 +128,28 @@ class AssemblyController extends Controller
                 $qcAvailable[$q->id] = max(0, $q->approved_quantity - $alreadyAssembled);
             }
 
-            $totalAvailable = (int) array_sum($paintAvailable) + (int) array_sum($qcAvailable);
+            // 3. Query all eligible Direct In-Assembly ReceiptItems for this BOM item & side with row-level locks
+            $receiptQuery = \App\Models\ReceiptItem::where('bom_item_id', $bomItemId)
+                ->where(function ($q) use ($side) {
+                    $q->where('side', $side)->orWhere('side', 'COMMON')->orWhereNull('side');
+                })
+                ->where('status', 'in_assembly')
+                ->lockForUpdate()
+                ->with(['bomItem']);
+
+            if ($receiptItemId) {
+                $receiptQuery->orderByRaw("CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC", [$receiptItemId]);
+            } else {
+                $receiptQuery->orderBy('id', 'asc');
+            }
+            $receiptItems = $receiptQuery->get();
+
+            $receiptAvailable = [];
+            foreach ($receiptItems as $rc) {
+                $receiptAvailable[$rc->id] = (int) $rc->received_quantity;
+            }
+
+            $totalAvailable = (int) array_sum($paintAvailable) + (int) array_sum($qcAvailable) + (int) array_sum($receiptAvailable);
 
             if ($totalAvailable <= 0) {
                 return response()->json([
@@ -142,7 +165,7 @@ class AssemblyController extends Controller
                 ], 422);
             }
 
-            // 3. Sequentially fulfill requested assembly quantity across available sources
+            // 4. Sequentially fulfill requested assembly quantity across available sources
             $qtyRemaining = $qty;
             $createdAssemblyRecords = [];
 
@@ -207,6 +230,48 @@ class AssemblyController extends Controller
                 }
             }
 
+            // C. Fulfill from Direct In-Assembly ReceiptItems next
+            foreach ($receiptItems as $rc) {
+                $rAvail = $receiptAvailable[$rc->id] ?? 0;
+                if ($qtyRemaining <= 0) break;
+                if ($rAvail <= 0) continue;
+
+                $consume = min($qtyRemaining, $rAvail);
+                $qtyRemaining -= $consume;
+                $receiptAvailable[$rc->id] -= $consume;
+                $projectId = $rc->bomItem?->project_id ?? $projectId;
+
+                $record = AssemblyRecord::create([
+                    'bom_item_id' => $bomItemId,
+                    'paint_record_id' => null,
+                    'qc_inspection_id' => null,
+                    'side' => $side,
+                    'quantity' => $consume,
+                    'assembled_by' => $request->user()->id,
+                    'status' => 'completed',
+                    'completed_at' => now(),
+                    'remarks' => $request->input('remarks'),
+                ]);
+                $createdAssemblyRecords[] = $record;
+
+                if ($consume < $rc->received_quantity) {
+                    // Partial assembly from receipt: decrement active receipt quantity and create completed slice
+                    $rc->received_quantity -= $consume;
+                    $rc->save();
+
+                    \App\Models\ReceiptItem::create([
+                        'receipt_id' => $rc->receipt_id,
+                        'bom_item_id' => $rc->bom_item_id,
+                        'side' => $rc->side,
+                        'received_quantity' => $consume,
+                        'status' => 'assembly_completed',
+                        'item_no' => $rc->item_no,
+                    ]);
+                } else {
+                    $rc->update(['status' => 'assembly_completed']);
+                }
+            }
+
             WorkflowEvent::create([
                 'bom_item_id' => $bomItemId,
                 'project_id' => $projectId,
@@ -264,6 +329,7 @@ class AssemblyController extends Controller
             'items.*.bom_item_id' => ['required', 'exists:bom_items,id'],
             'items.*.paint_record_id' => ['nullable', 'exists:paint_records,id'],
             'items.*.qc_inspection_id' => ['nullable', 'exists:qc_inspections,id'],
+            'items.*.receipt_item_id' => ['nullable', 'exists:receipt_items,id'],
             'items.*.side' => ['required', 'in:RH,LH,COMMON'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
             'remarks' => ['nullable', 'string', 'max:1000'],
@@ -278,6 +344,7 @@ class AssemblyController extends Controller
             foreach ($items as $entry) {
                 $paintRecordId = $entry['paint_record_id'] ?? null;
                 $qcInspectionId = $entry['qc_inspection_id'] ?? null;
+                $receiptItemId = $entry['receipt_item_id'] ?? null;
                 $bomItemId = (int) $entry['bom_item_id'];
                 $side = $entry['side'];
                 $qty = (int) $entry['quantity'];
@@ -327,7 +394,28 @@ class AssemblyController extends Controller
                     $qcAvailable[$q->id] = max(0, $q->approved_quantity - $alreadyAssembled);
                 }
 
-                $totalAvailable = (int) array_sum($paintAvailable) + (int) array_sum($qcAvailable);
+                // 3. Query Direct In-Assembly ReceiptItems
+                $receiptQuery = \App\Models\ReceiptItem::where('bom_item_id', $bomItemId)
+                    ->where(function ($q) use ($side) {
+                        $q->where('side', $side)->orWhere('side', 'COMMON')->orWhereNull('side');
+                    })
+                    ->where('status', 'in_assembly')
+                    ->lockForUpdate()
+                    ->with(['bomItem']);
+
+                if ($receiptItemId) {
+                    $receiptQuery->orderByRaw("CASE WHEN id = ? THEN 0 ELSE 1 END, id ASC", [$receiptItemId]);
+                } else {
+                    $receiptQuery->orderBy('id', 'asc');
+                }
+                $receiptItems = $receiptQuery->get();
+
+                $receiptAvailable = [];
+                foreach ($receiptItems as $rc) {
+                    $receiptAvailable[$rc->id] = (int) $rc->received_quantity;
+                }
+
+                $totalAvailable = (int) array_sum($paintAvailable) + (int) array_sum($qcAvailable) + (int) array_sum($receiptAvailable);
                 $qtyToAssemble = min($qty, $totalAvailable);
 
                 if ($qtyToAssemble <= 0) continue;
@@ -391,6 +479,46 @@ class AssemblyController extends Controller
 
                     if ($qcAvailable[$insp->id] === 0 && $insp->receiptItem) {
                         $insp->receiptItem->update(['status' => 'assembly_completed']);
+                    }
+                }
+
+                // Fulfill from Direct In-Assembly ReceiptItems
+                foreach ($receiptItems as $rc) {
+                    $rAvail = $receiptAvailable[$rc->id] ?? 0;
+                    if ($qtyRemaining <= 0) break;
+                    if ($rAvail <= 0) continue;
+
+                    $consume = min($qtyRemaining, $rAvail);
+                    $qtyRemaining -= $consume;
+                    $receiptAvailable[$rc->id] -= $consume;
+                    $itemProjectId = $rc->bomItem?->project_id ?? $itemProjectId;
+
+                    $lastRecord = AssemblyRecord::create([
+                        'bom_item_id' => $bomItemId,
+                        'paint_record_id' => null,
+                        'qc_inspection_id' => null,
+                        'side' => $side,
+                        'quantity' => $consume,
+                        'assembled_by' => $request->user()->id,
+                        'status' => 'completed',
+                        'completed_at' => now(),
+                        'remarks' => $request->input('remarks'),
+                    ]);
+
+                    if ($consume < $rc->received_quantity) {
+                        $rc->received_quantity -= $consume;
+                        $rc->save();
+
+                        \App\Models\ReceiptItem::create([
+                            'receipt_id' => $rc->receipt_id,
+                            'bom_item_id' => $rc->bom_item_id,
+                            'side' => $rc->side,
+                            'received_quantity' => $consume,
+                            'status' => 'assembly_completed',
+                            'item_no' => $rc->item_no,
+                        ]);
+                    } else {
+                        $rc->update(['status' => 'assembly_completed']);
                     }
                 }
 

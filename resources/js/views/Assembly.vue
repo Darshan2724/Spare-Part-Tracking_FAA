@@ -120,7 +120,7 @@
                     </td>
                     <td>
                       <div v-if="authStore.userRole === 'ADMIN'">
-                        <button v-if="part.metrics.assembly_ready > 0" class="btn btn-sm btn-teal text-white fw-bold text-nowrap w-100" @click="submitAssemblyFromPart(part)">
+                        <button v-if="part.metrics.assembly_ready > 0" class="btn btn-sm btn-teal text-white fw-bold text-nowrap w-100" @click="openAssemblyModal(part)">
                           <i class="fas fa-check-double me-1"></i> Mark Assembled
                         </button>
                         <span v-else class="text-muted small">No Queue</span>
@@ -443,7 +443,7 @@
                             </td>
                             <td>
                               <div v-if="authStore.userRole === 'ADMIN'" class="d-flex flex-column gap-1">
-                                <button v-if="part.metrics.assembly_ready > 0" class="btn btn-xs btn-teal text-white fw-bold text-nowrap w-100" @click="submitAssemblyFromPart(part)">
+                                <button v-if="part.metrics.assembly_ready > 0" class="btn btn-xs btn-teal text-white fw-bold text-nowrap w-100" @click="openAssemblyModal(part)">
                                   <i class="fas fa-check-double me-1"></i> Assemble
                                 </button>
                                 <span v-else class="text-muted extra-small text-center">
@@ -474,6 +474,78 @@
 
           </div>
 
+        </div>
+      </div>
+    </div>
+
+    <!-- PARTIAL ASSEMBLY QUANTITY MODAL -->
+    <div v-if="showAssemblyModal" class="modal fade show d-block" tabindex="-1" style="background: rgba(15, 23, 42, 0.7); z-index: 1060;">
+      <div class="modal-dialog modal-dialog-centered" style="max-width: 480px;">
+        <div class="modal-content shadow-lg border-0 rounded-4">
+          <div class="modal-header bg-teal text-white border-0 py-3 px-4">
+            <h5 class="modal-title fw-bold fs-6">
+              <i class="fas fa-wrench me-2"></i>Complete Assembly Operation
+            </h5>
+            <button type="button" class="btn-close btn-close-white" @click="closeAssemblyModal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body p-4">
+            <div class="mb-3 p-3 bg-light rounded-3 border">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="text-muted small">Part Number:</span>
+                <span class="fw-bold font-monospace text-dark">{{ activeAssemblyPart?.standard_part_no || activeAssemblyPart?.item_no || '—' }}</span>
+              </div>
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="text-muted small">Classification / Side:</span>
+                <span class="badge bg-secondary">{{ activeAssemblyPart?.classification || 'REGULAR' }} • {{ selectedUnitSide || activeAssemblyPart?.side || 'LH' }}</span>
+              </div>
+              <div class="d-flex justify-content-between align-items-center">
+                <span class="text-muted small">Available for Assembly:</span>
+                <span class="fw-bold text-teal fs-6">{{ assemblyMax }} pcs</span>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-bold text-dark small">Quantity to Assemble <span class="text-danger">*</span></label>
+              <div class="input-group">
+                <button class="btn btn-outline-secondary px-3" type="button" @click="decrementQty" :disabled="assemblyQuantity <= 1">
+                  <i class="fas fa-minus"></i>
+                </button>
+                <input
+                  type="number"
+                  v-model.number="assemblyQuantity"
+                  :min="1"
+                  :max="assemblyMax"
+                  class="form-control text-center fw-bold fs-5"
+                />
+                <button class="btn btn-outline-secondary px-3" type="button" @click="incrementQty" :disabled="assemblyQuantity >= assemblyMax">
+                  <i class="fas fa-plus"></i>
+                </button>
+              </div>
+              <div class="form-text small text-muted">
+                You can assemble a partial quantity (1 to {{ assemblyMax }} pcs). Remaining {{ Math.max(0, assemblyMax - (assemblyQuantity || 0)) }} pcs will stay active in the Assembly queue.
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-bold text-dark small">Assembly Process Remarks</label>
+              <textarea
+                v-model="assemblyRemarks"
+                rows="2"
+                class="form-control"
+                placeholder="Optional assembly notes or fixture details"
+              ></textarea>
+            </div>
+          </div>
+          <div class="modal-footer border-0 bg-light p-3">
+            <button type="button" class="btn btn-secondary px-4 fw-semibold" @click="closeAssemblyModal" :disabled="submitting">
+              Cancel
+            </button>
+            <button type="button" class="btn btn-teal text-white px-4 fw-bold" @click="submitAssemblyModal" :disabled="submitting || assemblyQuantity < 1 || assemblyQuantity > assemblyMax">
+              <i v-if="submitting" class="fas fa-spinner fa-spin me-1"></i>
+              <i v-else class="fas fa-check-double me-1"></i>
+              Confirm Assembly ({{ assemblyQuantity }} pcs)
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -618,25 +690,70 @@ const onSearchInput = () => {
   }, 300);
 };
 
-const submitAssemblyFromPart = async (part) => {
+const showAssemblyModal = ref(false);
+const activeAssemblyPart = ref(null);
+const assemblyQuantity = ref(1);
+const assemblyMax = ref(1);
+const assemblyRemarks = ref('');
+
+const openAssemblyModal = (part) => {
+  activeAssemblyPart.value = part;
+  const targetSide = selectedUnitSide.value || Object.keys(part.side_stats || {})[0] || 'LH';
+  const sideStat = part.side_stats?.[targetSide] || {};
+  const ready = sideStat.assembly_ready || part.metrics?.assembly_ready || 1;
+  assemblyMax.value = ready;
+  assemblyQuantity.value = ready;
+  assemblyRemarks.value = 'Fitted into JIG assembly';
+  showAssemblyModal.value = true;
+};
+
+const closeAssemblyModal = () => {
+  showAssemblyModal.value = false;
+  activeAssemblyPart.value = null;
+};
+
+const incrementQty = () => {
+  if (assemblyQuantity.value < assemblyMax.value) {
+    assemblyQuantity.value++;
+  }
+};
+
+const decrementQty = () => {
+  if (assemblyQuantity.value > 1) {
+    assemblyQuantity.value--;
+  }
+};
+
+const submitAssemblyModal = async () => {
+  if (!activeAssemblyPart.value) return;
   submitting.value = true;
   try {
+    const part = activeAssemblyPart.value;
     const targetSide = selectedUnitSide.value || Object.keys(part.side_stats || {})[0] || 'LH';
-    const sideStat = part.side_stats?.[targetSide] || {};
-    const asmReady = sideStat.assembly_ready || part.metrics?.assembly_ready || 1;
+    const qty = parseInt(assemblyQuantity.value, 10);
 
-    const payload = {
-      bom_item_id: part.id,
-      side: targetSide,
-      quantity: asmReady,
-      remarks: 'Fitted into JIG assembly',
-    };
-
-    const res = await axios.post('/api/v1/assembly/items', payload);
-    successMessage.value = res.data.message || 'Assembly process recorded successfully.';
+    if (part.is_ecn || String(part.id).startsWith('ecn_')) {
+      const ecnReqId = part.ecn_requirement_id || Number(String(part.id).replace('ecn_', ''));
+      const res = await axios.post('/api/v1/ecn-workflow/assembly-complete', {
+        ecn_requirement_id: ecnReqId,
+        quantity: qty,
+        remarks: assemblyRemarks.value || 'Fitted into JIG assembly',
+      });
+      successMessage.value = res.data.message || 'ECN Assembly completed successfully.';
+    } else {
+      const payload = {
+        bom_item_id: part.id,
+        side: targetSide,
+        quantity: qty,
+        remarks: assemblyRemarks.value || 'Fitted into JIG assembly',
+      };
+      const res = await axios.post('/api/v1/assembly/items', payload);
+      successMessage.value = res.data.message || 'Assembly process recorded successfully.';
+    }
 
     cacheStore.invalidate('assembly');
     cacheStore.invalidate('dashboard');
+    closeAssemblyModal();
 
     await loadHierarchy(true);
     if (searchQuery.value) onSearchInput();
@@ -645,6 +762,10 @@ const submitAssemblyFromPart = async (part) => {
   } finally {
     submitting.value = false;
   }
+};
+
+const submitAssemblyFromPart = (part) => {
+  openAssemblyModal(part);
 };
 
 onMounted(() => {
