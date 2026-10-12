@@ -213,6 +213,24 @@ class EcnWorkflowController extends Controller
             $request->merge(['workflow_record_id' => $request->input('ecn_workflow_record_id')]);
         }
 
+        if (!$request->filled('workflow_record_id') && $request->filled('ecn_requirement_id')) {
+            $reqId = (int)$request->input('ecn_requirement_id');
+            $activeId = \App\Models\EcnWorkflowRecord::where('ecn_requirement_id', $reqId)
+                ->where('department', 'ASSEMBLY')
+                ->where('status', 'in_progress')
+                ->latest('id')
+                ->value('id');
+            if (!$activeId) {
+                $activeId = \App\Models\EcnWorkflowRecord::where('ecn_requirement_id', $reqId)
+                    ->where('action', 'assembly_ready')
+                    ->latest('id')
+                    ->value('id');
+            }
+            if ($activeId) {
+                $request->merge(['workflow_record_id' => $activeId]);
+            }
+        }
+
         $request->validate([
             'workflow_record_id' => ['required', 'integer', 'exists:ecn_workflow_records,id'],
             'quantity' => ['required', 'integer', 'min:1'],

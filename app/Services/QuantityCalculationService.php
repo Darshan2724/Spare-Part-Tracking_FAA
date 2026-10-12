@@ -224,6 +224,8 @@ class QuantityCalculationService
      */
     public function calculateBulkProjectsMetricsWithPartTypes(Collection|array $projects, ?string $sideFilter = null, array $filters = []): array
     {
+        @ini_set('memory_limit', '512M');
+
         $baseFilters = $filters;
         unset($baseFilters['part_type']);
 
@@ -248,8 +250,8 @@ class QuantityCalculationService
         }
 
         // Query 1: Bulk BOM items and requirements across all projects (all part types)
-        $bomItemsQuery = BomItem::query()
-            ->with(['requirements', 'supplier'])
+        $bomItemsQuery = DB::table('bom_items')
+            ->select(['id', 'project_id', 'part_type'])
             ->whereIn('project_id', $projectIds);
 
         if (!empty($baseFilters['supplier_id'])) {
@@ -264,8 +266,7 @@ class QuantityCalculationService
             });
         }
 
-        $allBomItems = $bomItemsQuery->orderBy('standard_part_no')->get();
-        $bomItemsByProject = $allBomItems->groupBy('project_id');
+        $allBomItems = $bomItemsQuery->get();
         $allBomItemIds = $allBomItems->pluck('id')->toArray();
 
         if (empty($allBomItemIds)) {
@@ -281,25 +282,37 @@ class QuantityCalculationService
             ];
         }
 
+        $requirementsGrouped = DB::table('bom_requirements')
+            ->select(['id', 'bom_item_id', 'side', 'required_quantity'])
+            ->whereIn('bom_item_id', $allBomItemIds)
+            ->get()
+            ->groupBy('bom_item_id');
+
+        foreach ($allBomItems as $item) {
+            $item->requirements = $requirementsGrouped->get($item->id, collect());
+        }
+
+        $bomItemsByProject = $allBomItems->groupBy('project_id');
+
         // Bulk load all operational records strictly across all target BOM items with targeted columns
-        $recQuery = ReceiptItem::query()
+        $recQuery = DB::table('receipt_items')
             ->select(['id', 'bom_item_id', 'side', 'received_quantity', 'status'])
             ->whereIn('bom_item_id', $allBomItemIds)
             ->whereIn('status', self::VALID_RECEIPT_STATUSES);
 
-        $qcQuery = QcInspection::query()
+        $qcQuery = DB::table('qc_inspections')
             ->select(['id', 'bom_item_id', 'side', 'result', 'approved_quantity', 'rework_quantity', 'rejected_quantity', 'destination'])
             ->whereIn('bom_item_id', $allBomItemIds);
 
-        $reworkQuery = ReworkRecord::query()
+        $reworkQuery = DB::table('rework_records')
             ->select(['id', 'bom_item_id', 'side', 'quantity', 'status'])
             ->whereIn('bom_item_id', $allBomItemIds);
 
-        $paintQuery = PaintRecord::query()
+        $paintQuery = DB::table('paint_records')
             ->select(['id', 'bom_item_id', 'side', 'quantity', 'status'])
             ->whereIn('bom_item_id', $allBomItemIds);
 
-        $asmQuery = AssemblyRecord::query()
+        $asmQuery = DB::table('assembly_records')
             ->select(['id', 'bom_item_id', 'side', 'quantity', 'status'])
             ->whereIn('bom_item_id', $allBomItemIds);
 
@@ -333,14 +346,29 @@ class QuantityCalculationService
         foreach ($projectsList as $projId => $proj) {
             $projBom = $bomItemsByProject->get($projId, collect());
 
-            $mfgBom = $projBom->filter(fn($i) => strtoupper($i->part_type ?? 'MFG') === 'MFG');
-            $bopBom = $projBom->filter(fn($i) => strtoupper($i->part_type ?? '') === 'BOP');
-            $stdBom = $projBom->filter(fn($i) => strtoupper($i->part_type ?? '') === 'STD');
+            $allMetrics = $this->getEmptyMetricsArray();
+            $mfgMetrics = $this->getEmptyMetricsArray();
+            $bopMetrics = $this->getEmptyMetricsArray();
+            $stdMetrics = $this->getEmptyMetricsArray();
 
-            $allResults->put($projId, $this->computeProjectMetricsFromBomItems($proj, $projBom, $sideFilter, $receiptsGrouped, $qcGrouped, $reworkGrouped, $paintGrouped, $asmGrouped));
-            $mfgResults->put($projId, $this->computeProjectMetricsFromBomItems($proj, $mfgBom, $sideFilter, $receiptsGrouped, $qcGrouped, $reworkGrouped, $paintGrouped, $asmGrouped));
-            $bopResults->put($projId, $this->computeProjectMetricsFromBomItems($proj, $bopBom, $sideFilter, $receiptsGrouped, $qcGrouped, $reworkGrouped, $paintGrouped, $asmGrouped));
-            $stdResults->put($projId, $this->computeProjectMetricsFromBomItems($proj, $stdBom, $sideFilter, $receiptsGrouped, $qcGrouped, $reworkGrouped, $paintGrouped, $asmGrouped));
+            $this->accumulateProjectMetrics(
+                $projBom,
+                $sideFilter,
+                $receiptsGrouped,
+                $qcGrouped,
+                $reworkGrouped,
+                $paintGrouped,
+                $asmGrouped,
+                $allMetrics,
+                $mfgMetrics,
+                $bopMetrics,
+                $stdMetrics
+            );
+
+            $allResults->put($projId, $this->formatProjectSummaryResult($proj, $allMetrics));
+            $mfgResults->put($projId, $this->formatProjectSummaryResult($proj, $mfgMetrics));
+            $bopResults->put($projId, $this->formatProjectSummaryResult($proj, $bopMetrics));
+            $stdResults->put($projId, $this->formatProjectSummaryResult($proj, $stdMetrics));
         }
 
         return [
@@ -369,115 +397,295 @@ class QuantityCalculationService
         }
 
         $metrics = $this->getEmptyMetricsArray();
-        $metrics['total_items'] = $bomItems->count();
+        $dummy1 = $this->getEmptyMetricsArray();
+        $dummy2 = $this->getEmptyMetricsArray();
+        $dummy3 = $this->getEmptyMetricsArray();
 
+        $this->accumulateProjectMetrics(
+            $bomItems,
+            $sideFilter,
+            $receiptsGrouped,
+            $qcGrouped,
+            $reworkGrouped,
+            $paintGrouped,
+            $asmGrouped,
+            $metrics,
+            $dummy1,
+            $dummy2,
+            $dummy3
+        );
+
+        return $this->formatProjectSummaryResult($proj, $metrics);
+    }
+
+    /**
+     * High-performance single-pass metric accumulation with zero Collection allocation.
+     */
+    protected function accumulateProjectMetrics(
+        Collection $bomItems,
+        ?string $sideFilter,
+        Collection $receiptsGrouped,
+        Collection $qcGrouped,
+        Collection $reworkGrouped,
+        Collection $paintGrouped,
+        Collection $asmGrouped,
+        array &$allMetrics,
+        array &$mfgMetrics,
+        array &$bopMetrics,
+        array &$stdMetrics
+    ): void {
         foreach ($bomItems as $item) {
-            $itemReceipts = $receiptsGrouped->get($item->id, collect());
-            $itemQc = $qcGrouped->get($item->id, collect());
-            $itemRework = $reworkGrouped->get($item->id, collect());
-            $itemPaint = $paintGrouped->get($item->id, collect());
-            $itemAsm = $asmGrouped->get($item->id, collect());
+            $rawType = strtoupper($item->part_type ?? 'MFG');
+            $targetType = match ($rawType) {
+                'BOP' => 'BOP',
+                'STD' => 'STD',
+                default => 'MFG',
+            };
+
+            $allMetrics['total_items']++;
+            if ($targetType === 'MFG') $mfgMetrics['total_items']++;
+            elseif ($targetType === 'BOP') $bopMetrics['total_items']++;
+            else $stdMetrics['total_items']++;
+
+            $itemReceipts = $receiptsGrouped->get($item->id);
+            $itemQc = $qcGrouped->get($item->id);
+            $itemRework = $reworkGrouped->get($item->id);
+            $itemPaint = $paintGrouped->get($item->id);
+            $itemAsm = $asmGrouped->get($item->id);
 
             foreach ($item->requirements as $req) {
                 $side = $req->side;
-
-                // Side isolation filter
                 if (!empty($sideFilter) && $sideFilter !== $side) {
                     continue;
                 }
 
                 $reqQty = (int) $req->required_quantity;
-                $recForSide = $itemReceipts->where('side', $side);
-                $qcForSide = $itemQc->where('side', $side);
-                $reworkForSide = $itemRework->where('side', $side);
-                $paintForSide = $itemPaint->where('side', $side);
-                $asmForSide = $itemAsm->where('side', $side);
 
-                $rawRecQty = (int) $recForSide->sum('received_quantity');
-                $effectiveRecQty = min($rawRecQty, $reqQty); // Capped at BOM requirement
-                $excessQty = max(0, $rawRecQty - $reqQty);   // Physical over-delivery
+                // Process receipts for this side
+                $rawRecQty = 0;
+                $asmReadyFromRec = 0;
+                $storeResidentFromRec = 0;
+                $qcDispatchedFromReceipts = 0;
+
+                if ($itemReceipts) {
+                    foreach ($itemReceipts as $rec) {
+                        if ($rec->side === $side) {
+                            $qty = (int) $rec->received_quantity;
+                            $rawRecQty += $qty;
+                            $status = $rec->status;
+                            if ($status === 'in_assembly') {
+                                $asmReadyFromRec += $qty;
+                            } elseif ($status === 'received' || $status === 'returned_to_store') {
+                                $storeResidentFromRec += $qty;
+                            } else {
+                                $qcDispatchedFromReceipts += $qty;
+                            }
+                        }
+                    }
+                }
+
+                $effectiveRecQty = min($rawRecQty, $reqQty);
+                $excessQty = max(0, $rawRecQty - $reqQty);
                 $pendingQty = max(0, $reqQty - $effectiveRecQty);
 
-                if ($item->part_type === 'BOP') {
-                    // BOP follows: Pending -> Store -> Assembly -> Completed (No QC/Rework/Paint)
-                    $asmComp = (int) $asmForSide->where('status', 'completed')->sum('quantity');
-                    $asmReady = (int) $recForSide->where('status', 'in_assembly')->sum('received_quantity');
-                    $storeResident = (int) $recForSide->whereIn('status', ['received', 'returned_to_store'])->sum('received_quantity');
+                if ($targetType === 'BOP') {
+                    $asmComp = 0;
+                    if ($itemAsm) {
+                        foreach ($itemAsm as $a) {
+                            if ($a->side === $side && $a->status === 'completed') {
+                                $asmComp += (int) $a->quantity;
+                            }
+                        }
+                    }
+                    $asmReady = $asmReadyFromRec;
+                    $storeResident = $storeResidentFromRec;
 
                     $qcApp = 0;
                     $qcRej = 0;
                     $qcRew = 0;
                     $rewComp = 0;
                     $rewActive = 0;
+                    $rewInProgress = 0;
                     $paintComp = 0;
                     $paintActive = 0;
                     $qcResident = 0;
                 } else {
-                    // QC Inspection stats for this side
-                    $qcAppPaint = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && ($q->destination === 'PAINT' || empty($q->destination)))->sum('approved_quantity');
-                    $qcAppDirectAssembly = (int) $qcForSide->filter(fn($q) => $q->approved_quantity > 0 && $q->destination === 'ASSEMBLY')->sum('approved_quantity');
-                    $qcApp = $qcAppPaint + $qcAppDirectAssembly;
-                    $qcRej = (int) $qcForSide->sum('rejected_quantity');
-                    $qcRew = (int) $qcForSide->sum('rework_quantity');
+                    $qcAppPaint = 0;
+                    $qcAppDirectAssembly = 0;
+                    $qcRej = 0;
+                    $qcRew = 0;
 
-                    // Rework stats for this side
-                    $rewComp = (int) $reworkForSide->whereIn('status', ['completed', 'returned_to_qc'])->sum('quantity');
+                    if ($itemQc) {
+                        foreach ($itemQc as $q) {
+                            if ($q->side === $side) {
+                                $appQty = (int) $q->approved_quantity;
+                                if ($appQty > 0) {
+                                    if ($q->destination === 'ASSEMBLY') {
+                                        $qcAppDirectAssembly += $appQty;
+                                    } else {
+                                        $qcAppPaint += $appQty;
+                                    }
+                                }
+                                $qcRej += (int) $q->rejected_quantity;
+                                $qcRew += (int) $q->rework_quantity;
+                            }
+                        }
+                    }
+                    $qcApp = $qcAppPaint + $qcAppDirectAssembly;
+
+                    $rewComp = 0;
+                    $rewInProgress = 0;
+                    if ($itemRework) {
+                        foreach ($itemRework as $rew) {
+                            if ($rew->side === $side) {
+                                $rQty = (int) $rew->quantity;
+                                $rStatus = $rew->status;
+                                if ($rStatus === 'completed' || $rStatus === 'returned_to_qc') {
+                                    $rewComp += $rQty;
+                                }
+                                if ($rStatus === 'in_progress') {
+                                    $rewInProgress += $rQty;
+                                }
+                            }
+                        }
+                    }
                     $rewActive = max(0, $qcRew - $rewComp);
 
-                    // Paint stats for this side - include both completed and assembled so Paint never re-acquires assembled parts
-                    $paintComp = (int) $paintForSide->whereIn('status', ['completed', 'assembled'])->sum('quantity');
+                    $paintComp = 0;
+                    if ($itemPaint) {
+                        foreach ($itemPaint as $p) {
+                            if ($p->side === $side) {
+                                $pStatus = $p->status;
+                                if ($pStatus === 'completed' || $pStatus === 'assembled') {
+                                    $paintComp += (int) $p->quantity;
+                                }
+                            }
+                        }
+                    }
                     $paintActive = max(0, $qcAppPaint - $paintComp);
 
-                    // Assembly stats for this side (Active assembly vs Assembly completed)
-                    $asmComp = (int) $asmForSide->where('status', 'completed')->sum('quantity');
+                    $asmComp = 0;
+                    if ($itemAsm) {
+                        foreach ($itemAsm as $a) {
+                            if ($a->side === $side && $a->status === 'completed') {
+                                $asmComp += (int) $a->quantity;
+                            }
+                        }
+                    }
                     $asmReached = $paintComp + $qcAppDirectAssembly;
-                    $directAsmReady = (int) $recForSide->where('status', 'in_assembly')->sum('received_quantity');
-                    $asmReady = max(0, $asmReached - $asmComp) + $directAsmReady;
+                    $asmReady = max(0, $asmReached - $asmComp) + $asmReadyFromRec;
 
-                    // Dispatched to QC (valid quantity that left store for QC)
-                    $qcDispatchedFromReceipts = (int) $recForSide->whereNotIn('status', ['received', 'returned_to_store', 'in_assembly'])->sum('received_quantity');
                     $qcTotalAccounted = $qcApp + $qcRej + $qcRew;
                     $sentToQc = min($effectiveRecQty, max($qcDispatchedFromReceipts, $qcTotalAccounted));
 
-                    // State Transition Ledger (Section 12: Zero-sum conservation)
                     $qcResident = max(0, $sentToQc + $rewComp - ($qcApp + $qcRej + $qcRew));
                     $storeResident = max(0, $effectiveRecQty - ($qcResident + $qcRej + $rewActive + $paintActive + $asmReady + $asmComp));
                 }
 
-                // Canonical BOM balance counters
-                $metrics['total_required'] += $reqQty;
-                $metrics['total_received'] += $effectiveRecQty;
-                $metrics['raw_received'] += $rawRecQty;
-                $metrics['excess_received'] += $excessQty;
-                $metrics['total_pending'] += $pendingQty;
+                $allMetrics['total_required'] += $reqQty;
+                $allMetrics['total_received'] += $effectiveRecQty;
+                $allMetrics['raw_received'] += $rawRecQty;
+                $allMetrics['excess_received'] += $excessQty;
+                $allMetrics['total_pending'] += $pendingQty;
+                $allMetrics['parts_in_store'] += $storeResident;
+                $allMetrics['parts_in_qc'] += $qcResident;
+                $allMetrics['parts_in_rework'] += $rewActive;
+                $allMetrics['parts_in_paint'] += $paintActive;
+                $allMetrics['parts_in_assembly'] += $asmReady;
+                $allMetrics['awaiting_qc'] += $qcResident;
+                $allMetrics['qc_approved'] += $qcApp;
+                $allMetrics['qc_rejected'] += $qcRej;
+                $allMetrics['qc_rework'] += $qcRew;
+                $allMetrics['rework_pending'] += $rewActive;
+                $allMetrics['rework_in_progress'] += $rewInProgress;
+                $allMetrics['rework_completed'] += $rewComp;
+                $allMetrics['paint_ready'] += $paintActive;
+                $allMetrics['paint_completed'] += $paintComp;
+                $allMetrics['assembly_ready'] += $asmReady;
+                $allMetrics['assembly_completed'] += $asmComp;
 
-                // Location Resident Quantities
-                $metrics['parts_in_store'] += $storeResident;
-                $metrics['parts_in_qc'] += $qcResident;
-                $metrics['parts_in_rework'] += $rewActive;
-                $metrics['parts_in_paint'] += $paintActive;
-                $metrics['parts_in_assembly'] += $asmReady;
-
-                // QC & Operational Stats
-                $metrics['awaiting_qc'] += $qcResident;
-                $metrics['qc_approved'] += $qcApp;
-                $metrics['qc_rejected'] += $qcRej;
-                $metrics['qc_rework'] += $qcRew;
-                $metrics['rework_pending'] += $rewActive;
-                $metrics['rework_in_progress'] += (int) $reworkForSide->where('status', 'in_progress')->sum('quantity');
-                $metrics['rework_completed'] += $rewComp;
-                $metrics['paint_ready'] += $paintActive;
-                $metrics['paint_completed'] += $paintComp;
-                $metrics['assembly_ready'] += $asmReady;
-                $metrics['assembly_completed'] += $asmComp;
+                if ($targetType === 'MFG') {
+                    $mfgMetrics['total_required'] += $reqQty;
+                    $mfgMetrics['total_received'] += $effectiveRecQty;
+                    $mfgMetrics['raw_received'] += $rawRecQty;
+                    $mfgMetrics['excess_received'] += $excessQty;
+                    $mfgMetrics['total_pending'] += $pendingQty;
+                    $mfgMetrics['parts_in_store'] += $storeResident;
+                    $mfgMetrics['parts_in_qc'] += $qcResident;
+                    $mfgMetrics['parts_in_rework'] += $rewActive;
+                    $mfgMetrics['parts_in_paint'] += $paintActive;
+                    $mfgMetrics['parts_in_assembly'] += $asmReady;
+                    $mfgMetrics['awaiting_qc'] += $qcResident;
+                    $mfgMetrics['qc_approved'] += $qcApp;
+                    $mfgMetrics['qc_rejected'] += $qcRej;
+                    $mfgMetrics['qc_rework'] += $qcRew;
+                    $mfgMetrics['rework_pending'] += $rewActive;
+                    $mfgMetrics['rework_in_progress'] += $rewInProgress;
+                    $mfgMetrics['rework_completed'] += $rewComp;
+                    $mfgMetrics['paint_ready'] += $paintActive;
+                    $mfgMetrics['paint_completed'] += $paintComp;
+                    $mfgMetrics['assembly_ready'] += $asmReady;
+                    $mfgMetrics['assembly_completed'] += $asmComp;
+                } elseif ($targetType === 'BOP') {
+                    $bopMetrics['total_required'] += $reqQty;
+                    $bopMetrics['total_received'] += $effectiveRecQty;
+                    $bopMetrics['raw_received'] += $rawRecQty;
+                    $bopMetrics['excess_received'] += $excessQty;
+                    $bopMetrics['total_pending'] += $pendingQty;
+                    $bopMetrics['parts_in_store'] += $storeResident;
+                    $bopMetrics['parts_in_qc'] += $qcResident;
+                    $bopMetrics['parts_in_rework'] += $rewActive;
+                    $bopMetrics['parts_in_paint'] += $paintActive;
+                    $bopMetrics['parts_in_assembly'] += $asmReady;
+                    $bopMetrics['awaiting_qc'] += $qcResident;
+                    $bopMetrics['qc_approved'] += $qcApp;
+                    $bopMetrics['qc_rejected'] += $qcRej;
+                    $bopMetrics['qc_rework'] += $qcRew;
+                    $bopMetrics['rework_pending'] += $rewActive;
+                    $bopMetrics['rework_in_progress'] += $rewInProgress;
+                    $bopMetrics['rework_completed'] += $rewComp;
+                    $bopMetrics['paint_ready'] += $paintActive;
+                    $bopMetrics['paint_completed'] += $paintComp;
+                    $bopMetrics['assembly_ready'] += $asmReady;
+                    $bopMetrics['assembly_completed'] += $asmComp;
+                } else {
+                    $stdMetrics['total_required'] += $reqQty;
+                    $stdMetrics['total_received'] += $effectiveRecQty;
+                    $stdMetrics['raw_received'] += $rawRecQty;
+                    $stdMetrics['excess_received'] += $excessQty;
+                    $stdMetrics['total_pending'] += $pendingQty;
+                    $stdMetrics['parts_in_store'] += $storeResident;
+                    $stdMetrics['parts_in_qc'] += $qcResident;
+                    $stdMetrics['parts_in_rework'] += $rewActive;
+                    $stdMetrics['parts_in_paint'] += $paintActive;
+                    $stdMetrics['parts_in_assembly'] += $asmReady;
+                    $stdMetrics['awaiting_qc'] += $qcResident;
+                    $stdMetrics['qc_approved'] += $qcApp;
+                    $stdMetrics['qc_rejected'] += $qcRej;
+                    $stdMetrics['qc_rework'] += $qcRew;
+                    $stdMetrics['rework_pending'] += $rewActive;
+                    $stdMetrics['rework_in_progress'] += $rewInProgress;
+                    $stdMetrics['rework_completed'] += $rewComp;
+                    $stdMetrics['paint_ready'] += $paintActive;
+                    $stdMetrics['paint_completed'] += $paintComp;
+                    $stdMetrics['assembly_ready'] += $asmReady;
+                    $stdMetrics['assembly_completed'] += $asmComp;
+                }
             }
         }
 
-        $metrics['completion_pct'] = $metrics['total_required'] > 0
-            ? min(100, round(($metrics['total_received'] / $metrics['total_required']) * 100, 1))
+        $allMetrics['completion_pct'] = $allMetrics['total_required'] > 0
+            ? min(100, round(($allMetrics['total_received'] / $allMetrics['total_required']) * 100, 1))
             : 0;
-
-        return $this->formatProjectSummaryResult($proj, $metrics);
+        $mfgMetrics['completion_pct'] = $mfgMetrics['total_required'] > 0
+            ? min(100, round(($mfgMetrics['total_received'] / $mfgMetrics['total_required']) * 100, 1))
+            : 0;
+        $bopMetrics['completion_pct'] = $bopMetrics['total_required'] > 0
+            ? min(100, round(($bopMetrics['total_received'] / $bopMetrics['total_required']) * 100, 1))
+            : 0;
+        $stdMetrics['completion_pct'] = $stdMetrics['total_required'] > 0
+            ? min(100, round(($stdMetrics['total_received'] / $stdMetrics['total_required']) * 100, 1))
+            : 0;
     }
 
     /**
@@ -522,6 +730,8 @@ class QuantityCalculationService
      */
     public function calculateDashboardSummary(array $filters = [], ?Collection $precomputedBulkMetrics = null): array
     {
+        @ini_set('memory_limit', '512M');
+
         $projectId = !empty($filters['project_id']) ? (int) $filters['project_id'] : null;
         $side = !empty($filters['side']) ? $filters['side'] : null;
 

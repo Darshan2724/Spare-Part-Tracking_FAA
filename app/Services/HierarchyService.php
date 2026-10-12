@@ -34,6 +34,8 @@ class HierarchyService
      */
     public function getDepartmentHierarchy(string $department, ?int $projectId = null, array $filters = []): array
     {
+        @ini_set('memory_limit', '512M');
+
         $projects = Project::withActiveEcn()->orderBy('name')->get();
         $activeProjects = $projects->filter(fn($p) => $p->status === 'active' || (bool)($p->has_active_ecn ?? false))->values();
         $completedProjects = $projects->filter(fn($p) => $p->status === 'completed' && !(bool)($p->has_active_ecn ?? false))->values();
@@ -530,6 +532,9 @@ class HierarchyService
                     'required' => $reqQty,
                     'received' => $recQty,
                     'pending' => $pendingQty,
+                    'total_required' => $reqQty,
+                    'total_received' => $recQty,
+                    'total_pending' => $pendingQty,
                     'parts_in_store' => $storeResident,
                     'parts_in_qc' => $qcResident,
                     'qc_pending_arrival' => $qcPendingArrival,
@@ -1138,9 +1143,15 @@ class HierarchyService
                             'item_no' => $pItemNo,
                             'supplier' => $partSupplier,
                             'side' => 'LH',
-                            'required_qty' => $st['required'] ?? 0,
-                            'received_qty' => $st['received'] ?? 0,
-                            'pending_qty' => $st['pending'] ?? 0,
+                            'required_qty' => $st['required'] ?? ($st['total_required'] ?? 0),
+                            'received_qty' => $st['received'] ?? ($st['total_received'] ?? 0),
+                            'pending_qty' => $st['pending'] ?? ($st['total_pending'] ?? 0),
+                            'total_required' => $st['required'] ?? ($st['total_required'] ?? 0),
+                            'total_received' => $st['received'] ?? ($st['total_received'] ?? 0),
+                            'total_pending' => $st['pending'] ?? ($st['total_pending'] ?? 0),
+                            'assembly_ready' => $st['assembly_ready'] ?? 0,
+                            'paint_ready' => $st['paint_ready'] ?? 0,
+                            'paint_completed' => $st['paint_completed'] ?? 0,
                             'status_badge' => $st['status_badge'] ?? 'Pending',
                             'status_color' => $st['status_color'] ?? 'secondary',
                             'assembly_completed' => $st['assembly_completed'] ?? 0,
@@ -1148,6 +1159,7 @@ class HierarchyService
                             'is_ecn' => false,
                             'classification' => 'REGULAR',
                             'side_stats' => $isManager ? null : $pSideStats,
+                            'metrics' => $isManager ? null : $st,
                         ];
                         $lhRequired += $st['required'] ?? 0;
                         $lhReceived += $st['received'] ?? 0;
@@ -1164,9 +1176,15 @@ class HierarchyService
                             'item_no' => $pItemNo,
                             'supplier' => $partSupplier,
                             'side' => 'RH',
-                            'required_qty' => $st['required'] ?? 0,
-                            'received_qty' => $st['received'] ?? 0,
-                            'pending_qty' => $st['pending'] ?? 0,
+                            'required_qty' => $st['required'] ?? ($st['total_required'] ?? 0),
+                            'received_qty' => $st['received'] ?? ($st['total_received'] ?? 0),
+                            'pending_qty' => $st['pending'] ?? ($st['total_pending'] ?? 0),
+                            'total_required' => $st['required'] ?? ($st['total_required'] ?? 0),
+                            'total_received' => $st['received'] ?? ($st['total_received'] ?? 0),
+                            'total_pending' => $st['pending'] ?? ($st['total_pending'] ?? 0),
+                            'assembly_ready' => $st['assembly_ready'] ?? 0,
+                            'paint_ready' => $st['paint_ready'] ?? 0,
+                            'paint_completed' => $st['paint_completed'] ?? 0,
                             'status_badge' => $st['status_badge'] ?? 'Pending',
                             'status_color' => $st['status_color'] ?? 'secondary',
                             'assembly_completed' => $st['assembly_completed'] ?? 0,
@@ -1174,6 +1192,7 @@ class HierarchyService
                             'is_ecn' => false,
                             'classification' => 'REGULAR',
                             'side_stats' => $isManager ? null : $pSideStats,
+                            'metrics' => $isManager ? null : $st,
                         ];
                         $rhRequired += $st['required'] ?? 0;
                         $rhReceived += $st['received'] ?? 0;
@@ -1191,9 +1210,15 @@ class HierarchyService
                             'item_no' => $pItemNo,
                             'supplier' => $partSupplier,
                             'side' => 'COMMON',
-                            'required_qty' => $st['required'] ?? 0,
-                            'received_qty' => $st['received'] ?? 0,
-                            'pending_qty' => $st['pending'] ?? 0,
+                            'required_qty' => $st['required'] ?? ($st['total_required'] ?? 0),
+                            'received_qty' => $st['received'] ?? ($st['total_received'] ?? 0),
+                            'pending_qty' => $st['pending'] ?? ($st['total_pending'] ?? 0),
+                            'total_required' => $st['required'] ?? ($st['total_required'] ?? 0),
+                            'total_received' => $st['received'] ?? ($st['total_received'] ?? 0),
+                            'total_pending' => $st['pending'] ?? ($st['total_pending'] ?? 0),
+                            'assembly_ready' => $st['assembly_ready'] ?? 0,
+                            'paint_ready' => $st['paint_ready'] ?? 0,
+                            'paint_completed' => $st['paint_completed'] ?? 0,
                             'status_badge' => $st['status_badge'] ?? 'Pending',
                             'status_color' => $st['status_color'] ?? 'secondary',
                             'assembly_completed' => $st['assembly_completed'] ?? 0,
@@ -1201,6 +1226,7 @@ class HierarchyService
                             'is_ecn' => false,
                             'classification' => 'REGULAR',
                             'side_stats' => $isManager ? null : $pSideStats,
+                            'metrics' => $isManager ? null : $st,
                         ];
                         $commonRequired += $st['required'] ?? 0;
                         $commonReceived += $st['received'] ?? 0;
@@ -1362,6 +1388,9 @@ class HierarchyService
                         'required' => $reqQ,
                         'received' => $recQ,
                         'pending' => $penQ,
+                        'total_required' => $reqQ,
+                        'total_received' => $recQ,
+                        'total_pending' => $penQ,
                         'parts_in_store' => ($er->current_state === 'STORE' ? $recQ : 0),
                         'parts_in_qc' => $qcResident,
                         'qc_pending_arrival' => $qcPendingArrival,
@@ -1399,8 +1428,15 @@ class HierarchyService
                         'required_qty' => $reqQ,
                         'received_qty' => $recQ,
                         'pending_qty' => $penQ,
+                        'total_required' => $reqQ,
+                        'total_received' => $recQ,
+                        'total_pending' => $penQ,
+                        'assembly_ready' => $ecnSideStat['assembly_ready'] ?? 0,
+                        'paint_ready' => $ecnSideStat['paint_ready'] ?? 0,
+                        'paint_completed' => $ecnSideStat['paint_completed'] ?? 0,
                         'status_badge' => $ecnStatusBadge,
                         'status_color' => $ecnStatusColor,
+                        'assembly_completed' => $ecnSideStat['assembly_completed'] ?? 0,
                         'is_done' => ($er->current_state === 'ASSEMBLY_COMPLETED'),
                         'is_ecn' => true,
                         'classification' => 'ECN',
@@ -1409,6 +1445,7 @@ class HierarchyService
                         'side_stats' => [
                             $sideDisp => $ecnSideStat,
                         ],
+                        'metrics' => $ecnSideStat,
                     ];
 
                     // Append to master parts list for unit
@@ -1422,13 +1459,20 @@ class HierarchyService
                         $lhPending += $penQ;
                         $lhAsmComp += $ecnSideStat['assembly_completed'];
                         $this->accumulateMetrics($lhMetrics, $ecnSideStat);
-                    } else {
+                    } elseif ($sideDisp === 'RH') {
                         $rhParts[] = $ecnPartData;
                         $rhRequired += $reqQ;
                         $rhReceived += $recQ;
                         $rhPending += $penQ;
                         $rhAsmComp += $ecnSideStat['assembly_completed'];
                         $this->accumulateMetrics($rhMetrics, $ecnSideStat);
+                    } else {
+                        $commonParts[] = $ecnPartData;
+                        $commonRequired += $reqQ;
+                        $commonReceived += $recQ;
+                        $commonPending += $penQ;
+                        $commonAsmComp += $ecnSideStat['assembly_completed'];
+                        $this->accumulateMetrics($commonMetrics, $ecnSideStat);
                     }
                 }
 
@@ -1763,7 +1807,6 @@ class HierarchyService
                         $pen = is_array($p) ? ($p['pending_qty'] ?? 0) : ($p->pending_qty ?? 0);
                         $st = is_array($p) ? ($p['side_stats'][$sideKey] ?? []) : ($p->side_stats[$sideKey] ?? []);
                         $asm = is_array($p) ? ($p['assembly_completed'] ?? ($st['assembly_completed'] ?? 0)) : ($p->assembly_completed ?? ($st['assembly_completed'] ?? 0));
-
                         $sideRequired += $req;
                         $sideReceived += $rec;
                         $sidePending += $pen;
@@ -1772,6 +1815,10 @@ class HierarchyService
                         $sideMetrics['assembly_completed'] = max($sideMetrics['assembly_completed'], $sideAsmComp);
                         $allFilteredUnitParts[] = $p;
                     }
+
+                    $sideMetrics['total_required'] = $sideRequired;
+                    $sideMetrics['total_received'] = $sideReceived;
+                    $sideMetrics['total_pending'] = $sidePending;
 
                     $sideCompletionPct = match ($department) {
                         'store' => ($sideRequired > 0 ? min(100, round(($sideReceived / $sideRequired) * 100, 1)) : 100),
@@ -1807,6 +1854,10 @@ class HierarchyService
                     continue;
                 }
 
+                $unitMetrics['total_required'] = $unitRequired;
+                $unitMetrics['total_received'] = $unitReceived;
+                $unitMetrics['total_pending'] = $unitPending;
+
                 $lhReq = $filteredSides['LH']['total_required'] ?? 0;
                 $rhReq = $filteredSides['RH']['total_required'] ?? 0;
                 $commReq = $filteredSides['COMMON']['total_required'] ?? 0;
@@ -1829,6 +1880,7 @@ class HierarchyService
                     $activeSidesCount++;
                     if ($commComplete) $completedSidesCount++;
                 }
+
                 if ($activeSidesCount > 0 && $activeSidesCount === $completedSidesCount) {
                     $unitIsComplete = true;
                 }
@@ -1871,6 +1923,10 @@ class HierarchyService
             if (empty($filteredUnits)) {
                 continue;
             }
+
+            $jigMetrics['total_required'] = $jigRequired;
+            $jigMetrics['total_received'] = $jigReceived;
+            $jigMetrics['total_pending'] = $jigPending;
 
             $totalUnitsCount = count($filteredUnits);
             $jigIsComplete = ($totalUnitsCount > 0 && $completeUnitsCount === $totalUnitsCount);
@@ -2036,6 +2092,12 @@ class HierarchyService
         foreach ($source as $k => $v) {
             if (isset($target[$k])) {
                 $target[$k] += (int) $v;
+            } elseif ($k === 'required' && isset($target['total_required'])) {
+                $target['total_required'] += (int) $v;
+            } elseif ($k === 'received' && isset($target['total_received'])) {
+                $target['total_received'] += (int) $v;
+            } elseif ($k === 'pending' && isset($target['total_pending'])) {
+                $target['total_pending'] += (int) $v;
             }
         }
     }

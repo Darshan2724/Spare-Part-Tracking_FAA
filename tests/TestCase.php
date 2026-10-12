@@ -10,14 +10,20 @@ use App\Models\Supplier;
 
 abstract class TestCase extends BaseTestCase
 {
+    protected function setUp(): void
+    {
+        @ini_set('memory_limit', '512M');
+        parent::setUp();
+    }
+
     /**
      * Clean up all test projects and test suppliers created during feature tests to ensure zero test artifacts remain in database.
      */
     protected function tearDown(): void
     {
         try {
-            // 1. Clean test projects (Preserve ONLY FA-273 and FA-279)
-            $protectedCodes = ['FA-273', 'FA-279'];
+            // 1. Clean test projects (Preserve genuine and scale dataset projects)
+            $protectedCodes = ['FA-273', 'FA-279', 'FA-301', 'FA-302', 'FA-303', 'FA-304', 'FA-305', 'FA-306', 'FA-307', 'FA-308'];
             $protectedIds = [391, 392];
 
             $testProjIds = DB::table('projects')

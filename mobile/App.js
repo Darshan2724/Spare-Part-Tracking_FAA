@@ -1056,7 +1056,21 @@ function App() {
 
         // Guard against stale responses from previous tabs or rapid switches
         if (thisRequestId === currentRequestIdRef.current && activeTabRef.current === tab) {
-          if (res.data.projects) setProjects(res.data.projects);
+          if (res.data.projects && Array.isArray(res.data.projects) && res.data.projects.length > 0) {
+            const hasMetrics = res.data.projects.some(p => p.total_required !== undefined || p.completion_pct !== undefined);
+            if (hasMetrics) {
+              setProjects(res.data.projects);
+            } else {
+              setProjects(prev => {
+                if (!prev || prev.length === 0) return res.data.projects;
+                const projectMap = new Map(res.data.projects.map(p => [p.id, p]));
+                return prev.map(p => {
+                  const updated = projectMap.get(p.id);
+                  return updated ? { ...p, ...updated, total_required: p.total_required ?? updated.total_required, completion_pct: p.completion_pct ?? updated.completion_pct } : p;
+                });
+              });
+            }
+          }
           if (res.data.is_hierarchical) {
             const updatedJigs = res.data.jigs || [];
             setHierarchyJigs(updatedJigs);

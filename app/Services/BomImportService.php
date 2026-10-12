@@ -33,24 +33,31 @@ class BomImportService
         try {
             $reader = IOFactory::createReaderForFile($path);
             $reader->setReadDataOnly(true);
+            $reader->setReadEmptyCells(false);
             $spreadsheet = $reader->load($path);
             $sheet = $spreadsheet->getActiveSheet();
             $highestRow = min(25, (int)$sheet->getHighestRow());
             $highestColStr = $sheet->getHighestColumn();
             $highestCol = min(20, Coordinate::columnIndexFromString($highestColStr));
 
+            $isEcn = false;
             for ($r = 1; $r <= $highestRow; $r++) {
                 for ($c = 1; $c <= $highestCol; $c++) {
                     $val = trim((string)$sheet->getCellByColumnAndRow($c, $r)->getValue());
                     if (preg_match('/ecn\s*no/i', $val) || preg_match('/ecn\s*number/i', $val) || preg_match('/mfg\s*ecn\s*master\s*sheet/i', $val)) {
-                        return true;
+                        $isEcn = true;
+                        break 2;
                     }
                 }
             }
+
+            $spreadsheet->disconnectWorksheets();
+            unset($spreadsheet, $sheet, $reader);
+            gc_collect_cycles();
+            return $isEcn;
         } catch (\Throwable $e) {
             return false;
         }
-        return false;
     }
 
     /**
@@ -230,6 +237,8 @@ class BomImportService
      */
     public function previewFromPath(string $path, ?string $filename = null): array
     {
+        @ini_set('memory_limit', '512M');
+
         $filename = $filename ? basename(str_replace('\\', '/', $filename)) : basename($path);
 
         // Check if workbook is ECN structure
@@ -668,6 +677,8 @@ class BomImportService
      */
     public function importFromPath(string $path, array $data, int $userId): array
     {
+        @ini_set('memory_limit', '512M');
+
         $filename = $data['filename'] ?? basename($path);
         $filename = basename(str_replace('\\', '/', $filename));
 
@@ -810,20 +821,40 @@ class BomImportService
                         'status' => 'completed',
                     ]);
 
-                    // Index existing items for this project scoped to this BOM type
-                    $existingBomItems = BomItem::where('project_id', $project->id)
+                    // Index existing items for this project scoped to this BOM type using lightweight query
+                    $existingBomItems = DB::table('bom_items')
+                        ->where('project_id', $project->id)
                         ->where('part_type', $bomType)
-                        ->with('requirements')
+                        ->select('id', 'jig_no', 'unit_no', 'standard_part_no')
                         ->get();
+
                     $itemsMap = [];
+                    $itemIds = [];
                     foreach ($existingBomItems as $item) {
-                        $itemsMap[$this->makeItemKey($item->jig_no, $item->unit_no, $item->standard_part_no)] = $item;
+                        $key = $this->makeItemKey($item->jig_no, $item->unit_no, $item->standard_part_no);
+                        $itemsMap[$key] = $item;
+                        $itemIds[] = $item->id;
+                    }
+
+                    $existingReqsMap = [];
+                    if (!empty($itemIds)) {
+                        $reqChunks = array_chunk($itemIds, 1000);
+                        foreach ($reqChunks as $chunk) {
+                            $reqs = DB::table('bom_requirements')
+                                ->whereIn('bom_item_id', $chunk)
+                                ->select('id', 'bom_item_id', 'side', 'required_quantity')
+                                ->get();
+                            foreach ($reqs as $rq) {
+                                $existingReqsMap[$rq->bom_item_id][$rq->side] = $rq;
+                            }
+                        }
                     }
 
                     $projectAdded = 0;
                     $projectUpdated = 0;
                     $projectSkipped = 0;
 
+                    $now = now();
                     foreach ($projectRows as $row) {
                         $itemKey = $this->makeItemKey($row['jig_no'], $row['unit_no'], $row['part_no']);
                         $side = $row['side'];
@@ -831,7 +862,7 @@ class BomImportService
 
                         if (!isset($itemsMap[$itemKey])) {
                             // Genuine new BomItem
-                            $bomItem = BomItem::create([
+                            $newId = DB::table('bom_items')->insertGetId([
                                 'project_id' => $project->id,
                                 'jig_no' => $row['jig_no'],
                                 'unit_no' => $row['unit_no'],
@@ -839,31 +870,56 @@ class BomImportService
                                 'part_type' => $bomType,
                                 'import_batch_id' => $batch->id,
                                 'proj_spec_yn' => 'Y',
+                                'created_at' => $now,
+                                'updated_at' => $now,
                             ]);
 
-                            $bomItem->setRelation('requirements', collect());
-                            $itemsMap[$itemKey] = $bomItem;
+                            $newItemObj = (object)[
+                                'id' => $newId,
+                                'jig_no' => $row['jig_no'],
+                                'unit_no' => $row['unit_no'],
+                                'standard_part_no' => $row['part_no'],
+                            ];
+                            $itemsMap[$itemKey] = $newItemObj;
 
-                            BomRequirement::create([
-                                'bom_item_id' => $bomItem->id,
+                            $newReqId = DB::table('bom_requirements')->insertGetId([
+                                'bom_item_id' => $newId,
                                 'side' => $side,
                                 'required_quantity' => $incomingQty,
+                                'created_at' => $now,
+                                'updated_at' => $now,
                             ]);
+
+                            $existingReqsMap[$newId][$side] = (object)[
+                                'id' => $newReqId,
+                                'bom_item_id' => $newId,
+                                'side' => $side,
+                                'required_quantity' => $incomingQty,
+                            ];
 
                             $projectAdded++;
                             $totalAdded++;
                             $totalQuantity += $incomingQty;
                         } else {
                             $bomItem = $itemsMap[$itemKey];
-                            $existingReq = $bomItem->requirements->firstWhere('side', $side);
+                            $existingReq = $existingReqsMap[$bomItem->id][$side] ?? null;
 
                             if (!$existingReq) {
                                 // Existing item, new side requirement
-                                BomRequirement::create([
+                                $newReqId = DB::table('bom_requirements')->insertGetId([
                                     'bom_item_id' => $bomItem->id,
                                     'side' => $side,
                                     'required_quantity' => $incomingQty,
+                                    'created_at' => $now,
+                                    'updated_at' => $now,
                                 ]);
+
+                                $existingReqsMap[$bomItem->id][$side] = (object)[
+                                    'id' => $newReqId,
+                                    'bom_item_id' => $bomItem->id,
+                                    'side' => $side,
+                                    'required_quantity' => $incomingQty,
+                                ];
 
                                 $projectAdded++;
                                 $totalAdded++;
@@ -877,8 +933,13 @@ class BomImportService
                                     $totalSkipped++;
                                 } else {
                                     // Quantity update (replace with incoming revised total)
+                                    DB::table('bom_requirements')
+                                        ->where('id', $existingReq->id)
+                                        ->update([
+                                            'required_quantity' => $incomingQty,
+                                            'updated_at' => $now,
+                                        ]);
                                     $existingReq->required_quantity = $incomingQty;
-                                    $existingReq->save();
 
                                     $projectUpdated++;
                                     $totalUpdated++;
@@ -977,6 +1038,8 @@ class BomImportService
 
         try {
             $reader = IOFactory::createReaderForFile($path);
+            $reader->setReadDataOnly(true);
+            $reader->setReadEmptyCells(false);
             $spreadsheet = $reader->load($path);
         } catch (\Throwable $e) {
             return [
@@ -991,8 +1054,9 @@ class BomImportService
 
         $sheet = $spreadsheet->getActiveSheet();
         $sheetName = $sheet->getTitle();
-        $highestRow = $sheet->getHighestRow();
+        $highestRow = (int) $sheet->getHighestRow();
         $highestColumn = $sheet->getHighestColumn();
+        $highestColIndex = min(30, Coordinate::columnIndexFromString($highestColumn));
 
         // 1. Scan for Header Row and Check for Legacy Formats
         $headerRowIndex = null;
@@ -1001,8 +1065,9 @@ class BomImportService
 
         for ($r = 1; $r <= min(15, $highestRow); $r++) {
             $rowValues = [];
-            foreach (range('A', $highestColumn) as $col) {
-                $val = trim((string) $sheet->getCell($col . $r)->getValue());
+            for ($c = 1; $c <= $highestColIndex; $c++) {
+                $col = Coordinate::stringFromColumnIndex($c);
+                $val = trim((string) $sheet->getCellByColumnAndRow($c, $r)->getValue());
                 if ($val !== '') {
                     $rowValues[$col] = $val;
                 }
@@ -1025,6 +1090,9 @@ class BomImportService
 
         // 2. Reject Legacy Format
         if ($legacyDetected && $headerRowIndex === null) {
+            $spreadsheet->disconnectWorksheets();
+            unset($spreadsheet, $sheet, $reader);
+            gc_collect_cycles();
             return [
                 'sheet_name' => $sheetName,
                 'bom_type' => $bomType,
@@ -1038,6 +1106,9 @@ class BomImportService
         }
 
         if ($headerRowIndex === null) {
+            $spreadsheet->disconnectWorksheets();
+            unset($spreadsheet, $sheet, $reader);
+            gc_collect_cycles();
             return [
                 'sheet_name' => $sheetName,
                 'bom_type' => $bomType,
@@ -1181,6 +1252,10 @@ class BomImportService
             'bom_type' => $bomType,
             'duplicate_skipped_count' => $duplicateSkippedCount,
         ];
+
+        $spreadsheet->disconnectWorksheets();
+        unset($spreadsheet, $sheet, $reader);
+        gc_collect_cycles();
 
         return [
             'sheet_name' => $sheetName,

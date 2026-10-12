@@ -27,7 +27,7 @@ class BopIntakeController extends Controller
                 'status' => $request->query('status') ? (string) $request->query('status') : 'all',
             ];
             $page = (int) $request->query('page', 1);
-            $perPage = (int) $request->query('per_page', 500);
+            $perPage = (int) $request->query('per_page', 10000);
 
             $result = $this->bopIntakeService->getAggregatedBopParts($filters, $page, $perPage);
             $projects = Project::select('id', 'name', 'project_code')->orderBy('name')->get();

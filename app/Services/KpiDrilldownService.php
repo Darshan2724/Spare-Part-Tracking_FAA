@@ -34,6 +34,8 @@ class KpiDrilldownService
      */
     public function getDrilldownData(string $kpiKey, array $filters = [], int $page = 1, int $perPage = 50): array
     {
+        @ini_set('memory_limit', '512M');
+
         $projectId = !empty($filters['project_id']) ? (int) $filters['project_id'] : null;
         $side = !empty($filters['side']) ? $filters['side'] : null;
         $substate = !empty($filters['substate']) ? strtolower(trim($filters['substate'])) : 'all';
@@ -284,7 +286,8 @@ class KpiDrilldownService
                 $paintActiveQty = max(0, $paintApprovedQty - $paintCompletedQty);
 
                 $directAsmQty = (int) $sideQc->where('approved_quantity', '>', 0)->filter(fn($q) => $q->destination === 'ASSEMBLY')->sum('approved_quantity');
-                $asmTotalIncoming = $paintCompletedQty + $directAsmQty;
+                $directReceiptAsmQty = (int) $sideReceipts->where('status', 'in_assembly')->sum('received_quantity');
+                $asmTotalIncoming = $paintCompletedQty + $directAsmQty + $directReceiptAsmQty;
                 $asmCompletedQty = (int) $sideAsm->sum('quantity');
                 $asmActiveQty = max(0, $asmTotalIncoming - $asmCompletedQty);
 

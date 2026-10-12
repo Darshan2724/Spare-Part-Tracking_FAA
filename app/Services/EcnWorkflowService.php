@@ -593,24 +593,69 @@ class EcnWorkflowService
             $record = EcnWorkflowRecord::lockForUpdate()->findOrFail($ecnWorkflowRecordId);
             $req = EcnRequirement::lockForUpdate()->findOrFail($record->ecn_requirement_id);
 
-            $record->status = 'completed';
-            $record->action = 'assembly_completed';
-            $record->save();
+            if ($quantity <= 0) {
+                throw new \InvalidArgumentException("Assembly completion quantity must be at least 1.");
+            }
 
-            $req->current_state = 'ASSEMBLY_COMPLETED';
-            $req->save();
+            if ($quantity > $record->quantity) {
+                throw new \InvalidArgumentException("Cannot complete {$quantity} pcs. Only {$record->quantity} pcs active in this workflow record.");
+            }
+
+            $isPartial = ($quantity < $record->quantity);
+
+            if ($isPartial) {
+                // Decrement active workflow record
+                $record->quantity -= $quantity;
+                $record->save();
+
+                // Create completed workflow record for completed slice
+                EcnWorkflowRecord::create([
+                    'ecn_requirement_id' => $req->id,
+                    'user_id' => $userId,
+                    'status' => 'completed',
+                    'action' => 'assembly_completed',
+                    'department' => $record->department ?? 'ASSEMBLY',
+                    'quantity' => $quantity,
+                    'remarks' => $remarks,
+                ]);
+
+                // Requirement remains in ASSEMBLY state
+                $newState = 'ASSEMBLY';
+            } else {
+                $record->status = 'completed';
+                $record->action = 'assembly_completed';
+                if ($remarks) {
+                    $record->remarks = $remarks;
+                }
+                $record->save();
+
+                // Check if any other in-progress assembly records exist for this requirement
+                $otherActive = EcnWorkflowRecord::where('ecn_requirement_id', $req->id)
+                    ->where('department', 'ASSEMBLY')
+                    ->where('status', 'in_progress')
+                    ->where('id', '!=', $record->id)
+                    ->sum('quantity');
+
+                if ($otherActive <= 0) {
+                    $req->current_state = 'ASSEMBLY_COMPLETED';
+                    $req->save();
+                    $newState = 'ASSEMBLY_COMPLETED';
+                } else {
+                    $newState = 'ASSEMBLY';
+                }
+            }
 
             EcnWorkflowEvent::create([
                 'ecn_requirement_id' => $req->id,
                 'project_id' => $req->project_id,
                 'ecn_number' => $req->ecn_number,
                 'user_id' => $userId,
-                'event_type' => 'ECN_ASSEMBLY_COMPLETED',
+                'event_type' => $isPartial ? 'ECN_ASSEMBLY_PARTIAL_COMPLETED' : 'ECN_ASSEMBLY_COMPLETED',
                 'side' => $req->side,
                 'side_display' => $req->side_display,
                 'quantity' => $quantity,
                 'previous_state' => 'ASSEMBLY',
-                'new_state' => 'ASSEMBLY_COMPLETED',
+                'new_state' => $newState,
                 'remarks' => $remarks,
             ]);
 
@@ -625,13 +670,13 @@ class EcnWorkflowService
                 'side_display' => $req->side_display,
                 'quantity' => $quantity,
                 'previous_state' => 'ASSEMBLY',
-                'new_state' => 'ASSEMBLY_COMPLETED',
-                'event_type' => 'ECN_COMPLETED',
+                'new_state' => $newState,
+                'event_type' => ($newState === 'ASSEMBLY_COMPLETED') ? 'ECN_COMPLETED' : 'ECN_ASSEMBLY_PARTIAL',
             ]));
 
             return [
                 'success' => true,
-                'message' => "Assembly completed for {$quantity} pcs.",
+                'message' => "Assembly completed for {$quantity} pcs." . ($isPartial ? " Remaining {$record->quantity} pcs remain active in Assembly." : ""),
             ];
         });
     }

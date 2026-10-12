@@ -31,6 +31,8 @@ class DashboardController extends Controller
 
     public function kpiDrilldown(Request $request)
     {
+        @ini_set('memory_limit', '512M');
+
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC', 'REWORK', 'PAINT', 'ASSEMBLY', 'PURCHASE']) ?: abort(403);
 
         $kpiKey = $request->query('kpi', 'total_parts');
@@ -58,7 +60,7 @@ class DashboardController extends Controller
     {
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC', 'REWORK', 'PAINT', 'ASSEMBLY', 'PURCHASE']) ?: abort(403);
 
-        @ini_set('memory_limit', '256M');
+        @ini_set('memory_limit', '512M');
 
         $projectId = $request->query('project_id') ? (int) $request->query('project_id') : null;
         $filters = [
@@ -139,6 +141,8 @@ class DashboardController extends Controller
 
     public function summary(Request $request)
     {
+        @ini_set('memory_limit', '512M');
+
         $request->user()?->hasAnyRole(['ADMIN', 'MANAGER', 'STORE', 'QC', 'REWORK', 'PAINT', 'ASSEMBLY', 'PURCHASE']) ?: abort(403);
 
         $projectId = $request->query('project_id');
